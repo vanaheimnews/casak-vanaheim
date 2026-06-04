@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8">
+    <title>Článek – Vanaheim News</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Přejít k obsahu webu</a>
+
+    <header class="site-header" id="site-header"></header>
+
+    <main id="main" class="shell">
+      <article class="article-page" id="article-page">
+        <p class="loading">Načítám článek…</p>
+      </article>
+    </main>
+
+    <footer class="site-footer" id="site-footer"></footer>
+    <script src="/app.js"></script>
+    <script>
+      document.body.dataset.page = "article";
+    </script>
+  </body>
+</html>

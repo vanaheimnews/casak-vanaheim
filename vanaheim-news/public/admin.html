@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8">
+    <title>Admin – Vanaheim News</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/admin.css">
+  </head>
+  <body class="admin-body">
+    <div id="login-screen" class="admin-login">
+      <form id="login-form" class="admin-card">
+        <h1>Admin přihlášení</h1>
+        <p class="admin-lede">Přístup pro správce školního magazínu.</p>
+        <label>
+          Uživatelské jméno
+          <input type="text" name="username" autocomplete="username" required>
+        </label>
+        <label>
+          Heslo
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <p class="admin-error" id="login-error" hidden></p>
+        <button type="submit" class="admin-button admin-button--primary">Přihlásit se</button>
+        <p class="admin-note"><a href="/">← Zpět na web</a></p>
+      </form>
+    </div>
+
+    <div id="admin-app" class="admin-app" hidden>
+      <header class="admin-topbar">
+        <div>
+          <strong>Vanaheim News</strong>
+          <span class="admin-badge">Admin</span>
+        </div>
+        <div class="admin-topbar-actions">
+          <a href="/" target="_blank" rel="noreferrer">Zobrazit web</a>
+          <button type="button" id="logout-button" class="admin-button">Odhlásit</button>
+        </div>
+      </header>
+
+      <div class="admin-layout">
+        <nav class="admin-nav">
+          <button type="button" class="admin-nav-btn is-active" data-panel="articles">Články</button>
+          <button type="button" class="admin-nav-btn" data-panel="settings">Nastavení webu</button>
+        </nav>
+
+        <section class="admin-panel is-active" id="panel-articles">
+          <div class="admin-panel-head">
+            <h2>Články</h2>
+            <button type="button" id="new-article-btn" class="admin-button admin-button--primary">+ Nový článek</button>
+          </div>
+          <div id="articles-list" class="admin-articles-list"></div>
+        </section>
+
+        <section class="admin-panel" id="panel-settings">
+          <h2>Nastavení webu</h2>
+          <form id="settings-form" class="admin-form admin-card">
+            <label>Název webu<input name="site_title" required></label>
+            <label>Logo zkratka<input name="logo_mark" required></label>
+            <label>Logo text<input name="logo_word" required></label>
+            <label>Popisek v patičce<textarea name="tagline" rows="3"></textarea></label>
+            <label>Navigace – Příspěvky<input name="nav_posts"></label>
+            <label>Navigace – O nás<input name="nav_about"></label>
+            <label>Navigace – Kontakt<input name="nav_contact"></label>
+            <label>Text v patičce<input name="footer_credit"></label>
+            <button type="submit" class="admin-button admin-button--primary">Uložit nastavení</button>
+            <p class="admin-success" id="settings-success" hidden>Uloženo.</p>
+          </form>
+        </section>
+      </div>
+    </div>
+
+    <dialog id="article-dialog" class="admin-dialog">
+      <form id="article-form" method="dialog" class="admin-form">
+        <h3 id="article-dialog-title">Nový článek</h3>
+        <input type="hidden" name="id">
+
+        <label>Název *<input name="title" required></label>
+        <label>Krátký popis<textarea name="excerpt" rows="2"></textarea></label>
+        <label>Obsah článku<textarea name="content" rows="8"></textarea></label>
+        <label>Kategorie (oddělené čárkou)<input name="categories" placeholder="Biologie, Příroda"></label>
+        <label>Autor<input name="author" value="Vanaheim"></label>
+
+        <label>Obrázek – URL<input name="image_url" placeholder="https://… nebo nahrajte soubor níže"></label>
+        <label>Nahrát obrázek<input type="file" name="image_file" accept="image/*"></label>
+        <div class="image-preview" id="image-preview" hidden></div>
+
+        <label>Rozložení
+          <select name="layout">
+            <option value="normal">Standardní</option>
+            <option value="feature">Hlavní (velký)</option>
+            <option value="compact">Kompaktní</option>
+            <option value="wide">Široký</option>
+          </select>
+        </label>
+
+        <label class="admin-checkbox"><input type="checkbox" name="trending"> Zobrazit v Trending</label>
+        <label class="admin-checkbox"><input type="checkbox" name="published" checked> Publikováno (viditelné pro čtenáře)</label>
+
+        <div class="admin-dialog-actions">
+          <button type="button" id="cancel-article" class="admin-button">Zrušit</button>
+          <button type="submit" class="admin-button admin-button--primary">Uložit článek</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/admin.js"></script>
+  </body>
+</html>

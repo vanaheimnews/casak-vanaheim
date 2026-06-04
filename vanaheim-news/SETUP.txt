@@ -1,0 +1,72 @@
+VANAHEIM NEWS - SETUP INSTRUCTIONS
+==================================
+
+WHAT YOU NEED TO DOWNLOAD (one time only)
+-----------------------------------------
+1. Node.js (includes npm)
+   Download: https://nodejs.org/
+   Choose the LTS version and install with default options.
+
+Nothing else is required. You do NOT need Python, XAMPP, or WordPress.
+
+
+HOW TO RUN THE SITE ON YOUR COMPUTER
+------------------------------------
+1. Open PowerShell or Command Prompt
+2. Go to this folder:
+   cd "C:\Users\zakpe\OneDrive\Desktop\programstrnk\vanaheim-news"
+3. Install dependencies (first time only):
+   npm install
+4. Start the site:
+   npm start
+5. Open in your browser:
+   Public site:  http://localhost:3000
+   Admin panel:  http://localhost:3000/admin
+
+Default admin login:
+   Username: admin
+   Password: changeme
+
+Change the password by copying .env.example to .env and editing ADMIN_PASSWORD.
+
+
+HOW IT WORKS
+------------
+PUBLIC (readers):
+- Visit http://localhost:3000 (or your domain when deployed)
+- Browse articles, search, read full articles
+
+ADMIN (you and other editors):
+- Visit http://localhost:3000/admin
+- Log in to add, edit, or delete articles
+- Upload pictures or paste image URLs
+- Change site title, navigation labels, and footer text
+
+
+FILE STRUCTURE
+--------------
+server.js       - runs the website
+db.js           - stores articles in a database
+public/
+  index.html    - homepage (readers)
+  article.html  - single article page
+  admin.html    - admin panel
+  style.css     - public design
+  admin.css     - admin design
+  app.js        - public interactivity
+  admin.js      - admin interactivity
+data/           - database (created automatically)
+uploads/        - uploaded images (created automatically)
+
+
+PUTTING IT ONLINE (real domain)
+-------------------------------
+You need a hosting service that supports Node.js, for example:
+- Render.com (free tier available)
+- Railway.app
+- Fly.io
+
+Upload this folder, set ADMIN_PASSWORD and SESSION_SECRET as environment
+variables, and run: npm start
+
+Then readers visit your domain, admins visit yourdomain.com/admin

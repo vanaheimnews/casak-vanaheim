@@ -1,0 +1,243 @@
+/* ============================================================
+ * admin.css — layout for the admin dashboard.
+ * Inherits all colours, typography and spacing from style.css.
+ * ============================================================ */
+@import url("./style.css");
+
+/* ---------- top bar ---------- */
+.admin-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: min(var(--max-width), calc(100% - 48px));
+  margin: 0 auto;
+  padding: 14px 0;
+}
+
+.admin-bar .admin-id {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--white);
+}
+
+.admin-bar .admin-id .logo-mark { font-size: 1.4rem; }
+.admin-bar .admin-id .logo-word { font-size: 0.95rem; }
+
+.admin-bar .admin-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---------- dashboard layout ---------- */
+.dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 48px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dashboard { grid-template-columns: 1fr; gap: 36px; }
+}
+
+/* ---------- form ---------- */
+.editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editor-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.editor-form input[type="text"],
+.editor-form input[type="url"],
+.editor-form input[type="date"],
+.editor-form select,
+.editor-form textarea {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--black);
+  background: var(--white);
+  color: var(--black);
+  font: inherit;
+  font-size: 1rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.editor-form textarea {
+  min-height: 140px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.editor-form .field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 600px) {
+  .editor-form .field-row { grid-template-columns: 1fr; }
+}
+
+.editor-form .form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.btn-primary {
+  min-height: 38px;
+  padding: 0 18px;
+  border: 1px solid var(--black);
+  background: var(--black);
+  color: var(--white);
+  font: inherit;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.btn-primary:hover { background: var(--white); color: var(--black); }
+
+/* Image preview thumbnail */
+.image-preview {
+  margin-top: 6px;
+  width: 100%;
+  max-width: 220px;
+  aspect-ratio: 16 / 10;
+  background: #e8e8e8 center / cover no-repeat;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+.image-preview[hidden] { display: none; }
+
+.help-text {
+  margin: -2px 0 0;
+  color: var(--grey);
+  font-size: 0.78rem;
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ---------- article table ---------- */
+.article-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.article-table th,
+.article-table td {
+  text-align: left;
+  padding: 12px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  vertical-align: top;
+}
+
+.article-table th {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--black);
+}
+
+.article-table .thumb {
+  width: 64px;
+  height: 48px;
+  background: #e8e8e8 center / cover no-repeat;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.article-table .row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.row-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--black);
+  background: var(--white);
+  color: var(--black);
+  font-size: 0.72rem;
+}
+.row-actions button:hover { background: var(--black); color: var(--white); }
+.row-actions button.danger:hover { background: #b00020; border-color: #b00020; color: var(--white); }
+
+.empty-row td {
+  color: var(--grey);
+  text-align: center;
+  font-style: italic;
+  padding: 28px 10px;
+}
+
+/* ---------- login modal ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 50;
+}
+.modal-backdrop[hidden] { display: none; }
+
+.modal {
+  width: min(420px, calc(100% - 32px));
+  padding: 32px;
+  background: var(--white);
+  border: 1px solid var(--black);
+}
+.modal h2 {
+  margin: 0 0 6px;
+  font-size: 1.4rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.modal p { margin: 0 0 18px; color: var(--grey); font-size: 0.9rem; }
+.modal form { display: flex; flex-direction: column; gap: 12px; }
+.modal input {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--black);
+  background: var(--white);
+  color: var(--black);
+  font: inherit;
+}
+.modal .error {
+  margin: 0;
+  color: #b00020;
+  font-size: 0.85rem;
+  min-height: 1em;
+}
+
+/* ---------- toast ---------- */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 20px;
+  background: var(--black);
+  color: var(--white);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+  z-index: 60;
+}
+.toast.is-visible { opacity: 1; }

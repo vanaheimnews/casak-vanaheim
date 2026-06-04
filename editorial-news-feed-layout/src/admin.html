@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8">
+    <title>Vanaheim News — Admin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="./admin.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Přejít k obsahu webu</a>
+
+    <!-- ---------- login gate ---------- -->
+    <div class="modal-backdrop" id="login-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
+        <h2 id="login-title">Přihlášení</h2>
+        <p>Pro správu příspěvků zadejte heslo.</p>
+        <form id="login-form">
+          <input id="login-password" type="password" placeholder="Heslo" autocomplete="current-password" required>
+          <p class="error" id="login-error" aria-live="polite"></p>
+          <button class="btn-primary" type="submit">Přihlásit se</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ---------- header ---------- -->
+    <header class="site-header">
+      <div class="admin-bar">
+        <div class="admin-id">
+          <span class="logo-mark">VN</span>
+          <span class="logo-word">admin · vanaheim news</span>
+        </div>
+        <div class="admin-actions">
+          <a class="ghost-button" href="./index.html" style="text-decoration:none; display:inline-flex; align-items:center;">Zobrazit web</a>
+          <button class="ghost-button" type="button" id="logout-btn">Odhlásit</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ---------- main ---------- -->
+    <main id="main" class="shell" hidden>
+      <section class="feed-section">
+        <h2 class="section-title" id="form-title">Nový příspěvek</h2>
+
+        <div class="dashboard">
+          <!-- form column -->
+          <form class="editor-form" id="article-form" autocomplete="off">
+            <input type="hidden" id="article-id">
+
+            <label>
+              Název
+              <input type="text" id="f-title" required maxlength="160">
+            </label>
+
+            <label>
+              Tělo / Popis
+              <textarea id="f-body" placeholder="Text příspěvku..."></textarea>
+            </label>
+
+            <label>
+              Obrázek (URL nebo soubor)
+              <input type="url" id="f-image-url" placeholder="https://...">
+              <input type="file" id="f-image-file" accept="image/*">
+              <span class="help-text">URL má přednost. Soubor se uloží jako Base64.</span>
+              <span class="image-preview" id="image-preview" hidden></span>
+            </label>
+
+            <div class="field-row">
+              <label>
+                Autor
+                <input type="text" id="f-author" value="Vanaheim">
+              </label>
+              <label>
+                Datum
+                <input type="date" id="f-date">
+              </label>
+            </div>
+
+            <div class="field-row">
+              <label>
+                Kategorie (oddělené čárkou)
+                <input type="text" id="f-categories" placeholder="Biologie, Příroda">
+              </label>
+              <label>
+                Varianta zobrazení
+                <select id="f-variant">
+                  <option value="default">Standardní</option>
+                  <option value="feature">Hlavní (s perexem)</option>
+                  <option value="wide">Široká</option>
+                  <option value="compact">Kompaktní</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="form-actions">
+              <button class="btn-primary" type="submit" id="submit-btn">Vytvořit</button>
+              <button class="ghost-button" type="button" id="reset-btn">Vyčistit</button>
+            </div>
+          </form>
+
+          <!-- table column -->
+          <div>
+            <h3 class="section-title" style="margin-top:0;">Seznam příspěvků</h3>
+            <table class="article-table" id="article-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Název</th>
+                  <th>Autor</th>
+                  <th>Datum</th>
+                  <th>Akce</th>
+                </tr>
+              </thead>
+              <tbody id="article-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ---------- footer ---------- -->
+    <footer class="site-footer">
+      <p class="footer-credit">Vanaheim News · Admin Panel</p>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="./js/storage.js"></script>
+    <script src="./js/auth.js"></script>
+    <script src="./js/admin.js"></script>
+  </body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8">
+    <title>Vanaheim News</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Přejít k obsahu webu</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <form class="site-search" role="search" aria-label="Hledat na webu">
+          <label class="visually-hidden" for="feed-search">Hledat</label>
+          <div class="search-combobox">
+            <input id="feed-search" type="search" placeholder="Hledat" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-suggestions">
+            <div class="search-suggestions" id="search-suggestions" role="listbox" hidden></div>
+          </div>
+        </form>
+
+        <div class="brand">
+          <div class="site-logo" aria-hidden="true">
+            <span class="logo-mark">VN</span>
+            <span class="logo-word">vanaheim news</span>
+          </div>
+          <p class="site-title">Vanaheim News</p>
+        </div>
+
+        <nav class="site-nav" aria-label="Hlavní navigace">
+          <a href="#">Příspěvky</a>
+          <a href="#">O nás</a>
+          <a href="#">Kontakt</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="shell">
+      <section class="feed-section" aria-label="Nejnovější příspěvky">
+        <h2 class="section-title">Nejnovější</h2>
+
+        <div class="control-room" aria-label="Filtrovat příspěvky">
+          <label class="sort-field" for="feed-sort">
+            <span class="visually-hidden">Řadit</span>
+            <select id="feed-sort">
+              <option value="newest">Nejnovější</option>
+              <option value="oldest">Nejstarší</option>
+              <option value="source">Autor A-Z</option>
+              <option value="title">Název A-Z</option>
+            </select>
+          </label>
+
+          <fieldset class="density-toggle">
+            <legend class="visually-hidden">Zobrazení</legend>
+            <label>
+              <input type="radio" name="density" value="comfortable" checked>
+              <span>Standardní</span>
+            </label>
+            <label>
+              <input type="radio" name="density" value="compact">
+              <span>Kompaktní</span>
+            </label>
+          </fieldset>
+
+          <div class="feed-stats" aria-live="polite">
+            <strong id="visible-count">5</strong> příspěvků
+            <span><strong id="read-count">0</strong> přečteno</span>
+            <span><strong id="saved-count">0</strong> uloženo</span>
+          </div>
+
+          <button class="ghost-button" id="restore-feed" type="button">Obnovit skryté</button>
+        </div>
+
+        <div class="feed-grid" id="feed">
+          <article class="story story--lead story--feature" data-id="zizala-s-pateri" data-source="Vanaheim" data-tags="Biologie Příroda Vzdělávání" style="--image:url('https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=900&q=80')">
+            <div class="story-art" aria-hidden="true"></div>
+            <div class="story-content">
+              <p class="story-categories">Biologie, Příroda, Vzdělávání</p>
+              <h3><a href="#">Žížala s páteří</a></h3>
+              <p class="dek">„Ale žížala přece nemá páteř!“ byste mi jistě rádi zakřičeli do obličeje. „Je to prvoústý kroužkovec, který nemá ani hloupou základní strunu,“ jistě byste se naparovali za své znalosti.</p>
+              <p class="story-author">Vanaheim</p>
+              <time class="pub-date" datetime="2026-05-18">18. května 2026</time>
+            </div>
+          </article>
+
+          <article class="story story--compact" data-id="divocina" data-source="Vanaheim" data-tags="Biologie Komiksy Příroda" style="--image:url('https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=900&q=80')">
+            <div class="story-art" aria-hidden="true"></div>
+            <div class="story-content">
+              <p class="story-categories">Biologie, Komiksy, Příroda</p>
+              <h3><a href="#">Divočina</a></h3>
+              <p class="story-author">Vanaheim</p>
+              <time class="pub-date" datetime="2026-05-17">17. května 2026</time>
+            </div>
+          </article>
+
+          <article class="story story--compact" data-id="mluvis" data-source="Vanaheim" data-tags="Kurzy Společnost Výjezd Vzdělávání Školní projekt" style="--image:url('https://images.unsplash.com/photo-1598488035139-bdbb2231bb19?auto=format&fit=crop&w=900&q=80')">
+            <div class="story-art" aria-hidden="true"></div>
+            <div class="story-content">
+              <p class="story-categories">Kurzy, Společnost, Výjezd, Vzdělávání, Školní projekt</p>
+              <h3><a href="#">Mluvíš?</a></h3>
+              <p class="story-author">Vanaheim</p>
+              <time class="pub-date" datetime="2026-05-16">16. května 2026</time>
+            </div>
+          </article>
+
+          <article class="story story--wide" data-id="expedice-spanelsko" data-source="Vanaheim" data-tags="Cestování Expedice Komiksy" style="--image:url('https://images.unsplash.com/photo-1551632811-561732d1e609?auto=format&fit=crop&w=900&q=80')">
+            <div class="story-art" aria-hidden="true"></div>
+            <div class="story-content">
+              <p class="story-categories">Cestování, Expedice, Komiksy</p>
+              <h3><a href="#">Expedice Španělsko, aneb co vše jsme po cestě našli</a></h3>
+              <p class="story-author">Vanaheim</p>
+              <time class="pub-date" datetime="2026-05-15">15. května 2026</time>
+            </div>
+          </article>
+
+          <article class="story" data-id="architekti-oceanu" data-source="Vanaheim" data-tags="Biologie Příroda Vzdělávání Životní prostředí" style="--image:url('https://images.unsplash.com/photo-1559827260-dc66d52bef19?auto=format&fit=crop&w=900&q=80')">
+            <div class="story-art" aria-hidden="true"></div>
+            <div class="story-content">
+              <p class="story-categories">Biologie, Příroda, Vzdělávání, Životní prostředí</p>
+              <h3><a href="#">Víte, kdo jsou architekti oceánů?</a></h3>
+              <p class="story-author">Vanaheim</p>
+              <time class="pub-date" datetime="2026-05-14">14. května 2026</time>
+            </div>
+          </article>
+        </div>
+
+        <p class="empty-state" id="empty-state" hidden>Žádné příspěvky neodpovídají hledání. Zkuste jiné klíčové slovo.</p>
+      </section>
+
+      <section class="feed-section feed-section--trending" aria-label="Trending">
+        <h2 class="section-title">Trending</h2>
+        <div class="trending-grid">
+          <article class="trending-card">
+            <div class="trending-art" style="--image:url('https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=600&q=80')"></div>
+            <div class="trending-content">
+              <p class="story-categories">Biologie, Příroda, Vzdělávání</p>
+              <h3><a href="#">Žížala s páteří</a></h3>
+              <p class="story-author">Vanaheim</p>
+            </div>
+          </article>
+          <article class="trending-card">
+            <div class="trending-art" style="--image:url('https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=600&q=80')"></div>
+            <div class="trending-content">
+              <p class="story-categories">Biologie, Komiksy, Příroda</p>
+              <h3><a href="#">Divočina</a></h3>
+              <p class="story-author">Vanaheim</p>
+            </div>
+          </article>
+          <article class="trending-card">
+            <div class="trending-art" style="--image:url('https://images.unsplash.com/photo-1598488035139-bdbb2231bb19?auto=format&fit=crop&w=600&q=80')"></div>
+            <div class="trending-content">
+              <p class="story-categories">Kurzy, Společnost, Výjezd</p>
+              <h3><a href="#">Mluvíš?</a></h3>
+              <p class="story-author">Vanaheim</p>
+            </div>
+          </article>
+          <article class="trending-card">
+            <div class="trending-art" style="--image:url('https://images.unsplash.com/photo-1551632811-561732d1e609?auto=format&fit=crop&w=600&q=80')"></div>
+            <div class="trending-content">
+              <p class="story-categories">Cestování, Expedice, Komiksy</p>
+              <h3><a href="#">Expedice Španělsko, aneb co vše jsme po cestě našli</a></h3>
+              <p class="story-author">Vanaheim</p>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p class="footer-tagline">Školní časopis Expediční Střední ScioŠkoly. Novinky ze světa kultury a nejenom.</p>
+      <nav class="footer-nav" aria-label="Patička">
+        <a href="#">Příspěvky</a>
+        <a href="#">O nás</a>
+        <a href="#">Kontakt</a>
+      </nav>
+      <p class="footer-credit">Web je poháněn WordPress.com.</p>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Školní magazín</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Přejít k obsahu</a>
+
+  <!-- ============================================================
+       SIDEBAR (becomes top bar + drawer on mobile)
+       ============================================================ -->
+  <aside class="sidebar" id="sidebar" aria-label="Hlavní navigace">
+    <div class="sidebar-inner">
+      <!-- Brand -->
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">SM</div>
+        <div class="brand-text">
+          <p class="brand-title">Školní magazín</p>
+          <p class="brand-subtitle">časopis studentů</p>
+        </div>
+      </div>
+
+      <hr class="sidebar-divider">
+
+      <!-- Navigation -->
+      <nav class="sidebar-nav" aria-label="Stránky">
+        <a href="#home"     class="nav-link is-active" data-page="home">Domovská stránka</a>
+        <a href="#articles" class="nav-link"           data-page="articles">Příspěvky</a>
+        <a href="#about"    class="nav-link"           data-page="about">O nás</a>
+        <a href="#contact"  class="nav-link"           data-page="contact">Kontakt</a>
+      </nav>
+    </div>
+
+    <!-- Mobile burger (lives inside aside so it's positioned predictably) -->
+    <button class="burger" id="burger" type="button"
+            aria-controls="sidebar" aria-expanded="false" aria-label="Otevřít menu">
+      <span></span><span></span><span></span>
+    </button>
+  </aside>
+
+  <!-- Backdrop for mobile drawer -->
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+  <!-- ============================================================
+       MAIN CONTENT
+       ============================================================ -->
+  <main id="main" class="content">
+
+    <!-- ===== A. HOME ===== -->
+    <section class="page is-active" id="page-home" aria-labelledby="home-title">
+      <header class="page-header">
+        <h1 id="home-title" class="page-title">Domovská stránka</h1>
+        <p class="page-lead">Nejnovější příspěvky našeho magazínu.</p>
+      </header>
+
+      <div class="card-grid" id="home-grid">
+        <!-- Cards injected by script.js -->
+      </div>
+
+      <!-- Static pagination anchor — never shifts with image loading -->
+      <div class="pagination">
+        <button class="btn" type="button" id="older-btn">Starší články</button>
+      </div>
+    </section>
+
+    <!-- ===== B. ARTICLES ===== -->
+    <section class="page" id="page-articles" aria-labelledby="articles-title" hidden>
+      <header class="page-header">
+        <h1 id="articles-title" class="page-title">Příspěvky</h1>
+        <p class="page-lead">Všechny vydané články a komiksy. Filtrujte podle štítků.</p>
+      </header>
+
+      <!-- Tag filter -->
+      <fieldset class="tag-filter" id="tag-filter" aria-label="Filtr štítků">
+        <legend>Filtr podle štítků</legend>
+        <div class="tag-list" id="tag-list">
+          <!-- Tag checkboxes injected by script.js -->
+        </div>
+        <button class="btn btn-ghost" type="button" id="clear-tags">Zrušit filtr</button>
+      </fieldset>
+
+      <div class="card-grid" id="articles-grid">
+        <!-- Cards injected by script.js -->
+      </div>
+      <p class="empty-state" id="articles-empty" hidden>
+        Žádné příspěvky neodpovídají vybraným štítkům.
+      </p>
+    </section>
+
+    <!-- ===== C. ABOUT ===== -->
+    <section class="page" id="page-about" aria-labelledby="about-title" hidden>
+      <header class="page-header">
+        <h1 id="about-title" class="page-title">O nás</h1>
+      </header>
+
+      <article class="prose">
+        <p>
+          Školní magazín vznikl v roce 2022 jako nápad několika studentů, kteří chtěli
+          dát svým spolužákům prostor pro vlastní texty, ilustrace a komiksy.
+          Z malého newsletteru se postupně stal pravidelně vycházející časopis,
+          na kterém se podílí celá redakce.
+        </p>
+        <p>
+          Každý týden se scházíme ve čtvrtek odpoledne ve školní knihovně.
+          Plánujeme nové vydání, rozdělujeme témata, společně čteme rozpracované
+          texty a chystáme rozhovory. Jednou za měsíc vychází nové číslo —
+          tištěné i online.
+        </p>
+      </article>
+
+      <section class="team" aria-labelledby="team-title">
+        <h2 id="team-title" class="section-title">Náš tým</h2>
+        <div class="team-grid" id="team-grid">
+          <!-- Team cards injected by script.js -->
+        </div>
+      </section>
+    </section>
+
+    <!-- ===== D. CONTACT ===== -->
+    <section class="page" id="page-contact" aria-labelledby="contact-title" hidden>
+      <header class="page-header">
+        <h1 id="contact-title" class="page-title">Kontakt</h1>
+        <p class="page-lead">Napište nám nebo nás sledujte na sítích.</p>
+      </header>
+
+      <ul class="contact-list">
+        <li>
+          <a class="contact-item" href="mailto:magazin@skola.cz">
+            <span class="contact-icon" aria-hidden="true">
+              <!-- mail -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                <path d="m3 7 9 6 9-6"/>
+              </svg>
+            </span>
+            <span class="contact-text">
+              <span class="contact-label">E-mail magazínu</span>
+              <span class="contact-value">magazin@skola.cz</span>
+            </span>
+          </a>
+        </li>
+        <li>
+          <a class="contact-item" href="mailto:info@skola.cz">
+            <span class="contact-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                <path d="m3 7 9 6 9-6"/>
+              </svg>
+            </span>
+            <span class="contact-text">
+              <span class="contact-label">E-mail školy</span>
+              <span class="contact-value">info@skola.cz</span>
+            </span>
+          </a>
+        </li>
+        <li>
+          <a class="contact-item" href="https://youtube.com/" target="_blank" rel="noopener">
+            <span class="contact-icon" aria-hidden="true">
+              <!-- youtube -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="5" width="20" height="14" rx="3"/>
+                <path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            <span class="contact-text">
+              <span class="contact-label">YouTube školy</span>
+              <span class="contact-value">@nase-skola</span>
+            </span>
+          </a>
+        </li>
+        <li>
+          <a class="contact-item" href="https://instagram.com/" target="_blank" rel="noopener">
+            <span class="contact-icon" aria-hidden="true">
+              <!-- instagram -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="5"/>
+                <circle cx="12" cy="12" r="4"/>
+                <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            <span class="contact-text">
+              <span class="contact-label">Instagram školy</span>
+              <span class="contact-value">@nase.skola</span>
+            </span>
+          </a>
+        </li>
+        <li>
+          <a class="contact-item" href="https://facebook.com/" target="_blank" rel="noopener">
+            <span class="contact-icon" aria-hidden="true">
+              <!-- facebook -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 8h3V4h-3a4 4 0 0 0-4 4v2H7v4h3v8h4v-8h3l1-4h-4V8a1 1 0 0 1 1-1z" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            <span class="contact-text">
+              <span class="contact-label">Facebook školy</span>
+              <span class="contact-value">/nase.skola</span>
+            </span>
+          </a>
+        </li>
+      </ul>
+    </section>
+
+    <footer class="content-footer">
+      <p>© <span id="year"></span> Školní magazín. Vyrobeno s láskou v redakci.</p>
+    </footer>
+  </main>
+
+  <script src="./script.js"></script>
+</body>
+</html>

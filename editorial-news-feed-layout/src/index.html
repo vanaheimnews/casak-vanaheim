@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8">
+    <title>Vanaheim News</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Přejít k obsahu webu</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <form class="site-search" role="search" aria-label="Hledat na webu">
+          <label class="visually-hidden" for="feed-search">Hledat</label>
+          <div class="search-combobox">
+            <input id="feed-search" type="search" placeholder="Hledat" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-suggestions">
+            <div class="search-suggestions" id="search-suggestions" role="listbox" hidden></div>
+          </div>
+        </form>
+
+        <div class="brand">
+          <div class="site-logo" aria-hidden="true">
+            <span class="logo-mark">VN</span>
+            <span class="logo-word">vanaheim news</span>
+          </div>
+          <p class="site-title">Vanaheim News</p>
+        </div>
+
+        <nav class="site-nav" aria-label="Hlavní navigace">
+          <a href="#">Příspěvky</a>
+          <a href="#">O nás</a>
+          <a href="#">Kontakt</a>
+          <a href="./admin.html">Admin</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="shell">
+      <section class="feed-section" aria-label="Nejnovější příspěvky">
+        <h2 class="section-title">Nejnovější</h2>
+
+        <div class="control-room" aria-label="Filtrovat příspěvky">
+          <label class="sort-field" for="feed-sort">
+            <span class="visually-hidden">Řadit</span>
+            <select id="feed-sort">
+              <option value="newest">Nejnovější</option>
+              <option value="oldest">Nejstarší</option>
+              <option value="source">Autor A-Z</option>
+              <option value="title">Název A-Z</option>
+            </select>
+          </label>
+
+          <fieldset class="density-toggle">
+            <legend class="visually-hidden">Zobrazení</legend>
+            <label>
+              <input type="radio" name="density" value="comfortable" checked>
+              <span>Standardní</span>
+            </label>
+            <label>
+              <input type="radio" name="density" value="compact">
+              <span>Kompaktní</span>
+            </label>
+          </fieldset>
+
+          <div class="feed-stats" aria-live="polite">
+            <strong id="visible-count">0</strong> příspěvků
+            <span><strong id="read-count">0</strong> přečteno</span>
+            <span><strong id="saved-count">0</strong> uloženo</span>
+          </div>
+
+          <button class="ghost-button" id="restore-feed" type="button">Obnovit skryté</button>
+        </div>
+
+        <!-- Rendered dynamically by js/public.js -->
+        <div class="feed-grid" id="feed"></div>
+
+        <p class="empty-state" id="empty-state" hidden>Žádné příspěvky neodpovídají hledání. Zkuste jiné klíčové slovo.</p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p class="footer-tagline">Školní časopis Expediční Střední ScioŠkoly. Novinky ze světa kultury a nejenom.</p>
+      <nav class="footer-nav" aria-label="Patička">
+        <a href="#">Příspěvky</a>
+        <a href="#">O nás</a>
+        <a href="#">Kontakt</a>
+        <a href="./admin.html">Admin</a>
+      </nav>
+      <p class="footer-credit">Web je poháněn WordPress.com.</p>
+    </footer>
+
+    <script src="./js/storage.js"></script>
+    <script src="./js/public.js"></script>
+  </body>
+</html>

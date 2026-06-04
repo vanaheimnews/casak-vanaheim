@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Vanaheim News</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- ============================================================
+       STYLES — full template stylesheet + admin additions
+       ============================================================ -->
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,700;1,6..72,400&display=swap");
+
+    :root {
+      color-scheme: light;
+      --black: #000000;
+      --white: #ffffff;
+      --grey: #888888;
+      --rule: #000000;
+      --body-font: "Newsreader", Georgia, "Times New Roman", serif;
+      --max-width: 1080px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { min-height: 100%; }
+    body {
+      min-height: 100%; margin: 0;
+      background: var(--white); color: var(--black);
+      font-family: var(--body-font); font-size: 18px; line-height: 1.5;
+    }
+    a { color: inherit; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    img { display: block; max-width: 100%; }
+    :focus-visible { outline: 2px solid var(--black); outline-offset: 2px; }
+
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+    .skip-link {
+      position: absolute; top: -100%; left: 16px; z-index: 100;
+      padding: 8px 16px; background: var(--white); color: var(--black);
+    }
+    .skip-link:focus { top: 16px; }
+
+    /* Header */
+    .site-header { background: var(--black); color: var(--white); }
+    .header-inner {
+      position: relative;
+      width: min(var(--max-width), calc(100% - 48px));
+      margin: 0 auto; padding: 48px 0 0;
+    }
+    .site-search { position: absolute; top: 16px; right: 0; }
+    .site-search input {
+      width: 120px; min-height: 32px; padding: 4px 10px;
+      border: 0; background: var(--white); color: var(--black); font-size: 0.78rem;
+    }
+    .search-combobox { position: relative; }
+    .search-suggestions {
+      position: absolute; z-index: 10; top: calc(100% + 4px); right: 0;
+      min-width: 220px; overflow: hidden;
+      border: 1px solid var(--black); background: var(--white); color: var(--black);
+    }
+    .search-suggestions.is-above { top: auto; bottom: calc(100% + 4px); }
+    .search-suggestions[hidden] { display: none; }
+    .search-suggestion {
+      display: grid; grid-template-columns: 1fr auto; gap: 12px;
+      width: 100%; min-height: 38px; align-items: center;
+      border: 0; border-bottom: 1px solid rgba(0,0,0,0.12);
+      background: transparent; color: var(--black);
+      padding: 8px 12px; text-align: left;
+    }
+    .search-suggestion:last-child { border-bottom: 0; }
+    .search-suggestion:hover, .search-suggestion.is-active { background: var(--black); color: var(--white); }
+    .suggestion-kind { color: var(--grey); font-size: 0.68rem; font-style: italic; }
+    .search-suggestion:hover .suggestion-kind,
+    .search-suggestion.is-active .suggestion-kind { color: rgba(255,255,255,0.7); }
+
+    .brand { display: flex; flex-direction: column; align-items: center; gap: 24px; padding: 24px 0 40px; }
+    .site-logo { display: flex; align-items: center; gap: 12px; }
+    .logo-mark { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.04em; line-height: 1; }
+    .logo-word {
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 1.1rem; font-weight: 400; letter-spacing: 0.02em; text-transform: lowercase;
+    }
+    .site-title {
+      margin: 0; font-size: clamp(2.8rem, 8vw, 4.5rem); font-weight: 500;
+      letter-spacing: 0.06em; line-height: 1; text-align: center; text-transform: uppercase;
+    }
+    .site-nav {
+      display: flex; justify-content: center; gap: 32px;
+      border-top: 1px solid rgba(255,255,255,0.25); padding: 14px 0;
+    }
+    .site-nav a { font-size: 1rem; font-style: italic; text-decoration: none; }
+    .site-nav a:hover { text-decoration: underline; }
+    .site-nav button {
+      background: transparent; border: 0; color: inherit;
+      font: inherit; font-style: italic; padding: 0; cursor: pointer;
+    }
+    .site-nav button:hover { text-decoration: underline; }
+
+    /* Main content */
+    .shell { width: min(var(--max-width), calc(100% - 48px)); margin: 0 auto; padding: 48px 0 64px; }
+    .feed-section + .feed-section { margin-top: 56px; }
+    .section-title {
+      margin: 0 0 28px; padding-bottom: 10px; border-bottom: 1px solid var(--rule);
+      font-size: 1.1rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .control-room {
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+      margin-bottom: 32px; padding-bottom: 16px;
+      border-bottom: 1px solid rgba(0,0,0,0.08); font-size: 0.82rem;
+    }
+    .sort-field select, .density-toggle span, .ghost-button {
+      min-height: 34px; border: 1px solid var(--black);
+      background: var(--white); color: var(--black);
+      padding: 0 12px; font-size: 0.78rem;
+    }
+    .density-toggle { display: flex; gap: 4px; margin: 0; padding: 0; border: 0; }
+    .density-toggle label { position: relative; }
+    .density-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+    .density-toggle input:checked + span { background: var(--black); color: var(--white); }
+    .feed-stats { display: flex; flex-wrap: wrap; gap: 12px; margin-left: auto; color: var(--grey); font-size: 0.82rem; }
+    .feed-stats strong { color: var(--black); }
+    .ghost-button { border-style: dashed; }
+    .ghost-button:disabled { cursor: default; opacity: 0.4; }
+    .ghost-button:not(:disabled):hover, .story-action:hover { background: var(--black); color: var(--white); }
+
+    /* Feed grid */
+    .feed-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px 28px; }
+    .story { display: grid; gap: 0; margin: 0; transition: opacity 180ms ease; position: relative; }
+    .story[hidden], .empty-state[hidden] { display: none; }
+    .story--feature {
+      grid-column: 1 / 3; grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+      gap: 28px; align-items: start;
+    }
+    .story--wide {
+      grid-column: span 2; grid-template-columns: 180px minmax(0,1fr);
+      gap: 20px; align-items: start;
+    }
+    .story:not(.story--feature):not(.story--wide) { grid-template-columns: 1fr; }
+    .story--compact .story-art { aspect-ratio: 4 / 3; }
+    .story-art { width: 100%; aspect-ratio: 16 / 10; background: var(--image) center / cover no-repeat, #e8e8e8; }
+    .story--feature .story-art { aspect-ratio: 4 / 3; }
+    .story-content { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .story-categories { margin: 0; font-size: 0.77rem; font-style: italic; line-height: 1.4; }
+    .story h3 { margin: 0; font-size: 1.25rem; font-weight: 400; line-height: 1.2; }
+    .story--feature h3 { font-size: 1.6rem; }
+    .story--wide h3 { font-size: 1.1rem; }
+    .story h3 a { text-decoration: none; }
+    .story:not(.is-read) h3 a:hover { text-decoration: underline; }
+    .dek { margin: 0; font-size: 0.95rem; line-height: 1.55; }
+    .story-author { margin: 4px 0 0; color: var(--grey); font-size: 0.82rem; }
+    .pub-date { color: var(--grey); font-size: 0.75rem; }
+    .story.is-read h3 a { color: var(--grey); text-decoration: line-through; }
+    .story.is-saved::before {
+      position: absolute; top: 0; right: 0; width: 0; height: 0;
+      border-top: 14px solid var(--black); border-left: 14px solid transparent; content: "";
+    }
+    .story-actions {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;
+      padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.1);
+    }
+    .story-action {
+      min-height: 30px; border: 1px solid var(--black);
+      background: transparent; color: var(--black);
+      padding: 0 10px; font-size: 0.72rem;
+    }
+    .story-action[data-action="open"], .story-action[aria-pressed="true"] { background: var(--black); color: var(--white); }
+
+    .empty-state {
+      margin: 28px 0 0; padding: 24px; border: 1px dashed var(--black);
+      color: var(--grey); text-align: center; font-size: 0.95rem;
+    }
+
+    /* Trending section */
+    .trending-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; }
+    .trending-card { display: flex; flex-direction: column; gap: 12px; }
+    .trending-art { width: 100%; aspect-ratio: 4 / 3; background: var(--image) center / cover no-repeat, #e8e8e8; }
+    .trending-content { display: flex; flex-direction: column; gap: 6px; }
+    .trending-content h3 { margin: 0; font-size: 1rem; font-weight: 400; line-height: 1.25; }
+    .trending-content h3 a { text-decoration: none; }
+    .trending-content h3 a:hover { text-decoration: underline; }
+
+    /* Footer */
+    .site-footer { background: var(--black); color: var(--white); padding: 48px 24px 56px; text-align: center; }
+    .footer-tagline { max-width: 42ch; margin: 0 auto 24px; font-size: 1rem; line-height: 1.5; }
+    .footer-nav { display: flex; justify-content: center; gap: 28px; margin-bottom: 28px; }
+    .footer-nav a { font-size: 0.95rem; text-decoration: none; }
+    .footer-nav a:hover { text-decoration: underline; }
+    .footer-credit { margin: 0; color: rgba(255,255,255,0.65); font-size: 0.82rem; }
+
+    /* Compact density */
+    body.compact .feed-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body.compact .story--feature, body.compact .story--wide { grid-column: span 2; grid-template-columns: 1fr; }
+    body.compact .story-art, body.compact .trending-art { display: none; }
+
+    @media (max-width: 960px) {
+      .feed-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .story--feature { grid-column: 1 / -1; }
+      .story--wide { grid-column: span 2; }
+      .trending-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .header-inner, .shell { width: calc(100% - 32px); }
+      .site-search { position: static; display: flex; justify-content: flex-end; margin-bottom: 16px; }
+      .site-nav { flex-wrap: wrap; gap: 16px 24px; }
+      .feed-grid, body.compact .feed-grid { grid-template-columns: 1fr; }
+      .story--feature, .story--wide,
+      body.compact .story--feature, body.compact .story--wide { grid-column: span 1; grid-template-columns: 1fr; }
+      .control-room { flex-direction: column; align-items: stretch; }
+      .feed-stats { margin-left: 0; }
+      .trending-grid { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+      }
+    }
+
+    /* ===== Admin panel additions (inherit colours/typography from above) ===== */
+    .modal-backdrop {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.55); z-index: 50;
+    }
+    .modal-backdrop[hidden] { display: none; }
+    .modal {
+      width: min(420px, calc(100% - 32px)); padding: 32px;
+      background: var(--white); border: 1px solid var(--black);
+    }
+    .modal h2 { margin: 0 0 6px; font-size: 1.4rem; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+    .modal p { margin: 0 0 18px; color: var(--grey); font-size: 0.9rem; }
+    .modal form { display: flex; flex-direction: column; gap: 12px; }
+    .modal input {
+      min-height: 38px; padding: 8px 12px;
+      border: 1px solid var(--black); background: var(--white); color: var(--black);
+    }
+    .modal .error { margin: 0; color: #b00020; font-size: 0.85rem; min-height: 1em; }
+
+    .admin-panel[hidden] { display: none; }
+    .admin-panel {
+      margin-top: 56px; padding-top: 32px; border-top: 4px double var(--black);
+    }
+    .dashboard {
+      display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr);
+      gap: 48px; align-items: start;
+    }
+    @media (max-width: 900px) { .dashboard { grid-template-columns: 1fr; gap: 36px; } }
+
+    .editor-form { display: flex; flex-direction: column; gap: 16px; }
+    .editor-form label {
+      display: flex; flex-direction: column; gap: 6px;
+      font-size: 0.82rem; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .editor-form input[type="text"],
+    .editor-form input[type="url"],
+    .editor-form input[type="date"],
+    .editor-form select,
+    .editor-form textarea {
+      min-height: 38px; padding: 8px 12px;
+      border: 1px solid var(--black); background: var(--white); color: var(--black);
+      font: inherit; font-size: 1rem; text-transform: none; letter-spacing: 0;
+    }
+    .editor-form textarea { min-height: 140px; resize: vertical; line-height: 1.5; }
+    .editor-form .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 600px) { .editor-form .field-row { grid-template-columns: 1fr; } }
+    .editor-form .form-actions { display: flex; gap: 10px; margin-top: 8px; }
+    .btn-primary {
+      min-height: 38px; padding: 0 18px;
+      border: 1px solid var(--black); background: var(--black); color: var(--white);
+      font: inherit; font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .btn-primary:hover { background: var(--white); color: var(--black); }
+    .image-preview {
+      margin-top: 6px; width: 100%; max-width: 220px; aspect-ratio: 16 / 10;
+      background: #e8e8e8 center / cover no-repeat; border: 1px solid rgba(0,0,0,0.15);
+    }
+    .image-preview[hidden] { display: none; }
+    .help-text {
+      margin: -2px 0 0; color: var(--grey); font-size: 0.78rem; font-style: italic;
+      text-transform: none; letter-spacing: 0;
+    }
+
+    .article-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    .article-table th, .article-table td {
+      text-align: left; padding: 12px 10px; vertical-align: top;
+      border-bottom: 1px solid rgba(0,0,0,0.12);
+    }
+    .article-table th {
+      font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+      border-bottom: 1px solid var(--black);
+    }
+    .article-table .thumb {
+      display: block; width: 64px; height: 48px;
+      background: #e8e8e8 center / cover no-repeat; border: 1px solid rgba(0,0,0,0.1);
+    }
+    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .row-actions button {
+      min-height: 30px; padding: 0 10px;
+      border: 1px solid var(--black); background: var(--white); color: var(--black); font-size: 0.72rem;
+    }
+    .row-actions button:hover { background: var(--black); color: var(--white); }
+    .row-actions button.danger:hover { background: #b00020; border-color: #b00020; color: var(--white); }
+    .empty-row td { color: var(--grey); text-align: center; font-style: italic; padding: 28px 10px; }
+
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      padding: 12px 20px; background: var(--black); color: var(--white);
+      font-size: 0.85rem; letter-spacing: 0.04em;
+      opacity: 0; pointer-events: none; transition: opacity 180ms ease; z-index: 60;
+    }
+    .toast.is-visible { opacity: 1; }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Přejít k obsahu webu</a>
+
+  <!-- ============================================================
+       HEADER
+       ============================================================ -->
+  <header class="site-header">
+    <div class="header-inner">
+      <form class="site-search" role="search" aria-label="Hledat na webu" onsubmit="return false;">
+        <label class="visually-hidden" for="feed-search">Hledat</label>
+        <div class="search-combobox">
+          <input id="feed-search" type="search" placeholder="Hledat" autocomplete="off"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-suggestions">
+          <div class="search-suggestions" id="search-suggestions" role="listbox" hidden></div>
+        </div>
+      </form>
+
+      <div class="brand">
+        <div class="site-logo" aria-hidden="true">
+          <span class="logo-mark">VN</span>
+          <span class="logo-word">vanaheim news</span>
+        </div>
+        <p class="site-title">Vanaheim News</p>
+      </div>
+
+      <nav class="site-nav" aria-label="Hlavní navigace">
+        <a href="#">Příspěvky</a>
+        <a href="#">O nás</a>
+        <a href="#">Kontakt</a>
+        <button type="button" id="admin-toggle">Admin</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       MAIN — public feed + (optional) admin panel
+       ============================================================ -->
+  <main id="main" class="shell">
+
+    <!-- Public feed -->
+    <section class="feed-section" aria-label="Nejnovější příspěvky">
+      <h2 class="section-title">Nejnovější</h2>
+
+      <div class="control-room" aria-label="Filtrovat příspěvky">
+        <label class="sort-field" for="feed-sort">
+          <span class="visually-hidden">Řadit</span>
+          <select id="feed-sort">
+            <option value="newest">Nejnovější</option>
+            <option value="oldest">Nejstarší</option>
+            <option value="source">Autor A-Z</option>
+            <option value="title">Název A-Z</option>
+          </select>
+        </label>
+
+        <fieldset class="density-toggle">
+          <legend class="visually-hidden">Zobrazení</legend>
+          <label><input type="radio" name="density" value="comfortable" checked><span>Standardní</span></label>
+          <label><input type="radio" name="density" value="compact"><span>Kompaktní</span></label>
+        </fieldset>
+
+        <div class="feed-stats" aria-live="polite">
+          <strong id="visible-count">0</strong> příspěvků
+          <span><strong id="read-count">0</strong> přečteno</span>
+          <span><strong id="saved-count">0</strong> uloženo</span>
+        </div>
+
+        <button class="ghost-button" id="restore-feed" type="button">Obnovit skryté</button>
+      </div>
+
+      <div class="feed-grid" id="feed"></div>
+
+      <p class="empty-state" id="empty-state" hidden>Žádné příspěvky neodpovídají hledání. Zkuste jiné klíčové slovo.</p>
+    </section>
+
+    <!-- Trending — static second section preserved from the design -->
+    <section class="feed-section feed-section--trending" aria-label="Trending">
+      <h2 class="section-title">Trending</h2>
+      <div class="trending-grid" id="trending-grid"></div>
+    </section>
+
+    <!-- Admin panel (hidden until logged in) -->
+    <section class="admin-panel" id="admin-panel" hidden aria-label="Správa příspěvků">
+      <h2 class="section-title">Správa příspěvků</h2>
+
+      <div class="dashboard">
+        <!-- form -->
+        <form class="editor-form" id="article-form" autocomplete="off">
+          <input type="hidden" id="article-id">
+
+          <label>Název
+            <input type="text" id="f-title" required maxlength="160">
+          </label>
+
+          <label>Tělo / Popis
+            <textarea id="f-body" placeholder="Text příspěvku..."></textarea>
+          </label>
+
+          <label>Obrázek (URL nebo soubor)
+            <input type="url" id="f-image-url" placeholder="https://...">
+            <input type="file" id="f-image-file" accept="image/*">
+            <span class="help-text">URL má přednost. Soubor se uloží jako Base64.</span>
+            <span class="image-preview" id="image-preview" hidden></span>
+          </label>
+
+          <div class="field-row">
+            <label>Autor <input type="text" id="f-author" value="Vanaheim"></label>
+            <label>Datum <input type="date" id="f-date"></label>
+          </div>
+
+          <div class="field-row">
+            <label>Kategorie (oddělené čárkou)
+              <input type="text" id="f-categories" placeholder="Biologie, Příroda">
+            </label>
+            <label>Varianta zobrazení
+              <select id="f-variant">
+                <option value="default">Standardní</option>
+                <option value="feature">Hlavní (s perexem)</option>
+                <option value="wide">Široká</option>
+                <option value="compact">Kompaktní</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button class="btn-primary" type="submit" id="submit-btn">Vytvořit</button>
+            <button class="ghost-button" type="button" id="reset-btn">Vyčistit</button>
+            <button class="ghost-button" type="button" id="logout-btn" style="margin-left:auto;">Odhlásit</button>
+          </div>
+        </form>
+
+        <!-- table -->
+        <div>
+          <h3 class="section-title" style="margin-top:0;">Seznam příspěvků</h3>
+          <table class="article-table">
+            <thead>
+              <tr><th></th><th>Název</th><th>Autor</th><th>Datum</th><th>Akce</th></tr>
+            </thead>
+            <tbody id="article-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================================================
+       FOOTER
+       ============================================================ -->
+  <footer class="site-footer">
+    <p class="footer-tagline">Školní časopis Expediční Střední ScioŠkoly. Novinky ze světa kultury a nejenom.</p>
+    <nav class="footer-nav" aria-label="Patička">
+      <a href="#">Příspěvky</a>
+      <a href="#">O nás</a>
+      <a href="#">Kontakt</a>
+    </nav>
+    <p class="footer-credit">Web je poháněn WordPress.com.</p>
+  </footer>
+
+  <!-- Login modal -->
+  <div class="modal-backdrop" id="login-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
+      <h2 id="login-title">Přihlášení</h2>
+      <p>Pro správu příspěvků zadejte heslo.</p>
+      <form id="login-form">
+        <input id="login-password" type="password" placeholder="Heslo" autocomplete="current-password" required>
+        <p class="error" id="login-error" aria-live="polite"></p>
+        <div style="display:flex; gap:10px;">
+          <button class="btn-primary" type="submit">Přihlásit se</button>
+          <button class="ghost-button" type="button" id="login-cancel">Zrušit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ============================================================
+       SCRIPT — Storage + Auth + Public renderer + Admin controller
+       ============================================================ -->
+  <script>
+  (function () {
+    "use strict";
+
+    // ===== Config =====
+    var ADMIN_PASSWORD = "vanaheim2026";
+    var STORAGE_KEY    = "vanaheim-articles";
+    var UI_KEY         = "vanaheim-feed-state";
+    var SESSION_KEY    = "vanaheim-admin-session";
+
+    // ===== StorageService (CRUD over localStorage) =====
+    function readStore() {
+      try { var p = JSON.parse(localStorage.getItem(STORAGE_KEY)); return Array.isArray(p) ? p : []; }
+      catch (e) { return []; }
+    }
+    function writeStore(items) { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); }
+    function uid() { return "a-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,8); }
+    function today() { return new Date().toISOString().slice(0,10); }
+    function shape(data) {
+      return {
+        id:         data.id || uid(),
+        title:      (data.title || "").trim(),
+        body:       (data.body || "").trim(),
+        image:      (data.image || "").trim(),
+        categories: (data.categories || "").trim(),
+        author:     (data.author || "Vanaheim").trim(),
+        date:       data.date || today(),
+        variant:    data.variant || "default"
+      };
+    }
+    var StorageService = {
+      list: function () {
+        return readStore().slice().sort(function (a, b) {
+          return (b.date || "").localeCompare(a.date || "");
+        });
+      },
+      get: function (id) { return readStore().find(function (a) { return a.id === id; }) || null; },
+      create: function (data) { var items = readStore(); var art = shape(data); items.push(art); writeStore(items); return art; },
+      update: function (id, patch) {
+        var items = readStore();
+        var i = items.findIndex(function (a) { return a.id === id; });
+        if (i === -1) return null;
+        items[i] = shape(Object.assign({}, items[i], patch, { id: id }));
+        writeStore(items);
+        return items[i];
+      },
+      remove: function (id) {
+        var items = readStore();
+        var next = items.filter(function (a) { return a.id !== id; });
+        if (next.length === items.length) return false;
+        writeStore(next); return true;
+      },
+      seedIfEmpty: function (seed) { if (readStore().length === 0) writeStore(seed.map(shape)); }
+    };
+
+    // ===== AuthService =====
+    var AuthService = {
+      login: function (pw) { if (pw === ADMIN_PASSWORD) { sessionStorage.setItem(SESSION_KEY, "1"); return true; } return false; },
+      logout: function () { sessionStorage.removeItem(SESSION_KEY); },
+      isLoggedIn: function () { return sessionStorage.getItem(SESSION_KEY) === "1"; }
+    };
+
+    // ===== Seed sample articles (matches the original template) =====
+    StorageService.seedIfEmpty([
+      { id:"zizala-s-pateri", title:"Žížala s páteří",
+        body:"„Ale žížala přece nemá páteř!“ byste mi jistě rádi zakřičeli do obličeje. „Je to prvoústý kroužkovec, který nemá ani hloupou základní strunu,“ jistě byste se naparovali za své znalosti.",
+        image:"https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=900&q=80",
+        categories:"Biologie, Příroda, Vzdělávání", author:"Vanaheim", date:"2026-05-18", variant:"feature" },
+      { id:"divocina", title:"Divočina", body:"",
+        image:"https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=900&q=80",
+        categories:"Biologie, Komiksy, Příroda", author:"Vanaheim", date:"2026-05-17", variant:"compact" },
+      { id:"mluvis", title:"Mluvíš?", body:"",
+        image:"https://images.unsplash.com/photo-1598488035139-bdbb2231bb19?auto=format&fit=crop&w=900&q=80",
+        categories:"Kurzy, Společnost, Výjezd, Vzdělávání, Školní projekt",
+        author:"Vanaheim", date:"2026-05-16", variant:"compact" },
+      { id:"expedice-spanelsko", title:"Expedice Španělsko, aneb co vše jsme po cestě našli", body:"",
+        image:"https://images.unsplash.com/photo-1551632811-561732d1e609?auto=format&fit=crop&w=900&q=80",
+        categories:"Cestování, Expedice, Komiksy", author:"Vanaheim", date:"2026-05-15", variant:"wide" },
+      { id:"architekti-oceanu", title:"Víte, kdo jsou architekti oceánů?", body:"",
+        image:"https://images.unsplash.com/photo-1559827260-dc66d52bef19?auto=format&fit=crop&w=900&q=80",
+        categories:"Biologie, Příroda, Vzdělávání, Životní prostředí",
+        author:"Vanaheim", date:"2026-05-14", variant:"default" }
+    ]);
+
+    // ===== DOM refs =====
+    var feed             = document.querySelector("#feed");
+    var trendingGrid     = document.querySelector("#trending-grid");
+    var searchInput      = document.querySelector("#feed-search");
+    var searchSuggestions= document.querySelector("#search-suggestions");
+    var sortSelect       = document.querySelector("#feed-sort");
+    var restoreButton    = document.querySelector("#restore-feed");
+    var emptyState       = document.querySelector("#empty-state");
+    var visibleCount     = document.querySelector("#visible-count");
+    var readCount        = document.querySelector("#read-count");
+    var savedCount       = document.querySelector("#saved-count");
+    var densityControls  = document.querySelectorAll("input[name='density']");
+
+    var adminToggle      = document.querySelector("#admin-toggle");
+    var adminPanel       = document.querySelector("#admin-panel");
+    var loginModal       = document.querySelector("#login-modal");
+    var loginForm        = document.querySelector("#login-form");
+    var loginPassword    = document.querySelector("#login-password");
+    var loginError       = document.querySelector("#login-error");
+    var loginCancel      = document.querySelector("#login-cancel");
+    var logoutBtn        = document.querySelector("#logout-btn");
+
+    var form             = document.querySelector("#article-form");
+    var fId              = document.querySelector("#article-id");
+    var fTitle           = document.querySelector("#f-title");
+    var fBody            = document.querySelector("#f-body");
+    var fImageUrl        = document.querySelector("#f-image-url");
+    var fImageFile       = document.querySelector("#f-image-file");
+    var fAuthor          = document.querySelector("#f-author");
+    var fDate            = document.querySelector("#f-date");
+    var fCategories      = document.querySelector("#f-categories");
+    var fVariant         = document.querySelector("#f-variant");
+    var imagePreview     = document.querySelector("#image-preview");
+    var submitBtn        = document.querySelector("#submit-btn");
+    var resetBtn         = document.querySelector("#reset-btn");
+    var tbody            = document.querySelector("#article-tbody");
+    var formTitle        = document.querySelector(".admin-panel .section-title");
+    var toastEl          = document.querySelector("#toast");
+
+    // ===== UI state =====
+    var state = (function loadUi() {
+      try {
+        var p = JSON.parse(localStorage.getItem(UI_KEY));
+        return {
+          read:   Array.isArray(p && p.read)   ? p.read   : [],
+          saved:  Array.isArray(p && p.saved)  ? p.saved  : [],
+          hidden: Array.isArray(p && p.hidden) ? p.hidden : []
+        };
+      } catch (e) { return { read:[], saved:[], hidden:[] }; }
+    })();
+    function saveUi() { localStorage.setItem(UI_KEY, JSON.stringify(state)); }
+
+    var activeSuggestionIndex = -1;
+    var uploadedImageData = "";
+
+    // ===== Helpers =====
+    function escapeHtml(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
+        return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c];
+      });
+    }
+    function formatDate(iso) {
+      if (!iso) return "";
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      var months = ["ledna","února","března","dubna","května","června","července","srpna","září","října","listopadu","prosince"];
+      return d.getDate() + ". " + months[d.getMonth()] + " " + d.getFullYear();
+    }
+    function toggleId(list, id) { var i = list.indexOf(id); if (i === -1) list.push(id); else list.splice(i, 1); }
+
+    // ===== Public: render =====
+    function buildStoryElement(article) {
+      var el = document.createElement("article");
+      var v = "";
+      if (article.variant === "feature") v = " story--lead story--feature";
+      else if (article.variant === "wide") v = " story--wide";
+      else if (article.variant === "compact") v = " story--compact";
+      el.className = "story" + v;
+      el.dataset.id = article.id;
+      el.dataset.source = article.author || "Vanaheim";
+      el.dataset.tags = article.categories || "";
+      if (article.image) {
+        el.style.setProperty("--image", "url('" + article.image.replace(/'/g, "\\'") + "')");
+      }
+      var dek = (article.variant === "feature" && article.body)
+        ? '<p class="dek">' + escapeHtml(article.body) + "</p>" : "";
+      el.innerHTML =
+        '<div class="story-art" aria-hidden="true"></div>' +
+        '<div class="story-content">' +
+          '<p class="story-categories">' + escapeHtml(article.categories || "") + "</p>" +
+          '<h3><a href="#" data-action="open">' + escapeHtml(article.title) + "</a></h3>" +
+          dek +
+          '<p class="story-author">' + escapeHtml(article.author || "Vanaheim") + "</p>" +
+          '<time class="pub-date" datetime="' + escapeHtml(article.date) + '">' + escapeHtml(formatDate(article.date)) + "</time>" +
+          '<div class="story-actions">' +
+            '<button class="story-action" type="button" data-action="open">Číst dál</button>' +
+            '<button class="story-action" type="button" data-action="read">Přečteno</button>' +
+            '<button class="story-action" type="button" data-action="save">Uložit</button>' +
+            '<button class="story-action" type="button" data-action="dismiss">Skrýt</button>' +
+          "</div>" +
+        "</div>";
+      return el;
+    }
+    function buildTrendingCard(article) {
+      var el = document.createElement("article");
+      el.className = "trending-card";
+      el.innerHTML =
+        '<div class="trending-art"' + (article.image ? ' style="--image:url(\'' + article.image.replace(/'/g, "\\'") + "')\"" : "") + '></div>' +
+        '<div class="trending-content">' +
+          '<p class="story-categories">' + escapeHtml(article.categories || "") + "</p>" +
+          '<h3><a href="#">' + escapeHtml(article.title) + "</a></h3>" +
+          '<p class="story-author">' + escapeHtml(article.author || "Vanaheim") + "</p>" +
+        "</div>";
+      return el;
+    }
+    function applyStateClasses(el, id) {
+      var isRead = state.read.indexOf(id) !== -1;
+      var isSaved = state.saved.indexOf(id) !== -1;
+      el.classList.toggle("is-read", isRead);
+      el.classList.toggle("is-saved", isSaved);
+      var rb = el.querySelector('[data-action="read"]');
+      var sb = el.querySelector('[data-action="save"]');
+      if (rb) { rb.textContent = "Přečteno"; rb.setAttribute("aria-pressed", String(isRead)); }
+      if (sb) { sb.textContent = isSaved ? "Uloženo" : "Uložit"; sb.setAttribute("aria-pressed", String(isSaved)); }
+    }
+    function sortArticles(items, mode) {
+      var s = items.slice();
+      s.sort(function (a, b) {
+        if (mode === "oldest") return (a.date || "").localeCompare(b.date || "");
+        if (mode === "source") return (a.author || "").localeCompare(b.author || "");
+        if (mode === "title")  return (a.title  || "").localeCompare(b.title  || "");
+        return (b.date || "").localeCompare(a.date || "");
+      });
+      return s;
+    }
+    function renderPublic() {
+      var query = searchInput.value.trim().toLowerCase();
+      var articles = sortArticles(StorageService.list(), sortSelect.value);
+
+      // Feed grid
+      feed.innerHTML = "";
+      var shown = 0;
+      articles.forEach(function (article) {
+        var el = buildStoryElement(article);
+        var hidden = state.hidden.indexOf(article.id) !== -1;
+        var hay = [article.title, article.body, article.categories, article.author].join(" ").toLowerCase();
+        var matches = !query || hay.indexOf(query) !== -1;
+        var visible = !hidden && matches;
+        el.hidden = !visible;
+        applyStateClasses(el, article.id);
+        feed.appendChild(el);
+        if (visible) shown += 1;
+      });
+      visibleCount.textContent = shown;
+      readCount.textContent = state.read.length;
+      savedCount.textContent = state.saved.length;
+      emptyState.hidden = shown !== 0;
+      restoreButton.disabled = state.hidden.length === 0;
+
+      // Trending — top 4 newest
+      trendingGrid.innerHTML = "";
+      StorageService.list().slice(0, 4).forEach(function (a) {
+        trendingGrid.appendChild(buildTrendingCard(a));
+      });
+    }
+
+    // ===== Public: events =====
+    feed.addEventListener("click", function (event) {
+      var btn = event.target.closest("[data-action]");
+      if (!btn) return;
+      var story = btn.closest(".story");
+      if (!story) return;
+      var id = story.dataset.id;
+      var action = btn.dataset.action;
+      if (action === "open")    { event.preventDefault(); btn.blur(); return; }
+      if (action === "read")    { toggleId(state.read, id);  saveUi(); applyStateClasses(story, id); readCount.textContent = state.read.length; return; }
+      if (action === "save")    { toggleId(state.saved, id); saveUi(); applyStateClasses(story, id); savedCount.textContent = state.saved.length; return; }
+      if (action === "dismiss") { if (state.hidden.indexOf(id) === -1) state.hidden.push(id); saveUi(); renderPublic(); return; }
+    });
+
+    searchInput.addEventListener("input", function () { renderSuggestions(); renderPublic(); });
+    searchInput.addEventListener("focus", renderSuggestions);
+    searchInput.addEventListener("keydown", handleSuggestionKeys);
+    searchInput.addEventListener("blur", function () { setTimeout(closeSuggestions, 130); });
+    searchSuggestions.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    searchSuggestions.addEventListener("click", function (event) {
+      var btn = event.target.closest(".search-suggestion");
+      if (!btn) return;
+      searchInput.value = btn.dataset.value;
+      closeSuggestions(); renderPublic(); searchInput.focus();
+    });
+
+    sortSelect.addEventListener("change", renderPublic);
+    restoreButton.addEventListener("click", function () { state.hidden = []; saveUi(); renderPublic(); });
+    densityControls.forEach(function (c) {
+      c.addEventListener("change", function () {
+        document.body.classList.toggle("compact", c.value === "compact" && c.checked);
+      });
+    });
+
+    // ===== Search suggestions =====
+    function suggestionItems() {
+      var t = new Map();
+      StorageService.list().forEach(function (a) {
+        if (a.author) t.set(a.author.toLowerCase(), { value: a.author, kind: "autor" });
+        if (a.title)  t.set(a.title.toLowerCase(),  { value: a.title,  kind: "příspěvek" });
+      });
+      return Array.from(t.values());
+    }
+    function renderSuggestions() {
+      var q = searchInput.value.trim().toLowerCase();
+      if (!q) { closeSuggestions(); return; }
+      var matches = suggestionItems()
+        .filter(function (it) { return it.value.toLowerCase().indexOf(q) !== -1; })
+        .sort(function (a, b) {
+          var as = a.value.toLowerCase().indexOf(q) === 0;
+          var bs = b.value.toLowerCase().indexOf(q) === 0;
+          if (as !== bs) return as ? -1 : 1;
+          return a.value.localeCompare(b.value);
+        })
+        .slice(0, 6);
+      if (matches.length === 0) { closeSuggestions(); return; }
+      activeSuggestionIndex = -1;
+      searchInput.setAttribute("aria-expanded", "true");
+      searchSuggestions.hidden = false;
+      searchSuggestions.innerHTML = matches.map(function (item, i) {
+        return '<button class="search-suggestion" type="button" role="option" data-index="' + i +
+          '" data-value="' + escapeHtml(item.value) + '">' +
+            "<span>" + escapeHtml(item.value) + "</span>" +
+            '<span class="suggestion-kind">' + escapeHtml(item.kind) + "</span>" +
+          "</button>";
+      }).join("");
+    }
+    function handleSuggestionKeys(event) {
+      var options = Array.from(searchSuggestions.querySelectorAll(".search-suggestion"));
+      if (searchSuggestions.hidden || options.length === 0) return;
+      if (event.key === "ArrowDown")      { event.preventDefault(); setActive(Math.min(activeSuggestionIndex + 1, options.length - 1), options); }
+      else if (event.key === "ArrowUp")   { event.preventDefault(); setActive(Math.max(activeSuggestionIndex - 1, 0), options); }
+      else if (event.key === "Enter" && activeSuggestionIndex > -1) {
+        event.preventDefault();
+        searchInput.value = options[activeSuggestionIndex].dataset.value;
+        closeSuggestions(); renderPublic();
+      } else if (event.key === "Escape") { closeSuggestions(); }
+    }
+    function setActive(i, options) {
+      activeSuggestionIndex = i;
+      options.forEach(function (o, idx) { o.classList.toggle("is-active", idx === i); });
+    }
+    function closeSuggestions() {
+      activeSuggestionIndex = -1;
+      searchInput.setAttribute("aria-expanded", "false");
+      searchSuggestions.hidden = true;
+      searchSuggestions.innerHTML = "";
+    }
+
+    // ===== Admin: login flow =====
+    adminToggle.addEventListener("click", function () {
+      if (AuthService.isLoggedIn()) {
+        // Already logged in — toggle the panel visibility
+        adminPanel.hidden = !adminPanel.hidden;
+        if (!adminPanel.hidden) {
+          renderTable();
+          adminPanel.scrollIntoView({ behavior: "smooth" });
+        }
+      } else {
+        loginError.textContent = "";
+        loginPassword.value = "";
+        loginModal.hidden = false;
+        setTimeout(function () { loginPassword.focus(); }, 0);
+      }
+    });
+    loginCancel.addEventListener("click", function () { loginModal.hidden = true; });
+    loginForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (AuthService.login(loginPassword.value)) {
+        loginModal.hidden = true;
+        adminPanel.hidden = false;
+        renderTable();
+        adminPanel.scrollIntoView({ behavior: "smooth" });
+        toast("Přihlášení úspěšné.");
+      } else {
+        loginError.textContent = "Nesprávné heslo.";
+        loginPassword.select();
+      }
+    });
+    logoutBtn.addEventListener("click", function () {
+      AuthService.logout();
+      adminPanel.hidden = true;
+      toast("Odhlášeno.");
+    });
+
+    // ===== Admin: form =====
+    function updatePreview() {
+      var src = uploadedImageData || fImageUrl.value.trim();
+      if (src) {
+        imagePreview.style.backgroundImage = "url('" + src.replace(/'/g, "\\'") + "')";
+        imagePreview.hidden = false;
+      } else {
+        imagePreview.hidden = true;
+      }
+    }
+    fImageUrl.addEventListener("input", function () {
+      if (fImageUrl.value.trim()) { uploadedImageData = ""; fImageFile.value = ""; }
+      updatePreview();
+    });
+    fImageFile.addEventListener("change", function () {
+      var file = fImageFile.files && fImageFile.files[0];
+      if (!file) { uploadedImageData = ""; updatePreview(); return; }
+      var reader = new FileReader();
+      reader.onload = function (ev) {
+        uploadedImageData = ev.target.result;
+        fImageUrl.value = "";
+        updatePreview();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function resetForm() {
+      form.reset();
+      fId.value = "";
+      fAuthor.value = "Vanaheim";
+      fDate.value = today();
+      uploadedImageData = "";
+      updatePreview();
+      formTitle.textContent = "Správa příspěvků";
+      submitBtn.textContent = "Vytvořit";
+    }
+    function populateForm(article) {
+      fId.value         = article.id;
+      fTitle.value      = article.title;
+      fBody.value       = article.body;
+      fAuthor.value     = article.author || "Vanaheim";
+      fDate.value       = article.date || "";
+      fCategories.value = article.categories || "";
+      fVariant.value    = article.variant || "default";
+      if (article.image && article.image.indexOf("data:") === 0) {
+        uploadedImageData = article.image; fImageUrl.value = "";
+      } else {
+        uploadedImageData = ""; fImageUrl.value = article.image || "";
+      }
+      fImageFile.value = "";
+      updatePreview();
+      formTitle.textContent = "Upravit příspěvek";
+      submitBtn.textContent = "Uložit změny";
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    resetBtn.addEventListener("click", resetForm);
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (!fTitle.value.trim()) { toast("Název je povinný."); fTitle.focus(); return; }
+      var payload = {
+        title:      fTitle.value,
+        body:       fBody.value,
+        image:      uploadedImageData || fImageUrl.value,
+        categories: fCategories.value,
+        author:     fAuthor.value,
+        date:       fDate.value || today(),
+        variant:    fVariant.value
+      };
+      if (fId.value) { StorageService.update(fId.value, payload); toast("Příspěvek byl uložen."); }
+      else { StorageService.create(payload); toast("Příspěvek byl vytvořen."); }
+      resetForm();
+      renderTable();
+      renderPublic();
+    });
+
+    // ===== Admin: table =====
+    function renderTable() {
+      var items = StorageService.list();
+      if (items.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Zatím žádné příspěvky. Vytvořte první výše.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = items.map(function (a) {
+        var thumb = a.image
+          ? '<span class="thumb" style="background-image:url(\'' + a.image.replace(/'/g, "\\'") + '\')"></span>'
+          : '<span class="thumb"></span>';
+        return (
+          '<tr data-id="' + escapeHtml(a.id) + '">' +
+            "<td>" + thumb + "</td>" +
+            "<td><strong>" + escapeHtml(a.title) + "</strong><br>" +
+              '<span style="color:var(--grey); font-size:0.8rem;">' + escapeHtml(a.categories || "") + "</span></td>" +
+            "<td>" + escapeHtml(a.author || "") + "</td>" +
+            "<td>" + escapeHtml(a.date || "") + "</td>" +
+            '<td><div class="row-actions">' +
+              '<button type="button" data-action="edit">Upravit</button>' +
+              '<button type="button" data-action="delete" class="danger">Smazat</button>' +
+            "</div></td>" +
+          "</tr>"
+        );
+      }).join("");
+    }
+    tbody.addEventListener("click", function (event) {
+      var btn = event.target.closest("button[data-action]");
+      if (!btn) return;
+      var row = btn.closest("tr");
+      var id = row && row.dataset.id;
+      if (!id) return;
+      if (btn.dataset.action === "edit") {
+        var a = StorageService.get(id);
+        if (a) populateForm(a);
+      } else if (btn.dataset.action === "delete") {
+        var t = StorageService.get(id);
+        var name = t ? t.title : "tento příspěvek";
+        if (confirm('Opravdu smazat „' + name + '"?')) {
+          StorageService.remove(id);
+          if (fId.value === id) resetForm();
+          renderTable();
+          renderPublic();
+          toast("Příspěvek byl smazán.");
+        }
+      }
+    });
+
+    // ===== Toast =====
+    var toastTimer = null;
+    function toast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add("is-visible");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { toastEl.classList.remove("is-visible"); }, 2200);
+    }
+
+    // ===== Boot =====
+    fDate.value = today();
+    renderPublic();
+    if (AuthService.isLoggedIn()) {
+      adminPanel.hidden = false;
+      renderTable();
+    }
+  })();
+  </script>
+</body>
+</html>

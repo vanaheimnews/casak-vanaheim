@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8">
+    <title>Vanaheim News</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Přejít k obsahu webu</a>
+
+    <header class="site-header" id="site-header"></header>
+
+    <main id="main" class="shell">
+      <section class="feed-section" aria-label="Nejnovější příspěvky">
+        <h2 class="section-title">Nejnovější</h2>
+
+        <div class="control-room" aria-label="Filtrovat příspěvky">
+          <label class="sort-field" for="feed-sort">
+            <span class="visually-hidden">Řadit</span>
+            <select id="feed-sort">
+              <option value="newest">Nejnovější</option>
+              <option value="oldest">Nejstarší</option>
+              <option value="title">Název A-Z</option>
+            </select>
+          </label>
+
+          <div class="feed-stats" aria-live="polite">
+            <strong id="visible-count">0</strong> příspěvků
+          </div>
+        </div>
+
+        <div class="feed-grid" id="feed"></div>
+        <p class="empty-state" id="empty-state" hidden>Žádné příspěvky neodpovídají hledání.</p>
+      </section>
+
+      <section class="feed-section feed-section--trending" aria-label="Trending" id="trending-section" hidden>
+        <h2 class="section-title">Trending</h2>
+        <div class="trending-grid" id="trending-grid"></div>
+      </section>
+    </main>
+
+    <footer class="site-footer" id="site-footer"></footer>
+    <script src="/app.js"></script>
+  </body>
+</html>

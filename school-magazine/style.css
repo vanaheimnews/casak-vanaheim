@@ -1,0 +1,568 @@
+/* ============================================================
+   SCHOOL MAGAZINE — DESIGN SYSTEM
+   ------------------------------------------------------------
+   Palette
+     --sidebar-bg   #000000  Pure black sidebar
+     --sidebar-fg   #FFFFFF  White text on sidebar
+     --sidebar-rule #333333  Subtle divider in sidebar
+     --content-bg   #F5F5DC  Soft beige content background
+     --surface      #FFFFFF  Card / panel surface
+     --content-fg   #222222  Dark charcoal body text
+     --content-rule #DDDDDD  Subtle divider in content
+     --accent       #000000  Buttons / focus rings
+   Spacing scale: 4 / 8 / 12 / 16 / 24 / 32 / 48
+   Typography: system stack, body 16px, h1 ~2rem, h2 1.4rem
+   ============================================================ */
+
+:root {
+  --sidebar-bg:   #000000;
+  --sidebar-fg:   #ffffff;
+  --sidebar-rule: #333333;
+  --content-bg:   #f5f5dc;
+  --surface:      #ffffff;
+  --content-fg:   #222222;
+  --muted:        #666666;
+  --content-rule: #dddddd;
+  --accent:       #000000;
+
+  --sidebar-w: 270px;
+  --max-content: 1080px;
+
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+               Arial, "Noto Sans", sans-serif;
+}
+
+/* ---------- Reset / base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--content-fg);
+  background: var(--content-bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+img { display: block; max-width: 100%; }
+a   { color: inherit; }
+button { font: inherit; cursor: pointer; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 100;
+  padding: 8px 16px;
+  background: var(--surface);
+  color: var(--content-fg);
+  border: 1px solid var(--accent);
+}
+.skip-link:focus { top: 12px; }
+
+/* ============================================================
+   SIDEBAR (desktop) — fixed left column
+   ============================================================ */
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;            /* top:0; bottom:0; left:0 */
+  width: var(--sidebar-w);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-fg);
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+
+.sidebar-inner {
+  padding: 32px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Brand */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.brand-logo {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--sidebar-fg);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 1rem;
+}
+.brand-text { min-width: 0; }
+.brand-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.brand-subtitle {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.6);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+
+/* Divider */
+.sidebar-divider {
+  border: 0;
+  border-top: 1px solid var(--sidebar-rule);
+  margin: 0 0 24px;
+}
+
+/* Nav */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nav-link {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 2px;
+  color: var(--sidebar-fg);
+  text-decoration: none;
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.nav-link:hover { background: rgba(255,255,255,0.06); }
+.nav-link.is-active {
+  background: rgba(255,255,255,0.10);
+  border-color: var(--sidebar-rule);
+}
+
+/* Burger — hidden on desktop */
+.burger {
+  display: none;
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: 1px solid var(--sidebar-fg);
+  border-radius: 2px;
+  padding: 0;
+}
+.burger span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  margin: 4px auto;
+  background: var(--sidebar-fg);
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+/* Mobile drawer backdrop */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 20;
+}
+.sidebar-backdrop[hidden] { display: none; }
+
+/* ============================================================
+   CONTENT
+   ============================================================ */
+.content {
+  margin-left: var(--sidebar-w);   /* room for fixed sidebar */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 48px clamp(20px, 4vw, 48px) 0;
+}
+
+.page-header { margin-bottom: 32px; }
+.page-title {
+  margin: 0 0 6px;
+  font-size: clamp(1.8rem, 3vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.page-lead {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.section-title {
+  margin: 32px 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--content-rule);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Page switching — only one .page visible at a time */
+.page { display: none; max-width: var(--max-content); width: 100%; }
+.page.is-active { display: block; }
+.page[hidden] { display: none !important; }
+
+/* ============================================================
+   CARD GRID (Home + Articles)
+   Fixed rows / aspect ratios so layout never jumps as images load
+   ============================================================ */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.card {
+  display: grid;
+  /* Image row is fixed-height via aspect-ratio; the rest is auto. */
+  grid-template-rows: auto 1fr auto;
+  background: var(--surface);
+  border: 1px solid var(--content-rule);
+  border-radius: 4px;
+  overflow: hidden;
+  /* Hover only changes border colour — no transform, no layout shift. */
+  transition: border-color 120ms ease;
+}
+.card:hover { border-color: #bbbbbb; }
+
+.card-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;          /* locks image height regardless of source */
+  background: #eaeaea;            /* placeholder colour while image loads */
+  overflow: hidden;
+}
+.card-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;              /* never distort, never reflow */
+}
+
+.card-body {
+  padding: 16px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.card-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.card-meta time::before { content: ""; }
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 16px;
+}
+.card-tag {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border: 1px solid var(--content-rule);
+  border-radius: 2px;
+  color: var(--muted);
+  background: #fafafa;
+}
+
+/* ============================================================
+   PAGINATION — static, anchored, never reflows on image load
+   ============================================================ */
+.pagination {
+  display: flex;
+  justify-content: center;
+  /* Top margin is a fixed value (not "auto") so the button doesn't jump
+     when grid items finish loading. */
+  margin: 40px 0 48px;
+}
+
+.btn {
+  min-height: 42px;
+  padding: 0 24px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 2px;
+}
+.btn:hover { background: var(--surface); color: var(--accent); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--content-fg);
+  border-color: var(--content-fg);
+}
+.btn-ghost:hover { background: var(--accent); color: #ffffff; }
+
+/* ============================================================
+   ARTICLES — Tag filter
+   ============================================================ */
+.tag-filter {
+  margin: 0 0 32px;
+  padding: 16px 20px;
+  border: 1px solid var(--content-rule);
+  border-radius: 4px;
+  background: var(--surface);
+}
+.tag-filter legend {
+  padding: 0 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 8px 0 12px;
+}
+.tag-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--content-rule);
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.88rem;
+  background: #fafafa;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.tag-checkbox input {
+  /* keep the native input for accessibility; visually hide it */
+  position: absolute;
+  opacity: 0;
+  width: 1px; height: 1px;
+  margin: 0; padding: 0;
+}
+.tag-checkbox:has(input:checked) {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+.tag-checkbox:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.empty-state {
+  margin: 24px 0;
+  padding: 24px;
+  border: 1px dashed var(--content-rule);
+  border-radius: 4px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface);
+}
+
+/* ============================================================
+   ABOUT — prose + team grid
+   ============================================================ */
+.prose {
+  max-width: 70ch;
+  background: var(--surface);
+  border: 1px solid var(--content-rule);
+  border-radius: 4px;
+  padding: 24px 28px;
+}
+.prose p { margin: 0 0 14px; }
+.prose p:last-child { margin-bottom: 0; }
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.team-card {
+  background: var(--surface);
+  border: 1px solid var(--content-rule);
+  border-radius: 4px;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto;  /* image, then text — fixed structure */
+}
+.team-photo {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;            /* identical dimensions for every member */
+  background: #eaeaea;
+  overflow: hidden;
+}
+.team-photo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;              /* uniform crop */
+}
+.team-body {
+  padding: 14px 16px 16px;
+  text-align: center;
+}
+.team-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.team-role {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ============================================================
+   CONTACT
+   ============================================================ */
+.contact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 720px;
+}
+.contact-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--content-rule);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--content-fg);
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.contact-item:hover { border-color: var(--accent); background: #fafafa; }
+.contact-icon {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--content-rule);
+  border-radius: 50%;
+  color: var(--content-fg);
+  background: #fafafa;
+}
+.contact-text { display: flex; flex-direction: column; min-width: 0; }
+.contact-label { font-size: 0.78rem; color: var(--muted); }
+.contact-value { font-size: 0.98rem; font-weight: 600; }
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.content-footer {
+  margin-top: auto;               /* pushes footer to bottom of content column */
+  padding: 48px 0 32px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  border-top: 1px solid var(--content-rule);
+}
+.content-footer p { margin: 24px 0 0; }
+
+/* ============================================================
+   RESPONSIVE — tablet
+   ============================================================ */
+@media (max-width: 960px) {
+  .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .team-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ============================================================
+   RESPONSIVE — mobile (sidebar becomes top bar + drawer)
+   ============================================================ */
+@media (max-width: 720px) {
+  :root { --sidebar-w: 0px; }
+
+  /* Sidebar collapses to a fixed top bar */
+  .sidebar {
+    inset: 0 0 auto 0;
+    width: 100%;
+    height: 64px;
+    flex-direction: row;
+    align-items: center;
+  }
+  .sidebar-inner {
+    /* The drawer panel — hidden by default, slides down when open. */
+    position: absolute;
+    top: 64px;
+    left: 0;
+    right: 0;
+    padding: 16px 20px 24px;
+    background: var(--sidebar-bg);
+    border-top: 1px solid var(--sidebar-rule);
+    transform: translateY(-110%);
+    transition: transform 220ms ease;
+    flex: none;
+    overflow-y: auto;
+    max-height: calc(100vh - 64px);
+  }
+  .sidebar.is-open .sidebar-inner { transform: translateY(0); }
+
+  /* Compact brand inside the bar */
+  .brand { margin: 0 0 0 20px; gap: 10px; }
+  .brand-logo { width: 36px; height: 36px; font-size: 0.85rem; }
+  .brand-title { font-size: 0.95rem; }
+  .brand-subtitle { display: none; }
+
+  /* Inside the drawer the brand block is hidden (already shown in bar) */
+  .sidebar-inner .brand { display: none; }
+  .sidebar-inner .sidebar-divider { display: none; }
+
+  .burger { display: block; }
+
+  .content {
+    margin-left: 0;
+    padding-top: calc(64px + 24px); /* leave room for fixed top bar */
+  }
+
+  .card-grid { grid-template-columns: 1fr; }
+  .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .contact-list { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   Reduced motion
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
