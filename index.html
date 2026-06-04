@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Vanaheim — projekty</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f5f5dc;
+      --fg: #222;
+      --muted: #666;
+      --rule: #ddd;
+      --surface: #fff;
+      --accent: #000;
+      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: var(--font); color: var(--fg);
+      background: var(--bg);
+      display: flex; flex-direction: column; align-items: center;
+      padding: 64px 20px;
+    }
+    header { max-width: 720px; width: 100%; text-align: center; margin-bottom: 48px; }
+    h1 { margin: 0 0 8px; font-size: clamp(2rem, 5vw, 2.6rem); letter-spacing: -0.01em; }
+    header p { margin: 0; color: var(--muted); font-size: 1.05rem; }
+    main { width: 100%; max-width: 720px; display: grid; gap: 16px; }
+    a.card {
+      display: block; padding: 24px 28px;
+      background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+      text-decoration: none; color: var(--fg);
+      transition: border-color 120ms ease, transform 120ms ease;
+    }
+    a.card:hover { border-color: var(--accent); }
+    a.card h2 {
+      margin: 0 0 6px; font-size: 1.2rem; font-weight: 600;
+      display: flex; align-items: center; gap: 10px;
+    }
+    a.card h2 .arrow {
+      display: inline-block; transition: transform 120ms ease; color: var(--muted);
+    }
+    a.card:hover h2 .arrow { transform: translateX(4px); color: var(--accent); }
+    a.card p { margin: 0; color: var(--muted); font-size: 0.95rem; line-height: 1.5; }
+    footer { margin-top: 64px; color: var(--muted); font-size: 0.85rem; }
+    footer a { color: inherit; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Vanaheim — rozcestník</h1>
+    <p>Projekty školního časopisu. Vyberte si, který chcete otevřít.</p>
+  </header>
+
+  <main>
+    <a class="card" href="./school-magazine/">
+      <h2>Školní magazín <span class="arrow" aria-hidden="true">→</span></h2>
+      <p>Čistý třísložkový web (HTML / CSS / JS) — Domovská stránka, Příspěvky s filtrem štítků, O nás a Kontakt.</p>
+    </a>
+
+    <a class="card" href="./editorial-news-feed-layout/src/">
+      <h2>Vanaheim News — editorial layout <span class="arrow" aria-hidden="true">→</span></h2>
+      <p>Editoriální šablona s článkovým managementem a admin panelem (localStorage, bez backendu).</p>
+    </a>
+
+    <a class="card" href="./editorial-news-feed-layout/vanaheim-news.html">
+      <h2>Vanaheim News — vše v jednom souboru <span class="arrow" aria-hidden="true">→</span></h2>
+      <p>Celý web v jednom HTML souboru. Stejný design, admin přístupný z navigace.</p>
+    </a>
+  </main>
+
+  <footer>
+    <p>
+      Zdrojový kód: <a href="https://github.com/vanaheimnews/casak-vanaheim" target="_blank" rel="noopener">github.com/vanaheimnews/casak-vanaheim</a>
+    </p>
+  </footer>
+</body>
+</html>
