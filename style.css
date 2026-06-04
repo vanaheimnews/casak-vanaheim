@@ -271,6 +271,9 @@ button { font: inherit; cursor: pointer; }
   font-weight: 600;
   line-height: 1.3;
 }
+.card-title a { color: inherit; text-decoration: none; }
+.card-title a:hover { text-decoration: underline; }
+.card-media { display: block; }
 .card-meta {
   display: flex;
   flex-wrap: wrap;

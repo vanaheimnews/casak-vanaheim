@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Školní magazín — článek</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="./style.css">
+  <style>
+    /* Page-specific overrides — keeps the design system from style.css. */
+    .article-page { max-width: 760px; }
+    .article-hero {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #eaeaea;
+      border: 1px solid var(--content-rule);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+      margin-bottom: 24px;
+    }
+    .article-hero img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    .article-title { font-size: clamp(1.8rem, 3.4vw, 2.4rem); margin: 0 0 12px; line-height: 1.2; }
+    .article-meta {
+      display: flex; flex-wrap: wrap; gap: 8px 16px;
+      color: var(--muted); font-size: 0.92rem; margin-bottom: 24px;
+    }
+    .article-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }
+    .article-body { font-size: 1.05rem; line-height: 1.7; }
+    .article-body p { margin: 0 0 1em; white-space: pre-wrap; }
+    .article-back {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-bottom: 24px;
+      color: var(--muted); text-decoration: none; font-size: 0.9rem;
+    }
+    .article-back:hover { color: var(--content-fg); }
+    .loading-state, .error-state {
+      padding: 40px; text-align: center; color: var(--muted);
+      border: 1px dashed var(--content-rule); border-radius: 4px;
+      background: var(--surface);
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Přejít k obsahu</a>
+
+  <!-- ===== Sidebar (same as index) ===== -->
+  <aside class="sidebar" id="sidebar" aria-label="Hlavní navigace">
+    <div class="sidebar-inner">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">SM</div>
+        <div class="brand-text">
+          <p class="brand-title">Školní magazín</p>
+          <p class="brand-subtitle">časopis studentů</p>
+        </div>
+      </div>
+      <hr class="sidebar-divider">
+      <nav class="sidebar-nav" aria-label="Stránky">
+        <a href="./#home"     class="nav-link">Domovská stránka</a>
+        <a href="./#articles" class="nav-link">Příspěvky</a>
+        <a href="./#about"    class="nav-link">O nás</a>
+        <a href="./#contact"  class="nav-link">Kontakt</a>
+      </nav>
+    </div>
+    <button class="burger" id="burger" type="button"
+            aria-controls="sidebar" aria-expanded="false" aria-label="Otevřít menu">
+      <span></span><span></span><span></span>
+    </button>
+  </aside>
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+  <main id="main" class="content">
+    <article class="page is-active article-page" id="article-root">
+      <a class="article-back" href="./#articles">← Zpět na příspěvky</a>
+      <p class="loading-state" id="loading">Načítám článek…</p>
+    </article>
+  </main>
+
+  <script>
+    /* Reuse only the burger/drawer logic from the main script. */
+    (function () {
+      var sidebar = document.querySelector("#sidebar");
+      var burger = document.querySelector("#burger");
+      var backdrop = document.querySelector("#sidebar-backdrop");
+      function close() {
+        sidebar.classList.remove("is-open");
+        burger.setAttribute("aria-expanded", "false");
+        backdrop.hidden = true;
+      }
+      burger.addEventListener("click", function () {
+        var open = sidebar.classList.contains("is-open");
+        if (open) close();
+        else {
+          sidebar.classList.add("is-open");
+          burger.setAttribute("aria-expanded", "true");
+          backdrop.hidden = false;
+        }
+      });
+      backdrop.addEventListener("click", close);
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+    })();
+
+    /* Article loader. */
+    (function () {
+      function escapeHtml(value) {
+        return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
+          return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+        });
+      }
+      function formatDate(iso) {
+        if (!iso) return "";
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        var months = ["ledna","února","března","dubna","května","června",
+                      "července","srpna","září","října","listopadu","prosince"];
+        return d.getDate() + ". " + months[d.getMonth()] + " " + d.getFullYear();
+      }
+
+      var params = new URLSearchParams(location.search);
+      var id = params.get("id");
+      var root = document.querySelector("#article-root");
+
+      if (!id) {
+        root.innerHTML = '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
+                         '<p class="error-state">Chybí ID článku.</p>';
+        return;
+      }
+
+      fetch("/api/articles?id=" + encodeURIComponent(id))
+        .then(function (r) {
+          if (!r.ok) throw new Error("Článek nenalezen.");
+          return r.json();
+        })
+        .then(function (a) {
+          document.title = a.title + " — Školní magazín";
+          var tagsHtml = (a.tags || []).map(function (t) {
+            return '<span class="card-tag">' + escapeHtml(t) + "</span>";
+          }).join("");
+          var authors = (a.authors || []).join(", ");
+          var heroHtml = a.image
+            ? '<div class="article-hero"><img src="' + escapeHtml(a.image) + '" alt=""></div>'
+            : "";
+          root.innerHTML =
+            '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
+            heroHtml +
+            '<h1 class="article-title">' + escapeHtml(a.title) + "</h1>" +
+            '<div class="article-meta">' +
+              '<time datetime="' + escapeHtml(a.date) + '">' + escapeHtml(formatDate(a.date)) + "</time>" +
+              (authors ? "<span>" + escapeHtml(authors) + "</span>" : "") +
+              "<span>" + (a.kind === "comic" ? "Komiks" : "Článek") + "</span>" +
+            "</div>" +
+            (tagsHtml ? '<div class="article-tags">' + tagsHtml + "</div>" : "") +
+            '<div class="article-body"><p>' + escapeHtml(a.body || "") + "</p></div>";
+        })
+        .catch(function (err) {
+          root.innerHTML = '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
+                           '<p class="error-state">' + escapeHtml(err.message || "Chyba při načítání.") + "</p>";
+        });
+    })();
+  </script>
+</body>
+</html>
