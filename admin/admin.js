@@ -51,6 +51,33 @@
     });
   }
   function today() { return new Date().toISOString().slice(0, 10); }
+
+  /* Byte length of a string in UTF-8 (for the article record size). */
+  function textBytes(str) {
+    if (window.TextEncoder) return new TextEncoder().encode(str).length;
+    return new Blob([str]).size; // fallback
+  }
+  /* Human-readable size. */
+  function formatBytes(bytes) {
+    if (bytes == null || isNaN(bytes)) return "—";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1).replace(".", ",") + " KB";
+    return (bytes / (1024 * 1024)).toFixed(2).replace(".", ",") + " MB";
+  }
+  /* Try to read an image's byte size via a HEAD request (Content-Length).
+     Resolves to a number or null if it can't be determined. */
+  function fetchImageBytes(url) {
+    if (!url || /^data:/i.test(url) || !/^https?:/i.test(url)) {
+      return Promise.resolve(null);
+    }
+    return fetch(url, { method: "HEAD" })
+      .then(function (r) {
+        var len = r.headers.get("content-length");
+        return len ? parseInt(len, 10) : null;
+      })
+      .catch(function () { return null; });
+  }
+
   function readAsDataUrl(file) {
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
@@ -243,17 +270,20 @@
      Table
      ============================================================ */
   function refreshTable() {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Načítám…</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Načítám…</td></tr>';
     api("/api/articles")
       .then(function (items) {
         if (!items || items.length === 0) {
-          tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Zatím žádné příspěvky. Vytvořte první v levém panelu.</td></tr>';
+          tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Zatím žádné příspěvky. Vytvořte první v levém panelu.</td></tr>';
           return;
         }
         tbody.innerHTML = items.map(function (a) {
           var thumb = a.image
             ? '<span class="thumb" style="background-image:url(\'' + a.image.replace(/'/g, "\\'") + '\')"></span>'
             : '<span class="thumb"></span>';
+          // Base size = the article record itself (JSON, UTF-8 bytes).
+          // The image size is added asynchronously below (HEAD request).
+          var baseBytes = textBytes(JSON.stringify(a));
           return (
             '<tr data-id="' + escapeHtml(a.id) + '">' +
               "<td>" + thumb + "</td>" +
@@ -261,6 +291,7 @@
                 '<span style="color:var(--muted); font-size:0.8rem;">' + escapeHtml((a.tags || []).join(", ")) + "</span></td>" +
               "<td>" + escapeHtml((a.authors || []).join(", ")) + "</td>" +
               "<td>" + escapeHtml(a.date || "") + "</td>" +
+              '<td class="size-cell" data-base="' + baseBytes + '" title="Záznam + obrázek">' + formatBytes(baseBytes) + "</td>" +
               '<td><div class="row-actions">' +
                 '<button type="button" data-action="edit">Upravit</button>' +
                 '<button type="button" data-action="view">Zobrazit</button>' +
@@ -269,10 +300,28 @@
             "</tr>"
           );
         }).join("");
+
+        // Refine each size cell with the actual image byte size.
+        items.forEach(function (a) {
+          if (!a.image) return;
+          var cell = tbody.querySelector('tr[data-id="' + (window.CSS && CSS.escape ? CSS.escape(a.id) : a.id) + '"] .size-cell');
+          if (!cell) return;
+          fetchImageBytes(a.image).then(function (imgBytes) {
+            var base = parseInt(cell.getAttribute("data-base"), 10) || 0;
+            if (imgBytes != null) {
+              cell.textContent = formatBytes(base + imgBytes);
+              cell.title = "Záznam " + formatBytes(base) + " + obrázek " + formatBytes(imgBytes);
+            } else {
+              // Couldn't read image size (e.g. external host without CORS).
+              cell.textContent = formatBytes(base) + " + obr.";
+              cell.title = "Velikost obrázku nelze zjistit (externí zdroj)";
+            }
+          });
+        });
       })
       .catch(function (err) {
         if (err.status === 401) { showLogin(); return; }
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Chyba: ' + escapeHtml(err.message) + "</td></tr>";
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Chyba: ' + escapeHtml(err.message) + "</td></tr>";
       });
   }
 
