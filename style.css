@@ -45,6 +45,23 @@ body {
   color: var(--content-fg);
   background: var(--content-bg);
   -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;            /* guard against accidental horizontal scroll */
+}
+
+/* Brand shown directly in the mobile top bar (hidden on desktop). */
+.bar-brand {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--sidebar-fg);
+}
+.bar-brand .bar-logo {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border: 1px solid var(--sidebar-fg);
+  font-size: 0.8rem; font-weight: 700;
 }
 
 img { display: block; max-width: 100%; }
@@ -550,6 +567,13 @@ button { font: inherit; cursor: pointer; }
 
   .burger { display: block; }
 
+  /* Show the brand in the top bar */
+  .bar-brand { display: flex; margin-left: 20px; }
+
+  /* Bigger, full-width tap targets in the drawer */
+  .sidebar-nav { gap: 2px; }
+  .nav-link { padding: 14px 12px; font-size: 1rem; }
+
   .content {
     margin-left: 0;
     padding-top: calc(64px + 24px); /* leave room for fixed top bar */
@@ -558,6 +582,19 @@ button { font: inherit; cursor: pointer; }
   .card-grid { grid-template-columns: 1fr; }
   .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .contact-list { grid-template-columns: 1fr; }
+
+  .page-header { margin-bottom: 24px; }
+}
+
+/* ============================================================
+   RESPONSIVE — small phones
+   ============================================================ */
+@media (max-width: 460px) {
+  .content { padding-left: 16px; padding-right: 16px; }
+  .team-grid { grid-template-columns: 1fr; }
+  .card-body { padding: 14px 14px 6px; }
+  .card-tags { padding: 0 14px 14px; }
+  .bar-brand .bar-text-sub { display: none; }
 }
 
 /* ============================================================

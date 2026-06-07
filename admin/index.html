@@ -129,6 +129,28 @@
       opacity: 0; pointer-events: none; transition: opacity 180ms ease; z-index: 60;
     }
     .toast.is-visible { opacity: 1; }
+
+    /* ============================================================
+       RESPONSIVE — tablet / mobile
+       ============================================================ */
+    @media (max-width: 700px) {
+      .admin-shell { padding: 24px 16px 64px; }
+      .admin-header { gap: 12px; margin-bottom: 24px; }
+      .admin-header > div:last-child { width: 100%; }
+      .admin-header > div:last-child .btn { flex: 1; text-align: center; }
+      .panel { padding: 18px 16px; }
+      /* Table stays readable by scrolling horizontally inside .table-wrap;
+         tighten the cell padding so more fits on screen. */
+      .article-table { font-size: 0.86rem; }
+      .article-table th, .article-table td { padding: 10px 8px; }
+      .row-actions { flex-direction: column; }
+      .row-actions button { width: 100%; }
+      .toast { left: 16px; right: 16px; transform: none; text-align: center; }
+    }
+    @media (max-width: 420px) {
+      .login-card { padding: 24px 20px; }
+      .admin-header h1 { font-size: 1.4rem; }
+    }
   </style>
 </head>
 <body>
