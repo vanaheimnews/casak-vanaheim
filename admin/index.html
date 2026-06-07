@@ -10,6 +10,11 @@
   <style>
     /* Admin-only layout — inherits palette/typography from style.css */
     body { background: var(--content-bg); }
+
+    /* IMPORTANT: the [hidden] attribute must always win, otherwise the
+       display:grid on .login-screen below would keep the login overlay
+       visible even after a successful login. */
+    [hidden] { display: none !important; }
     .admin-shell {
       max-width: 1100px;
       margin: 0 auto;
@@ -131,7 +136,7 @@
   <!-- ============================================================
        LOGIN SCREEN (shown until authenticated)
        ============================================================ -->
-  <div class="login-screen" id="login-screen" hidden>
+  <div class="login-screen" id="login-screen">
     <div class="login-card">
       <h1>Administrace</h1>
       <p>Pro vstup zadejte heslo administrátora.</p>
