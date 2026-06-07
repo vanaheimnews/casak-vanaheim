@@ -39,8 +39,18 @@
      STATE
      ============================================================ */
   var ARTICLES = [];
+  var CONTENT = null;            // about/team/contact, loaded from /api/content
   var selectedTags = new Set();
   var PAGES = ["home", "articles", "about", "contact"];
+
+  /* Inline SVG icons for contact cards, keyed by type. */
+  var CONTACT_ICONS = {
+    Email:     '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+    YouTube:   '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none"/></svg>',
+    Instagram: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>',
+    Facebook:  '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8h3V4h-3a4 4 0 0 0-4 4v2H7v4h3v8h4v-8h3l1-4h-4V8a1 1 0 0 1 1-1z" fill="currentColor" stroke="none"/></svg>',
+    Odkaz:     '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>'
+  };
 
   /* ============================================================
      HELPERS
@@ -209,18 +219,66 @@
   function renderTeam() {
     var grid = $("#team-grid");
     if (!grid) return;
-    grid.innerHTML = TEAM.map(function (m) {
+    // Prefer team from the content store; fall back to the built-in list.
+    var team = (CONTENT && Array.isArray(CONTENT.team) && CONTENT.team.length) ? CONTENT.team : TEAM;
+    grid.innerHTML = team.map(function (m) {
+      var img = m.image
+        ? '<img src="' + escapeHtml(m.image) + '" alt="Fotografie: ' + escapeHtml(m.name) + '" loading="lazy" decoding="async">'
+        : "";
       return (
         '<article class="team-card">' +
-          '<div class="team-photo">' +
-            '<img src="' + escapeHtml(m.image) + '" alt="Fotografie: ' + escapeHtml(m.name) + '" loading="lazy" decoding="async">' +
-          "</div>" +
+          '<div class="team-photo">' + img + "</div>" +
           '<div class="team-body">' +
             '<h3 class="team-name">' + escapeHtml(m.name) + "</h3>" +
-            '<p class="team-role">' + escapeHtml(m.role) + "</p>" +
+            '<p class="team-role">' + escapeHtml(m.role || "") + "</p>" +
           "</div>" +
         "</article>"
       );
+    }).join("");
+  }
+
+  /* ============================================================
+     ABOUT TEXT (from content store)
+     ============================================================ */
+  function renderAbout() {
+    var box = $("#about-text");
+    if (!box || !CONTENT || !CONTENT.about) return;
+    var text = CONTENT.about.text || "";
+    // Split on blank lines into paragraphs.
+    var paras = text.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
+    if (paras.length === 0) return;
+    box.innerHTML = paras.map(function (p) {
+      return "<p>" + escapeHtml(p).replace(/\n/g, "<br>") + "</p>";
+    }).join("");
+  }
+
+  /* ============================================================
+     CONTACTS (from content store)
+     ============================================================ */
+  function renderContacts() {
+    var list = $("#contact-list");
+    var subtitle = $("#contact-subtitle");
+    if (!CONTENT || !CONTENT.contact) return;
+    if (subtitle && typeof CONTENT.contact.subtitle === "string") {
+      subtitle.textContent = CONTENT.contact.subtitle;
+    }
+    if (!list) return;
+    var items = Array.isArray(CONTENT.contact.items) ? CONTENT.contact.items : [];
+    if (items.length === 0) return; // keep fallback markup
+    list.innerHTML = items.map(function (c) {
+      var icon = CONTACT_ICONS[c.type] || CONTACT_ICONS.Odkaz;
+      var inner =
+        '<span class="contact-icon" aria-hidden="true">' + icon + "</span>" +
+        '<span class="contact-text">' +
+          '<span class="contact-label">' + escapeHtml(c.type) + "</span>" +
+          '<span class="contact-value">' + escapeHtml(c.label) + "</span>" +
+        "</span>";
+      if (c.url) {
+        var external = /^https?:/i.test(c.url);
+        var attrs = external ? ' target="_blank" rel="noopener"' : "";
+        return '<li><a class="contact-item" href="' + escapeHtml(c.url) + '"' + attrs + ">" + inner + "</a></li>";
+      }
+      return '<li><div class="contact-item">' + inner + "</div></li>";
     }).join("");
   }
 
@@ -264,6 +322,23 @@
       });
   }
 
+  function loadContent() {
+    return fetch("/api/content", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("API " + r.status);
+        return r.json();
+      })
+      .then(function (c) {
+        CONTENT = c;
+        renderAbout();
+        renderTeam();
+        renderContacts();
+      })
+      .catch(function () {
+        // Offline / API down — keep the static fallback markup in the HTML.
+      });
+  }
+
   /* ============================================================
      BOOT
      ============================================================ */
@@ -289,6 +364,9 @@
       renderTagFilter();
       renderArticles();
     });
+
+    // About text, team and contacts come from the content store.
+    loadContent();
 
     var initial = (location.hash || "#home").slice(1);
     showPage(initial);

@@ -101,7 +101,9 @@
         <h1 id="about-title" class="page-title">O nás</h1>
       </header>
 
-      <article class="prose">
+      <!-- Text is replaced dynamically by script.js from /api/content.
+           The paragraphs below act as a fallback if the API is unreachable. -->
+      <article class="prose" id="about-text">
         <p>
           Školní magazín vznikl v roce 2022 jako nápad několika studentů, kteří chtěli
           dát svým spolužákům prostor pro vlastní texty, ilustrace a komiksy.
@@ -128,10 +130,12 @@
     <section class="page" id="page-contact" aria-labelledby="contact-title" hidden>
       <header class="page-header">
         <h1 id="contact-title" class="page-title">Kontakt</h1>
-        <p class="page-lead">Napište nám nebo nás sledujte na sítích.</p>
+        <p class="page-lead" id="contact-subtitle">Napište nám nebo nás sledujte na sítích.</p>
       </header>
 
-      <ul class="contact-list">
+      <!-- Cards are replaced dynamically by script.js from /api/content.
+           The static items below act as a fallback if the API is unreachable. -->
+      <ul class="contact-list" id="contact-list">
         <li>
           <a class="contact-item" href="mailto:magazin@skola.cz">
             <span class="contact-icon" aria-hidden="true">
