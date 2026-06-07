@@ -72,7 +72,9 @@
         var json = null;
         try { json = text ? JSON.parse(text) : null; } catch (e) { /* not JSON */ }
         if (!r.ok) {
-          var msg = (json && json.error) || ("HTTP " + r.status);
+          // Prefer the detailed message so real causes (e.g. missing Blob
+          // token) surface in the toast instead of a generic "Server error".
+          var msg = (json && (json.detail || json.error)) || ("HTTP " + r.status);
           var err = new Error(msg);
           err.status = r.status;
           err.body = json;
