@@ -101,22 +101,9 @@
         <h1 id="about-title" class="page-title">O nás</h1>
       </header>
 
-      <!-- Text is replaced dynamically by script.js from /api/content.
-           The paragraphs below act as a fallback if the API is unreachable. -->
-      <article class="prose" id="about-text">
-        <p>
-          Školní magazín vznikl v roce 2022 jako nápad několika studentů, kteří chtěli
-          dát svým spolužákům prostor pro vlastní texty, ilustrace a komiksy.
-          Z malého newsletteru se postupně stal pravidelně vycházející časopis,
-          na kterém se podílí celá redakce.
-        </p>
-        <p>
-          Každý týden se scházíme ve čtvrtek odpoledne ve školní knihovně.
-          Plánujeme nové vydání, rozdělujeme témata, společně čteme rozpracované
-          texty a chystáme rozhovory. Jednou za měsíc vychází nové číslo —
-          tištěné i online.
-        </p>
-      </article>
+      <!-- Filled by script.js from cache (instant) then /api/content.
+           Left empty so a stale default never flashes before the real text. -->
+      <article class="prose" id="about-text"></article>
 
       <section class="team" aria-labelledby="team-title">
         <h2 id="team-title" class="section-title">Náš tým</h2>
@@ -133,84 +120,8 @@
         <p class="page-lead" id="contact-subtitle">Napište nám nebo nás sledujte na sítích.</p>
       </header>
 
-      <!-- Cards are replaced dynamically by script.js from /api/content.
-           The static items below act as a fallback if the API is unreachable. -->
-      <ul class="contact-list" id="contact-list">
-        <li>
-          <a class="contact-item" href="mailto:magazin@skola.cz">
-            <span class="contact-icon" aria-hidden="true">
-              <!-- mail -->
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="5" width="18" height="14" rx="2"/>
-                <path d="m3 7 9 6 9-6"/>
-              </svg>
-            </span>
-            <span class="contact-text">
-              <span class="contact-label">E-mail magazínu</span>
-              <span class="contact-value">magazin@skola.cz</span>
-            </span>
-          </a>
-        </li>
-        <li>
-          <a class="contact-item" href="mailto:info@skola.cz">
-            <span class="contact-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="5" width="18" height="14" rx="2"/>
-                <path d="m3 7 9 6 9-6"/>
-              </svg>
-            </span>
-            <span class="contact-text">
-              <span class="contact-label">E-mail školy</span>
-              <span class="contact-value">info@skola.cz</span>
-            </span>
-          </a>
-        </li>
-        <li>
-          <a class="contact-item" href="https://youtube.com/" target="_blank" rel="noopener">
-            <span class="contact-icon" aria-hidden="true">
-              <!-- youtube -->
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="5" width="20" height="14" rx="3"/>
-                <path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none"/>
-              </svg>
-            </span>
-            <span class="contact-text">
-              <span class="contact-label">YouTube školy</span>
-              <span class="contact-value">@nase-skola</span>
-            </span>
-          </a>
-        </li>
-        <li>
-          <a class="contact-item" href="https://instagram.com/" target="_blank" rel="noopener">
-            <span class="contact-icon" aria-hidden="true">
-              <!-- instagram -->
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="5"/>
-                <circle cx="12" cy="12" r="4"/>
-                <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
-              </svg>
-            </span>
-            <span class="contact-text">
-              <span class="contact-label">Instagram školy</span>
-              <span class="contact-value">@nase.skola</span>
-            </span>
-          </a>
-        </li>
-        <li>
-          <a class="contact-item" href="https://facebook.com/" target="_blank" rel="noopener">
-            <span class="contact-icon" aria-hidden="true">
-              <!-- facebook -->
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 8h3V4h-3a4 4 0 0 0-4 4v2H7v4h3v8h4v-8h3l1-4h-4V8a1 1 0 0 1 1-1z" fill="currentColor" stroke="none"/>
-              </svg>
-            </span>
-            <span class="contact-text">
-              <span class="contact-label">Facebook školy</span>
-              <span class="contact-value">/nase.skola</span>
-            </span>
-          </a>
-        </li>
-      </ul>
+      <!-- Filled by script.js from cache (instant) then /api/content. -->
+      <ul class="contact-list" id="contact-list"></ul>
     </section>
 
     <footer class="content-footer">

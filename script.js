@@ -308,6 +308,17 @@
   /* ============================================================
      DATA LOADING
      ============================================================ */
+  /* ---- localStorage cache so refreshes paint the last-known (correct)
+          data instantly, with no flash of default content. ---- */
+  var ARTICLES_CACHE_KEY = "vanaheim-articles-cache";
+  var CONTENT_CACHE_KEY = "vanaheim-content-cache";
+  function readCache(key) {
+    try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
+  }
+  function writeCache(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota/private mode */ }
+  }
+
   function loadArticles() {
     return fetch("/api/articles", { cache: "no-store" })
       .then(function (r) {
@@ -316,9 +327,10 @@
       })
       .then(function (items) {
         ARTICLES = Array.isArray(items) && items.length ? items : FALLBACK_ARTICLES;
+        writeCache(ARTICLES_CACHE_KEY, ARTICLES);
       })
       .catch(function () {
-        ARTICLES = FALLBACK_ARTICLES;
+        if (!ARTICLES.length) ARTICLES = FALLBACK_ARTICLES;
       });
   }
 
@@ -330,12 +342,13 @@
       })
       .then(function (c) {
         CONTENT = c;
+        writeCache(CONTENT_CACHE_KEY, c);
         renderAbout();
         renderTeam();
         renderContacts();
       })
       .catch(function () {
-        // Offline / API down — keep the static fallback markup in the HTML.
+        // Offline / API down — keep whatever was rendered from cache.
       });
   }
 
@@ -357,19 +370,36 @@
     wireNav();
     wireDrawer();
     wireTagFilter();
-    renderTeam();
 
+    // 1) Instant paint from cache (only what we actually have cached) so a
+    //    refresh shows the correct content immediately — no flash of default,
+    //    empty, or "no articles" states before the server responds.
+    var cachedArticles = readCache(ARTICLES_CACHE_KEY);
+    if (Array.isArray(cachedArticles) && cachedArticles.length) {
+      ARTICLES = cachedArticles;
+      renderHome();
+      renderTagFilter();
+      renderArticles();
+    }
+    var cachedContent = readCache(CONTENT_CACHE_KEY);
+    if (cachedContent) {
+      CONTENT = cachedContent;
+      renderAbout();
+      renderTeam();
+      renderContacts();
+    }
+
+    // 2) Reveal the initial tab (already populated from cache when available).
+    var initial = (location.hash || "#home").slice(1);
+    showPage(initial);
+
+    // 3) Refresh from the server and re-render (updates cache too).
     loadArticles().then(function () {
       renderHome();
       renderTagFilter();
       renderArticles();
     });
-
-    // About text, team and contacts come from the content store.
     loadContent();
-
-    var initial = (location.hash || "#home").slice(1);
-    showPage(initial);
   }
 
   if (document.readyState === "loading") {
