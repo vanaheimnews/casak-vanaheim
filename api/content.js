@@ -15,7 +15,6 @@ export default async function handler(req, res) {
   try {
     // Never let the CDN cache this API response.
     res.setHeader("Cache-Control", "no-store, max-age=0");
-    res.setHeader("X-Impl", "content-v3");
 
     if (req.method === "GET") {
       const content = await loadContent();
