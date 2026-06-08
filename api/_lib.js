@@ -3,10 +3,60 @@
  * Files prefixed with "_" are excluded from Vercel's route detection,
  * so this is import-only — not an HTTP endpoint.
  * ============================================================ */
-import { list, put } from "@vercel/blob";
+import { list, put, del } from "@vercel/blob";
 
 const ARTICLES_PATHNAME = "articles.json";
 const CONTENT_PATHNAME = "content.json";
+
+/* ----------------------------------------------------------------
+ * Mutable-JSON-in-Blob helper.
+ * Vercel Blob serves public URLs through a CDN whose edge cache is
+ * NOT purged when you overwrite the same pathname — so reads stay
+ * stale for the cache TTL. The reliable fix is to write a NEW unique
+ * URL every time (addRandomSuffix:true), read the most-recently
+ * uploaded one, and delete the older copies.
+ * ---------------------------------------------------------------- */
+// baseName is e.g. "articles" or "content" (the file is <base>.json).
+async function listVersions(baseName) {
+  const result = await list({ prefix: baseName, limit: 1000 });
+  const matches = (result.blobs || []).filter(function (b) {
+    return b.pathname === baseName + ".json" ||
+           b.pathname.startsWith(baseName + "-");
+  });
+  matches.sort(function (a, b) { return new Date(b.uploadedAt) - new Date(a.uploadedAt); });
+  return matches; // newest first
+}
+
+async function saveJson(baseName, value) {
+  const written = await put(baseName + ".json", JSON.stringify(value, null, 2), {
+    access: "public",
+    contentType: "application/json",
+    addRandomSuffix: true,     // brand-new URL each save -> never a stale CDN hit
+    cacheControlMaxAge: 0
+  });
+  // Best-effort cleanup of older versions (keep the one we just wrote).
+  try {
+    const versions = await listVersions(baseName);
+    const stale = versions
+      .filter(function (b) { return b.url !== written.url; })
+      .map(function (b) { return b.url; });
+    if (stale.length) await del(stale);
+  } catch (e) { /* cleanup is non-critical */ }
+  return written;
+}
+
+async function loadJson(baseName, fallback) {
+  try {
+    const versions = await listVersions(baseName);
+    if (!versions.length) return fallback;
+    const response = await fetch(versions[0].url, { cache: "no-store" });
+    if (!response.ok) return fallback;
+    return await response.json();
+  } catch (err) {
+    console.error("loadJson(" + baseName + ") failed", err);
+    return fallback;
+  }
+}
 const COOKIE_NAME = "vn_admin";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 14; // 14 days
 
@@ -71,44 +121,13 @@ export async function readJsonBody(req) {
  *  Public access so the static site can read it directly if needed.
  *  Writes go through the admin API endpoints only.
  * ------------------------------------------------------- */
-async function findArticlesBlob() {
-  const result = await list({ prefix: ARTICLES_PATHNAME, limit: 5 });
-  // Pick the most recently uploaded match.
-  const sorted = (result.blobs || [])
-    .filter((b) => b.pathname === ARTICLES_PATHNAME)
-    .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
-  return sorted[0] || null;
-}
-
-/* Append a unique query param so the Blob CDN can't serve a stale copy.
-   Public blob URLs are cached with a long TTL and overwriting the same
-   pathname does NOT purge the edge cache, so reads must bust it. */
-function bustUrl(url) {
-  return url + (url.indexOf("?") === -1 ? "?" : "&") + "v=" + Date.now();
-}
-
 export async function loadArticles() {
-  try {
-    const blob = await findArticlesBlob();
-    if (!blob) return [];
-    const response = await fetch(bustUrl(blob.url), { cache: "no-store" });
-    if (!response.ok) return [];
-    const data = await response.json();
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error("loadArticles failed", err);
-    return [];
-  }
+  const data = await loadJson("articles", []);
+  return Array.isArray(data) ? data : [];
 }
 
 export async function saveArticles(articles) {
-  await put(ARTICLES_PATHNAME, JSON.stringify(articles, null, 2), {
-    access: "public",
-    contentType: "application/json",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    cacheControlMaxAge: 0
-  });
+  await saveJson("articles", articles);
 }
 
 /* ---------------- site content store (Blob) ----------------
@@ -178,37 +197,14 @@ export function shapeContent(d) {
   };
 }
 
-async function findContentBlob() {
-  const result = await list({ prefix: CONTENT_PATHNAME, limit: 5 });
-  const sorted = (result.blobs || [])
-    .filter((b) => b.pathname === CONTENT_PATHNAME)
-    .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
-  return sorted[0] || null;
-}
-
 export async function loadContent() {
-  try {
-    const blob = await findContentBlob();
-    if (!blob) return DEFAULT_CONTENT;
-    const response = await fetch(bustUrl(blob.url), { cache: "no-store" });
-    if (!response.ok) return DEFAULT_CONTENT;
-    const data = await response.json();
-    return shapeContent(data);
-  } catch (err) {
-    console.error("loadContent failed", err);
-    return DEFAULT_CONTENT;
-  }
+  const data = await loadJson("content", null);
+  return data ? shapeContent(data) : DEFAULT_CONTENT;
 }
 
 export async function saveContent(content) {
   const shaped = shapeContent(content);
-  await put(CONTENT_PATHNAME, JSON.stringify(shaped, null, 2), {
-    access: "public",
-    contentType: "application/json",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    cacheControlMaxAge: 0
-  });
+  await saveJson("content", shaped);
   return shaped;
 }
 
