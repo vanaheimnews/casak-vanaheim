@@ -80,11 +80,18 @@ async function findArticlesBlob() {
   return sorted[0] || null;
 }
 
+/* Append a unique query param so the Blob CDN can't serve a stale copy.
+   Public blob URLs are cached with a long TTL and overwriting the same
+   pathname does NOT purge the edge cache, so reads must bust it. */
+function bustUrl(url) {
+  return url + (url.indexOf("?") === -1 ? "?" : "&") + "v=" + Date.now();
+}
+
 export async function loadArticles() {
   try {
     const blob = await findArticlesBlob();
     if (!blob) return [];
-    const response = await fetch(blob.url, { cache: "no-store" });
+    const response = await fetch(bustUrl(blob.url), { cache: "no-store" });
     if (!response.ok) return [];
     const data = await response.json();
     return Array.isArray(data) ? data : [];
@@ -99,7 +106,8 @@ export async function saveArticles(articles) {
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
-    allowOverwrite: true
+    allowOverwrite: true,
+    cacheControlMaxAge: 0
   });
 }
 
@@ -182,7 +190,7 @@ export async function loadContent() {
   try {
     const blob = await findContentBlob();
     if (!blob) return DEFAULT_CONTENT;
-    const response = await fetch(blob.url, { cache: "no-store" });
+    const response = await fetch(bustUrl(blob.url), { cache: "no-store" });
     if (!response.ok) return DEFAULT_CONTENT;
     const data = await response.json();
     return shapeContent(data);
@@ -198,7 +206,8 @@ export async function saveContent(content) {
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
-    allowOverwrite: true
+    allowOverwrite: true,
+    cacheControlMaxAge: 0
   });
   return shaped;
 }
