@@ -15,7 +15,7 @@
    ============================================================ */
 
 :root {
-  --brand:        #009ee0;   /* Scio light blue */
+  --brand:        #16a9e0;   /* Scio light blue — matches the logo cyan */
 
   /* header rows (kept under the old --sidebar-* names for compatibility) */
   --sidebar-bg:   #000000;
@@ -143,11 +143,12 @@ button { font: inherit; cursor: pointer; }
   letter-spacing: 0.04em;
 }
 
-/* Navigation */
+/* Navigation (right-aligned within the content width) */
 .site-nav {
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
+  margin-left: auto;   /* push the buttons to the right */
 }
 .nav-link {
   display: inline-block;
