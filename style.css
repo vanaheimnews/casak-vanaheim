@@ -322,15 +322,19 @@ button { font: inherit; cursor: pointer; }
   gap: 6px;
   padding: 0 16px 16px;
 }
-.card-tag {
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
+/* Badges (article tags + sidebar quick-tags) — soft branded pills */
+.card-tag,
+.badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 4px 8px;
-  border: 1px solid var(--content-rule);
-  border-radius: 2px;
-  color: var(--muted);
-  background: #fafafa;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #0a7bb0;
+  background: rgba(22, 169, 224, 0.12);
+  border: 1px solid rgba(22, 169, 224, 0.22);
 }
 
 /* ============================================================
@@ -534,6 +538,109 @@ button { font: inherit; cursor: pointer; }
 .content-footer p { margin: 24px 0 0; }
 
 /* ============================================================
+   HOME — editorial rule, eyebrow, featured card, sidebar
+   ============================================================ */
+/* Thin rule above the page header */
+.editorial-rule {
+  border: 0;
+  border-top: 1px solid #cccccc;
+  margin: 0 0 24px;
+}
+/* Small uppercase sub-header above the grid */
+.grid-eyebrow {
+  margin: 0 0 16px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Two-column layout: feed (left) + sidebar (right) */
+.home-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;   /* ~75% / 25% */
+  gap: 32px;
+  align-items: start;
+}
+.home-main { min-width: 0; }
+.home-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: sticky;
+  top: 20px;
+}
+
+/* Featured card — full width, image left + content right */
+.card--featured {
+  grid-column: 1 / -1;
+  grid-template-rows: auto;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+}
+.card--featured .card-media {
+  aspect-ratio: auto;
+  height: 100%;
+  min-height: 300px;
+}
+.card--featured .card-body {
+  padding: 24px 28px;
+  gap: 10px;
+  justify-content: center;
+}
+.card--featured .card-title { font-size: 1.6rem; line-height: 1.2; }
+.card--featured .card-tags { padding: 0; margin-top: 6px; }
+.card-eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+.card-excerpt {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+
+/* Sidebar widgets */
+.widget {
+  background: var(--surface);
+  border: 1px solid var(--content-rule);
+  border-radius: 8px;
+  padding: 18px 18px 20px;
+  box-shadow: var(--card-shadow);
+}
+.widget-title {
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--content-rule);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.widget p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+.widget-photo {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, #dfe6ec, #eef2f5);
+}
+.quick-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ============================================================
    FLOATING WHITE SURFACES on the gray background
    ============================================================ */
 .team-card,
@@ -556,6 +663,11 @@ button { font: inherit; cursor: pointer; }
 @media (max-width: 960px) {
   .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .team-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+  /* Sidebar drops below the feed and its widgets sit side by side */
+  .home-layout { grid-template-columns: 1fr; gap: 24px; }
+  .home-sidebar { position: static; flex-direction: row; flex-wrap: wrap; }
+  .home-sidebar .widget { flex: 1 1 260px; }
 }
 
 /* ============================================================
@@ -578,6 +690,13 @@ button { font: inherit; cursor: pointer; }
   .card-grid { grid-template-columns: 1fr; }
   .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .contact-list { grid-template-columns: 1fr; }
+
+  /* Featured card stacks (image on top) */
+  .card--featured { grid-template-columns: 1fr; }
+  .card--featured .card-media { aspect-ratio: 16 / 10; height: auto; min-height: 0; }
+  .card--featured .card-body { padding: 18px 16px; }
+  .card--featured .card-title { font-size: 1.3rem; }
+  .home-sidebar { flex-direction: column; }
 
   .page-header { margin-bottom: 24px; }
 }

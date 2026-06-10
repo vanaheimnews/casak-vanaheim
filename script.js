@@ -166,6 +166,41 @@
     );
   }
 
+  /* Featured card — full width, image left + title/meta/excerpt right. */
+  function buildFeaturedCard(article) {
+    var tagsHtml = (article.tags || []).map(function (t) {
+      return '<span class="card-tag">' + escapeHtml(t) + "</span>";
+    }).join("");
+    var authors = (article.authors || []).join(", ");
+    var kindLabel = article.kind === "comic" ? "Komiks" : "Článek";
+    var href = "./article.html?id=" + encodeURIComponent(article.id);
+    var imgHtml = article.image
+      ? '<img src="' + escapeHtml(article.image) + '" alt="" loading="lazy" decoding="async">'
+      : "";
+    // Build a short excerpt from the body.
+    var excerpt = String(article.body || "").trim().replace(/\s+/g, " ");
+    if (excerpt.length > 220) excerpt = excerpt.slice(0, 220).replace(/\s+\S*$/, "") + "…";
+
+    return (
+      '<article class="card card--featured" data-id="' + escapeHtml(article.id) + '">' +
+        '<a class="card-media" href="' + href + '" aria-label="' + escapeHtml(article.title) + '">' +
+          imgHtml +
+        "</a>" +
+        '<div class="card-body">' +
+          '<p class="card-eyebrow">Doporučujeme</p>' +
+          '<h2 class="card-title"><a href="' + href + '">' + escapeHtml(article.title) + "</a></h2>" +
+          '<div class="card-meta">' +
+            '<time datetime="' + escapeHtml(article.date) + '">' + escapeHtml(formatDate(article.date)) + "</time>" +
+            (authors ? "<span>" + escapeHtml(authors) + "</span>" : "") +
+            '<span aria-label="Typ příspěvku">' + kindLabel + "</span>" +
+          "</div>" +
+          (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + "</p>" : "") +
+          '<div class="card-tags">' + tagsHtml + "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+
   /* ============================================================
      RENDERERS
      ============================================================ */
@@ -173,9 +208,23 @@
     var grid = $("#home-grid");
     if (!grid) return;
     var newest = ARTICLES.slice().sort(byDateDesc).slice(0, 6);
-    grid.innerHTML = newest.length
-      ? newest.map(buildCard).join("")
-      : '<p class="empty-state" style="grid-column:1/-1;">Zatím žádné články.</p>';
+    if (newest.length === 0) {
+      grid.innerHTML = '<p class="empty-state" style="grid-column:1/-1;">Zatím žádné články.</p>';
+      return;
+    }
+    // First (newest) article is the featured card; the rest are normal cards.
+    grid.innerHTML = buildFeaturedCard(newest[0]) + newest.slice(1).map(buildCard).join("");
+    renderQuickTags();
+  }
+
+  /* Quick-tags widget — top categories as badges. */
+  function renderQuickTags() {
+    var box = $("#quick-tags");
+    if (!box) return;
+    var tags = getAllTags().slice(0, 5);
+    box.innerHTML = tags.map(function (t) {
+      return '<span class="badge">' + escapeHtml(t) + "</span>";
+    }).join("");
   }
 
   function getAllTags() {
