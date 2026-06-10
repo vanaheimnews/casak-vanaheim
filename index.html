@@ -10,43 +10,39 @@
   <a class="skip-link" href="#main">Přejít k obsahu</a>
 
   <!-- ============================================================
-       SIDEBAR (becomes top bar + drawer on mobile)
+       HEADER — full-width, two black rows + Scio-blue divider.
+       Keeps id="sidebar"/#burger/#sidebar-backdrop for the JS hooks.
        ============================================================ -->
-  <aside class="sidebar" id="sidebar" aria-label="Hlavní navigace">
-    <!-- Compact brand shown only in the mobile top bar -->
-    <a class="bar-brand" href="#home" data-page="home" aria-label="Školní magazín — domů">
-      <span class="bar-logo" aria-hidden="true">SM</span>
-      <span>Školní magazín</span>
-    </a>
-    <div class="sidebar-inner">
-      <!-- Brand -->
+  <header class="site-header" id="sidebar">
+    <!-- ROW 1: logo + title, centered -->
+    <div class="header-row header-row--top">
       <div class="brand">
+        <!-- Replace the "SM" placeholder with <img src="logo.png" alt="Scio"> -->
         <div class="brand-logo" aria-hidden="true">SM</div>
         <div class="brand-text">
           <p class="brand-title">Školní magazín</p>
           <p class="brand-subtitle">časopis studentů</p>
         </div>
       </div>
+    </div>
 
-      <hr class="sidebar-divider">
-
-      <!-- Navigation -->
-      <nav class="sidebar-nav" aria-label="Stránky">
-        <a href="#home"     class="nav-link is-active" data-page="home">Domovská stránka</a>
+    <!-- ROW 2: navigation, left aligned -->
+    <div class="header-row header-row--bottom">
+      <nav class="site-nav" aria-label="Hlavní navigace">
+        <a href="#home"     class="nav-link is-active" data-page="home">Domů</a>
         <a href="#articles" class="nav-link"           data-page="articles">Příspěvky</a>
         <a href="#about"    class="nav-link"           data-page="about">O nás</a>
         <a href="#contact"  class="nav-link"           data-page="contact">Kontakt</a>
       </nav>
+      <!-- Kept for JS drawer hooks; hidden by CSS (nav wraps on mobile) -->
+      <button class="burger" id="burger" type="button"
+              aria-controls="sidebar" aria-expanded="false" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
     </div>
+  </header>
 
-    <!-- Mobile burger (lives inside aside so it's positioned predictably) -->
-    <button class="burger" id="burger" type="button"
-            aria-controls="sidebar" aria-expanded="false" aria-label="Otevřít menu">
-      <span></span><span></span><span></span>
-    </button>
-  </aside>
-
-  <!-- Backdrop for mobile drawer -->
+  <!-- Kept for JS compatibility -->
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
   <!-- ============================================================

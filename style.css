@@ -2,31 +2,37 @@
    SCHOOL MAGAZINE — DESIGN SYSTEM
    ------------------------------------------------------------
    Palette
-     --sidebar-bg   #000000  Pure black sidebar
-     --sidebar-fg   #FFFFFF  White text on sidebar
-     --sidebar-rule #333333  Subtle divider in sidebar
-     --content-bg   #F5F5DC  Soft beige content background
-     --surface      #FFFFFF  Card / panel surface
-     --content-fg   #222222  Dark charcoal body text
+     --header-bg    #000000  Pure black header rows
+     --header-fg    #FFFFFF  White text on header
+     --brand        #009EE0  Scio light blue accent (divider, hover)
+     --content-bg   #EBF0F3  Soft slate gray content background
+     --surface      #FFFFFF  Card / panel surface (floats on the gray)
+     --content-fg   #1A1A1A  Dark charcoal body text
      --content-rule #DDDDDD  Subtle divider in content
-     --accent       #000000  Buttons / focus rings
+     --accent       #000000  Black buttons
    Spacing scale: 4 / 8 / 12 / 16 / 24 / 32 / 48
    Typography: system stack, body 16px, h1 ~2rem, h2 1.4rem
    ============================================================ */
 
 :root {
+  --brand:        #009ee0;   /* Scio light blue */
+
+  /* header rows (kept under the old --sidebar-* names for compatibility) */
   --sidebar-bg:   #000000;
   --sidebar-fg:   #ffffff;
   --sidebar-rule: #333333;
-  --content-bg:   #f5f5dc;
+
+  --content-bg:   #ebf0f3;   /* soft slate gray (alt: #f4f4f6) */
   --surface:      #ffffff;
-  --content-fg:   #222222;
-  --muted:        #666666;
-  --content-rule: #dddddd;
+  --content-fg:   #1a1a1a;
+  --muted:        #5b6770;
+  --content-rule: #e2e6ea;
   --accent:       #000000;
 
-  --sidebar-w: 270px;
-  --max-content: 1080px;
+  --card-shadow:  0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.05);
+  --card-shadow-hover: 0 8px 24px rgba(16, 24, 40, 0.10), 0 2px 6px rgba(16, 24, 40, 0.06);
+
+  --max-content: 1200px;
 
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
                Arial, "Noto Sans", sans-serif;
@@ -48,28 +54,12 @@ body {
   overflow-x: hidden;            /* guard against accidental horizontal scroll */
 }
 
-/* Brand shown directly in the mobile top bar (hidden on desktop). */
-.bar-brand {
-  display: none;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--sidebar-fg);
-}
-.bar-brand .bar-logo {
-  width: 34px; height: 34px;
-  display: grid; place-items: center;
-  border: 1px solid var(--sidebar-fg);
-  font-size: 0.8rem; font-weight: 700;
-}
-
 img { display: block; max-width: 100%; }
 a   { color: inherit; }
 button { font: inherit; cursor: pointer; }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
 
@@ -86,23 +76,36 @@ button { font: inherit; cursor: pointer; }
 .skip-link:focus { top: 12px; }
 
 /* ============================================================
-   SIDEBAR (desktop) — fixed left column
+   SITE HEADER — full-width, two black rows + Scio-blue divider.
+   Element keeps id="sidebar" plus #burger / #sidebar-backdrop so the
+   existing JavaScript (nav switching, drawer hooks) works unchanged.
    ============================================================ */
-.sidebar {
-  position: fixed;
-  inset: 0 auto 0 0;            /* top:0; bottom:0; left:0 */
-  width: var(--sidebar-w);
+.site-header {
+  width: 100%;
   background: var(--sidebar-bg);
   color: var(--sidebar-fg);
-  display: flex;
-  flex-direction: column;
+  position: relative;
   z-index: 30;
 }
 
-.sidebar-inner {
-  padding: 32px 24px;
-  overflow-y: auto;
-  flex: 1;
+/* ROW 1 — taller, brand centered */
+.header-row--top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px 20px;
+  border-bottom: 3px solid var(--brand);   /* crisp Scio-blue divider */
+}
+
+/* ROW 2 — shorter, navigation left-aligned (within the content width) */
+.header-row--bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: var(--max-content);
+  margin: 0 auto;
+  padding: 0 20px;
 }
 
 /* Brand */
@@ -110,70 +113,67 @@ button { font: inherit; cursor: pointer; }
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 24px;
 }
 .brand-logo {
   flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
+  width: 46px;
+  height: 46px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--sidebar-fg);
+  overflow: hidden;
+  border: 2px solid var(--brand);
+  color: var(--brand);
   font-weight: 700;
   letter-spacing: 0.04em;
   font-size: 1rem;
 }
-.brand-text { min-width: 0; }
+.brand-logo img { width: 100%; height: 100%; object-fit: contain; }  /* drop a logo PNG here */
+.brand-text { min-width: 0; text-align: left; }
 .brand-title {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: 1.25rem;
+  font-weight: 700;
   letter-spacing: 0.02em;
 }
 .brand-subtitle {
   margin: 2px 0 0;
   font-size: 0.78rem;
-  color: rgba(255,255,255,0.6);
+  color: rgba(255, 255, 255, 0.6);
   text-transform: lowercase;
   letter-spacing: 0.04em;
 }
 
-/* Divider */
-.sidebar-divider {
-  border: 0;
-  border-top: 1px solid var(--sidebar-rule);
-  margin: 0 0 24px;
-}
-
-/* Nav */
-.sidebar-nav {
+/* Navigation */
+.site-nav {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 2px;
 }
 .nav-link {
-  display: block;
-  padding: 10px 12px;
-  border-radius: 2px;
+  display: inline-block;
+  padding: 14px 16px;
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
   color: var(--sidebar-fg);
   text-decoration: none;
+  font: inherit;
   font-size: 0.95rem;
   letter-spacing: 0.01em;
-  border: 1px solid transparent;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  cursor: pointer;
+  transition: color 0.3s ease, border-color 0.3s ease;
 }
-.nav-link:hover { background: rgba(255,255,255,0.06); }
+.nav-link:hover { color: var(--brand); }
 .nav-link.is-active {
-  background: rgba(255,255,255,0.10);
-  border-color: var(--sidebar-rule);
+  color: var(--brand);
+  border-bottom-color: var(--brand);
 }
 
-/* Burger — hidden on desktop */
+/* Burger kept in the DOM for the JS drawer hooks; the header simply
+   wraps its nav on small screens, so the burger stays hidden. */
 .burger {
   display: none;
-  position: absolute;
-  top: 14px;
-  right: 14px;
+  margin-left: auto;
   width: 40px;
   height: 40px;
   background: transparent;
@@ -187,14 +187,13 @@ button { font: inherit; cursor: pointer; }
   height: 2px;
   margin: 4px auto;
   background: var(--sidebar-fg);
-  transition: transform 180ms ease, opacity 180ms ease;
 }
 
-/* Mobile drawer backdrop */
+/* Backdrop kept for JS compatibility (unused by the header layout) */
 .sidebar-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.45);
+  background: rgba(0, 0, 0, 0.45);
   z-index: 20;
 }
 .sidebar-backdrop[hidden] { display: none; }
@@ -203,11 +202,13 @@ button { font: inherit; cursor: pointer; }
    CONTENT
    ============================================================ */
 .content {
-  margin-left: var(--sidebar-w);   /* room for fixed sidebar */
-  min-height: 100vh;
+  width: 100%;
+  max-width: var(--max-content);   /* centered 1200px wrapper */
+  margin: 0 auto;
+  min-height: calc(100vh - 170px); /* keep the footer near the bottom */
   display: flex;
   flex-direction: column;
-  padding: 48px clamp(20px, 4vw, 48px) 0;
+  padding: 40px 20px 0;            /* 40px top, 20px sides */
 }
 
 .page-header { margin-bottom: 32px; }
@@ -253,12 +254,16 @@ button { font: inherit; cursor: pointer; }
   grid-template-rows: auto 1fr auto;
   background: var(--surface);
   border: 1px solid var(--content-rule);
-  border-radius: 4px;
+  border-radius: 8px;
   overflow: hidden;
-  /* Hover only changes border colour — no transform, no layout shift. */
-  transition: border-color 120ms ease;
+  box-shadow: var(--card-shadow);
+  /* Only shadow/border change on hover — no transform, no layout shift. */
+  transition: box-shadow 160ms ease, border-color 160ms ease;
 }
-.card:hover { border-color: #bbbbbb; }
+.card:hover {
+  border-color: #d2d7dc;
+  box-shadow: var(--card-shadow-hover);
+}
 
 .card-media {
   position: relative;
@@ -517,6 +522,23 @@ button { font: inherit; cursor: pointer; }
 .content-footer p { margin: 24px 0 0; }
 
 /* ============================================================
+   FLOATING WHITE SURFACES on the gray background
+   ============================================================ */
+.team-card,
+.contact-item,
+.prose,
+.tag-filter,
+.empty-state {
+  box-shadow: var(--card-shadow);
+}
+.team-card,
+.contact-item,
+.prose,
+.tag-filter { border-radius: 8px; }
+.contact-item { transition: box-shadow 160ms ease, border-color 160ms ease; }
+.contact-item:hover { box-shadow: var(--card-shadow-hover); }
+
+/* ============================================================
    RESPONSIVE — tablet
    ============================================================ */
 @media (max-width: 960px) {
@@ -525,58 +547,22 @@ button { font: inherit; cursor: pointer; }
 }
 
 /* ============================================================
-   RESPONSIVE — mobile (sidebar becomes top bar + drawer)
+   RESPONSIVE — mobile (double-row header stacks, nav wraps)
    ============================================================ */
 @media (max-width: 720px) {
-  :root { --sidebar-w: 0px; }
-
-  /* Sidebar collapses to a fixed top bar */
-  .sidebar {
-    inset: 0 0 auto 0;
-    width: 100%;
-    height: 64px;
-    flex-direction: row;
-    align-items: center;
-  }
-  .sidebar-inner {
-    /* The drawer panel — hidden by default, slides down when open. */
-    position: absolute;
-    top: 64px;
-    left: 0;
-    right: 0;
-    padding: 16px 20px 24px;
-    background: var(--sidebar-bg);
-    border-top: 1px solid var(--sidebar-rule);
-    transform: translateY(-110%);
-    transition: transform 220ms ease;
-    flex: none;
-    overflow-y: auto;
-    max-height: calc(100vh - 64px);
-  }
-  .sidebar.is-open .sidebar-inner { transform: translateY(0); }
-
-  /* Compact brand inside the bar */
-  .brand { margin: 0 0 0 20px; gap: 10px; }
-  .brand-logo { width: 36px; height: 36px; font-size: 0.85rem; }
-  .brand-title { font-size: 0.95rem; }
+  .header-row--top { padding: 16px; }
+  .brand-logo { width: 40px; height: 40px; }
+  .brand-title { font-size: 1.05rem; }
   .brand-subtitle { display: none; }
 
-  /* Inside the drawer the brand block is hidden (already shown in bar) */
-  .sidebar-inner .brand { display: none; }
-  .sidebar-inner .sidebar-divider { display: none; }
-
-  .burger { display: block; }
-
-  /* Show the brand in the top bar */
-  .bar-brand { display: flex; margin-left: 20px; }
-
-  /* Bigger, full-width tap targets in the drawer */
-  .sidebar-nav { gap: 2px; }
-  .nav-link { padding: 14px 12px; font-size: 1rem; }
+  .header-row--bottom { padding: 0 8px; }
+  /* Nav spreads across the row; items wrap cleanly if they don't fit. */
+  .site-nav { width: 100%; justify-content: space-between; }
+  .nav-link { padding: 12px 10px; font-size: 0.92rem; }
 
   .content {
-    margin-left: 0;
-    padding-top: calc(64px + 24px); /* leave room for fixed top bar */
+    padding: 28px 16px 0;
+    min-height: auto;
   }
 
   .card-grid { grid-template-columns: 1fr; }
@@ -590,11 +576,10 @@ button { font: inherit; cursor: pointer; }
    RESPONSIVE — small phones
    ============================================================ */
 @media (max-width: 460px) {
-  .content { padding-left: 16px; padding-right: 16px; }
   .team-grid { grid-template-columns: 1fr; }
   .card-body { padding: 14px 14px 6px; }
   .card-tags { padding: 0 14px 14px; }
-  .bar-brand .bar-text-sub { display: none; }
+  .nav-link { padding: 10px 8px; font-size: 0.88rem; }
 }
 
 /* ============================================================

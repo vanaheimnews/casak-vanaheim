@@ -47,34 +47,30 @@
 <body>
   <a class="skip-link" href="#main">Přejít k obsahu</a>
 
-  <!-- ===== Sidebar (same as index) ===== -->
-  <aside class="sidebar" id="sidebar" aria-label="Hlavní navigace">
-    <!-- Compact brand shown only in the mobile top bar -->
-    <a class="bar-brand" href="./#home" aria-label="Školní magazín — domů">
-      <span class="bar-logo" aria-hidden="true">SM</span>
-      <span>Školní magazín</span>
-    </a>
-    <div class="sidebar-inner">
-      <div class="brand">
+  <!-- ===== Header (same double-row layout as index) ===== -->
+  <header class="site-header" id="sidebar">
+    <div class="header-row header-row--top">
+      <a class="brand" href="./#home" style="text-decoration:none;">
         <div class="brand-logo" aria-hidden="true">SM</div>
         <div class="brand-text">
           <p class="brand-title">Školní magazín</p>
           <p class="brand-subtitle">časopis studentů</p>
         </div>
-      </div>
-      <hr class="sidebar-divider">
-      <nav class="sidebar-nav" aria-label="Stránky">
-        <a href="./#home"     class="nav-link">Domovská stránka</a>
+      </a>
+    </div>
+    <div class="header-row header-row--bottom">
+      <nav class="site-nav" aria-label="Hlavní navigace">
+        <a href="./#home"     class="nav-link">Domů</a>
         <a href="./#articles" class="nav-link">Příspěvky</a>
         <a href="./#about"    class="nav-link">O nás</a>
         <a href="./#contact"  class="nav-link">Kontakt</a>
       </nav>
+      <button class="burger" id="burger" type="button"
+              aria-controls="sidebar" aria-expanded="false" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
     </div>
-    <button class="burger" id="burger" type="button"
-            aria-controls="sidebar" aria-expanded="false" aria-label="Otevřít menu">
-      <span></span><span></span><span></span>
-    </button>
-  </aside>
+  </header>
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
   <main id="main" class="content">
