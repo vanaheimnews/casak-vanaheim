@@ -14,8 +14,14 @@
        Keeps id="sidebar"/#burger/#sidebar-backdrop for the JS hooks.
        ============================================================ -->
   <header class="site-header" id="sidebar">
-    <!-- ROW 1: logo, centered -->
-    <div class="header-row header-row--top">
+    <!-- ROW 1: logo on the LEFT + inline-SVG "split" divider framing it -->
+    <div class="header-top">
+      <svg class="header-divider" width="100%" height="96" aria-hidden="true" focusable="false">
+        <!-- single line from the right + top branch (bends up, over the logo) -->
+        <path class="hd-line" d="M4000 48 L253 48 L207 2 L0 2" vector-effect="non-scaling-stroke"/>
+        <!-- bottom branch (peels off further right, bends down, under the logo) -->
+        <path class="hd-line" d="M273 48 L227 94 L0 94" vector-effect="non-scaling-stroke"/>
+      </svg>
       <a class="site-logo" href="#home" data-page="home" aria-label="Vanaheim News — domů">
         <img src="/logo.png" alt="Vanaheim News — By Expediční Střední ScioŠkola">
       </a>

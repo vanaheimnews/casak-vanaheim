@@ -88,13 +88,38 @@ button { font: inherit; cursor: pointer; }
   z-index: 30;
 }
 
-/* ROW 1 — taller, brand centered */
-.header-row--top {
+/* ROW 1 — logo on the LEFT, vertically centered, with the inline-SVG
+   "split" divider behind it. Height is fixed so the SVG geometry (drawn
+   in 1:1 pixel units) frames the logo exactly. overflow:hidden clips the
+   divider's long right-hand segment to the current header width. */
+.header-top {
+  position: relative;
+  height: 96px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 22px 20px;
-  border-bottom: 3px solid var(--brand);   /* crisp Scio-blue divider */
+  align-items: center;        /* vertical centering of the logo */
+  padding-left: 24px;         /* left edge gap */
+  overflow: hidden;
+}
+
+/* The split divider.
+   No viewBox  -> 1 user unit == 1 px, so the 45° angles NEVER skew and the
+   stroke never scales when the header resizes; the right segment (drawn far
+   off-canvas at x=4000) is simply clipped to the header width. */
+.header-divider {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+.header-divider .hd-line {
+  fill: none;
+  stroke: var(--brand);              /* Scio light blue (matches logo) */
+  stroke-width: 3;
+  stroke-linejoin: miter;            /* keeps the 45° corners crisp */
+  stroke-linecap: square;
+  vector-effect: non-scaling-stroke; /* stroke stays 3px at any size */
 }
 
 /* ROW 2 — shorter, navigation left-aligned (within the content width) */
@@ -143,14 +168,18 @@ button { font: inherit; cursor: pointer; }
   letter-spacing: 0.04em;
 }
 
-/* Logo image — centered in the taller top row */
+/* Logo image — left, vertically centered, sits above the divider and is
+   framed by the bracket. Kept a fixed size across breakpoints so the fixed
+   SVG geometry always clears it. */
 .site-logo {
+  position: relative;
+  z-index: 2;
   display: inline-flex;
   line-height: 0;
 }
 .site-logo img {
   display: block;
-  height: 84px;
+  height: 64px;
   width: auto;
 }
 
@@ -674,8 +703,7 @@ button { font: inherit; cursor: pointer; }
    RESPONSIVE — mobile (double-row header stacks, nav wraps)
    ============================================================ */
 @media (max-width: 720px) {
-  .header-row--top { padding: 16px; }
-  .site-logo img { height: 56px; }
+  .header-top { padding-left: 16px; }
 
   .header-row--bottom { padding: 0 8px; }
   /* Nav spreads across the row; items wrap cleanly if they don't fit. */
