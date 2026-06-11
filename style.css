@@ -94,10 +94,7 @@ button { font: inherit; cursor: pointer; }
    divider's long right-hand segment to the current header width. */
 .header-top {
   position: relative;
-  height: 124px;
-  display: flex;
-  align-items: center;        /* vertical centering of the logo */
-  padding-left: 28px;         /* left edge gap */
+  height: 188px;              /* whole header; line + bracket centered within */
   overflow: hidden;
 }
 
@@ -122,15 +119,19 @@ button { font: inherit; cursor: pointer; }
   vector-effect: non-scaling-stroke; /* stroke stays 3px at any size */
 }
 
-/* ROW 2 — shorter, navigation left-aligned (within the content width) */
-.header-row--bottom {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* Navigation — pinned bottom-right of the header, below the centered line */
+.site-nav {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
   width: 100%;
   max-width: var(--max-content);
-  margin: 0 auto;
   padding: 0 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  z-index: 2;
 }
 
 /* Brand */
@@ -168,27 +169,21 @@ button { font: inherit; cursor: pointer; }
   letter-spacing: 0.04em;
 }
 
-/* Logo image — left, vertically centered, sits above the divider and is
-   framed by the bracket. Kept a fixed size across breakpoints so the fixed
-   SVG geometry always clears it. */
+/* Logo image — left, vertically centered in the whole header, framed by the
+   bracket. Fixed size so the fixed SVG geometry always clears it. */
 .site-logo {
-  position: relative;
+  position: absolute;
+  left: 32px;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 2;
   display: inline-flex;
   line-height: 0;
 }
 .site-logo img {
   display: block;
-  height: 84px;
+  height: 104px;       /* bigger logo */
   width: auto;
-}
-
-/* Navigation (right-aligned within the content width) */
-.site-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  margin-left: auto;   /* push the buttons to the right */
 }
 .nav-link {
   display: inline-block;
@@ -703,11 +698,17 @@ button { font: inherit; cursor: pointer; }
    RESPONSIVE — mobile (double-row header stacks, nav wraps)
    ============================================================ */
 @media (max-width: 720px) {
-  .header-top { padding-left: 16px; }
-
-  .header-row--bottom { padding: 0 8px; }
-  /* Nav spreads across the row; items wrap cleanly if they don't fit. */
-  .site-nav { width: 100%; justify-content: space-between; }
+  /* Header stacks: logo on top, nav below a simple blue rule (no bracket). */
+  .header-top { height: auto; overflow: visible; }
+  .header-divider { display: none; }
+  .site-logo { position: static; transform: none; padding: 14px 0 14px 16px; }
+  .site-logo img { height: 58px; }
+  .site-nav {
+    position: static; transform: none;
+    width: 100%; max-width: none; padding: 8px 8px;
+    justify-content: flex-start; flex-wrap: wrap;
+    border-top: 3px solid var(--brand);
+  }
   .nav-link { padding: 12px 10px; font-size: 0.92rem; }
 
   .content {
