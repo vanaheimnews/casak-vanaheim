@@ -94,10 +94,10 @@ button { font: inherit; cursor: pointer; }
    divider's long right-hand segment to the current header width. */
 .header-top {
   position: relative;
-  height: 96px;
+  height: 124px;
   display: flex;
   align-items: center;        /* vertical centering of the logo */
-  padding-left: 24px;         /* left edge gap */
+  padding-left: 28px;         /* left edge gap */
   overflow: hidden;
 }
 
@@ -179,7 +179,7 @@ button { font: inherit; cursor: pointer; }
 }
 .site-logo img {
   display: block;
-  height: 64px;
+  height: 84px;
   width: auto;
 }
 
