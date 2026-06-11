@@ -94,7 +94,7 @@ button { font: inherit; cursor: pointer; }
    divider's long right-hand segment to the current header width. */
 .header-top {
   position: relative;
-  height: 188px;              /* whole header; line + bracket centered within */
+  height: 220px;              /* whole header; line + bracket centered within */
   overflow: hidden;
 }
 
@@ -173,7 +173,7 @@ button { font: inherit; cursor: pointer; }
    bracket. Fixed size so the fixed SVG geometry always clears it. */
 .site-logo {
   position: absolute;
-  left: 32px;
+  left: 36px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 2;
@@ -182,7 +182,7 @@ button { font: inherit; cursor: pointer; }
 }
 .site-logo img {
   display: block;
-  height: 104px;       /* bigger logo */
+  height: 128px;       /* bigger logo */
   width: auto;
 }
 .nav-link {
