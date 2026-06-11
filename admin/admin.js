@@ -21,6 +21,8 @@
   var loginError  = document.querySelector("#login-error");
   var shell       = document.querySelector("#admin-shell");
   var logoutBtn   = document.querySelector("#logout-btn");
+  var headerNav   = document.querySelector("#admin-headernav");  // admin buttons in the header
+  var adminTag    = document.querySelector("#admin-tag");
 
   var form        = document.querySelector("#article-form");
   var fId         = document.querySelector("#f-id");
@@ -165,11 +167,15 @@
   function showLogin() {
     loginScreen.hidden = false;
     shell.hidden = true;
+    if (headerNav) headerNav.hidden = true;   // hide admin controls until logged in
+    if (adminTag) adminTag.hidden = true;
     setTimeout(function () { loginPass.focus(); }, 0);
   }
   function showShell() {
     loginScreen.hidden = true;
     shell.hidden = false;
+    if (headerNav) headerNav.hidden = false;   // reveal admin controls in the header
+    if (adminTag) adminTag.hidden = false;
     refreshTable();
   }
 

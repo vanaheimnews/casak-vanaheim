@@ -746,9 +746,8 @@ button { font: inherit; cursor: pointer; }
    live inline in admin/index.html.
    ============================================================ */
 .admin-layout {
-  display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
-  min-height: 100vh;
+  display: block;        /* single column — admin nav now lives in the header */
+  min-height: 50vh;
 }
 
 /* Left black sidebar */
@@ -787,32 +786,33 @@ button { font: inherit; cursor: pointer; }
   padding-top: 20px;
   border-top: 1px solid var(--sidebar-rule);
 }
-/* Shared link/button look inside the sidebar */
+/* Admin nav buttons — horizontal, in the header (same look as .nav-link) */
 .admin-nav-link {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 11px 12px;
-  border: 1px solid transparent;
-  border-radius: 2px;
+  display: inline-block;
+  padding: 12px 12px;
   background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
   color: var(--sidebar-fg);
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition: color 0.3s ease, border-color 0.3s ease;
 }
-.admin-nav-link:hover { background: rgba(255, 255, 255, 0.06); }
+.admin-nav-link:hover { color: var(--brand); }
 .admin-nav-link.is-active {
-  background: rgba(255, 255, 255, 0.10);
-  border-color: var(--sidebar-rule);
+  color: var(--brand);
+  border-bottom-color: var(--brand);
 }
 
-/* Right scrollable content */
+/* Main content — centered like the public site */
 .admin-main {
   min-width: 0;
-  padding: clamp(24px, 4vw, 50px);
+  max-width: var(--max-content);
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 48px) 20px;
   background: var(--content-bg);
 }
 .admin-section-title {

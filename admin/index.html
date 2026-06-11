@@ -13,6 +13,43 @@
     /* The [hidden] attribute must always win over any display rule below. */
     [hidden] { display: none !important; }
 
+    /* Small "Admin" tag, sitting just above the centered blue line, aligned
+       to the right with the nav (within the content width). */
+    .admin-tag {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      top: 70px;
+      width: 100%;
+      max-width: var(--max-content);
+      padding: 0 22px;
+      text-align: right;
+      color: var(--brand);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.34em;
+      text-transform: uppercase;
+      z-index: 2;
+    }
+    /* Admin has 5 wider buttons, so stack the header earlier (<=900px) to
+       avoid the nav colliding with the logo. */
+    @media (max-width: 900px) {
+      .header-top { height: auto; overflow: visible; }
+      .header-divider { display: none; }
+      .site-logo { position: static; transform: none; padding: 14px 0 14px 16px; }
+      .site-logo img { height: 64px; }
+      .admin-tag {
+        position: static; transform: none; max-width: none; top: auto;
+        display: block; text-align: left; padding: 12px 0 4px 16px;
+      }
+      .site-nav {
+        position: static; transform: none; width: 100%; max-width: none;
+        padding: 8px 8px; justify-content: flex-start; flex-wrap: wrap;
+        border-top: 3px solid var(--brand);
+      }
+      .admin-nav-link { padding: 10px 10px; font-size: 0.9rem; }
+    }
+
     .panel {
       background: var(--surface); border: 1px solid var(--content-rule);
       border-radius: 4px; padding: 24px;
@@ -116,8 +153,8 @@
 <body>
 
   <!-- ============================================================
-       HEADER — same branded header as the public site
-       (nav links point to the public site)
+       HEADER — branded header with the admin controls in it
+       (replaces the old left sidebar). Same buttons/functions.
        ============================================================ -->
   <header class="site-header">
     <div class="header-top">
@@ -128,11 +165,17 @@
       <a class="site-logo" href="/" aria-label="Vanaheim News — web">
         <img src="/logo.png" alt="Vanaheim News — By Expediční Střední ScioŠkola">
       </a>
-      <nav class="site-nav" aria-label="Navigace webu">
-        <a href="/#home"     class="nav-link">Domů</a>
-        <a href="/#articles" class="nav-link">Příspěvky</a>
-        <a href="/#about"    class="nav-link">O nás</a>
-        <a href="/#contact"  class="nav-link">Kontakt</a>
+
+      <!-- small ADMIN tag above the middle blue line -->
+      <span class="admin-tag" id="admin-tag" aria-hidden="true" hidden>Admin</span>
+
+      <!-- admin controls (shown after login) — same buttons + functions as before -->
+      <nav class="site-nav" id="admin-headernav" aria-label="Administrace" hidden>
+        <button type="button" class="admin-nav-link is-active" data-tab="articles">Správa příspěvků</button>
+        <button type="button" class="admin-nav-link" data-tab="about">Správa O nás</button>
+        <button type="button" class="admin-nav-link" data-tab="contact">Správa Kontaktů</button>
+        <a class="admin-nav-link" href="/">Zobrazit web</a>
+        <button type="button" class="admin-nav-link" id="logout-btn">Odhlásit</button>
       </nav>
     </div>
   </header>
@@ -153,24 +196,9 @@
   </div>
 
   <!-- ============================================================
-       DASHBOARD (two-column: black sidebar + scrollable content)
+       DASHBOARD (single column; admin controls live in the header)
        ============================================================ -->
   <div class="admin-layout" id="admin-shell" hidden>
-
-    <!-- ===== Sidebar ===== -->
-    <aside class="admin-sidebar">
-      <div class="admin-brand">Vanaheim Admin</div>
-      <hr class="admin-divider">
-      <nav class="admin-nav" aria-label="Sekce administrace">
-        <button type="button" class="admin-nav-link is-active" data-tab="articles">Správa příspěvků</button>
-        <button type="button" class="admin-nav-link" data-tab="about">Správa O nás</button>
-        <button type="button" class="admin-nav-link" data-tab="contact">Správa Kontaktů</button>
-      </nav>
-      <div class="admin-sidebar-footer">
-        <a class="admin-nav-link" href="/">Zobrazit web</a>
-        <button type="button" class="admin-nav-link" id="logout-btn">Odhlásit</button>
-      </div>
-    </aside>
 
     <!-- ===== Main content ===== -->
     <main class="admin-main">
