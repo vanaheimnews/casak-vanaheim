@@ -722,7 +722,13 @@
     confirmCancel: document.querySelector("#ed-confirm-cancel"),
     backNoChange: document.querySelector("#ed-back-nochange"),
     backChange:   document.querySelector("#ed-back-change"),
-    deleteBtn:    document.querySelector("#ed-delete")
+    deleteBtn:    document.querySelector("#ed-delete"),
+    author:    document.querySelector("#ed-author"),
+    tags:      document.querySelector("#ed-tags"),
+    kind:      document.querySelector("#ed-kind"),
+    date:      document.querySelector("#ed-date"),
+    dateField: document.querySelector("#ed-date-field"),
+    schedHint: document.querySelector("#ed-sched-hint")
   };
 
   // ----- editor state -----
@@ -782,6 +788,13 @@
         });
       }
     }
+    // load metadata into the left sidebar (mirrors the article form)
+    EDITOR.author.value = fAuthors.value || "";
+    EDITOR.tags.value = fTags.value || "";
+    EDITOR.kind.value = fKind.value || "article";
+    EDITOR.date.value = fDate.value || today();
+    edUpdateSchedule();
+
     ED.snapshot = JSON.stringify(ED.elements);
     ED.selectedId = null;
     ED.editingId = null;
@@ -789,6 +802,16 @@
     edSetToolsVisible(false);
     EDITOR.overlay.hidden = false;
   }
+
+  // purple border + hint when a future publish date is chosen
+  function edUpdateSchedule() {
+    var v = EDITOR.date.value;
+    var future = !!v && v > today();   // yyyy-mm-dd string compare is chronological
+    EDITOR.dateField.classList.toggle("is-scheduled", future);
+    EDITOR.schedHint.hidden = !future;
+  }
+  EDITOR.date.addEventListener("input", edUpdateSchedule);
+  EDITOR.date.addEventListener("change", edUpdateSchedule);
   function edClose() {
     edCloseColorPanel();
     EDITOR.overlay.hidden = true;
@@ -804,6 +827,11 @@
       .filter(Boolean)
       .join("\n\n");
     fBody.value = bodyText;
+    // commit metadata from the left sidebar back into the article form
+    fAuthors.value = EDITOR.author.value;
+    fTags.value = EDITOR.tags.value;
+    fKind.value = EDITOR.kind.value;
+    fDate.value = EDITOR.date.value || today();
   }
 
   /* ---------- rendering ---------- */

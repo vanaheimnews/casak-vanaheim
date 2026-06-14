@@ -1054,23 +1054,85 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--content-rule); border-radius: 4px; font: inherit; font-size: 0.85rem;
 }
 
-/* ---- Canvas ---- */
+/* ---- Body row: left meta sidebar + canvas ---- */
+.ed-body {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+  margin: 0 12px 12px;
+}
+
+/* Left metadata sidebar */
+.ed-side {
+  flex: 0 0 248px;
+  overflow: auto;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--content-rule);
+  border-radius: 8px;
+}
+.ed-side-title {
+  margin: 0 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--content-rule);
+  font-size: 0.95rem; font-weight: 700;
+}
+.ed-side label {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+}
+.ed-side input, .ed-side select {
+  width: 100%; min-height: 38px; margin-top: 6px;
+  padding: 6px 10px; border: 1px solid var(--content-rule); border-radius: 4px;
+  font: inherit; font-size: 0.92rem; text-transform: none; letter-spacing: 0; color: var(--content-fg);
+  background: var(--surface);
+}
+/* scheduling: purple border when a future date is chosen */
+.ed-date-field {
+  display: block; margin-top: 6px;
+  border: 2px solid transparent; border-radius: 6px; padding: 2px;
+  transition: border-color 150ms ease;
+}
+.ed-date-field input { margin-top: 0; border: 1px solid var(--content-rule); }
+.ed-date-field.is-scheduled { border: 2px solid purple; }
+.ed-sched-hint {
+  display: block; margin-top: 6px;
+  font-size: 0.72rem; text-transform: none; letter-spacing: 0; color: purple; font-weight: 600;
+}
+.ed-sched-hint[hidden] { display: none; }
+
+/* Canvas — white "paper" that mimics the public reader view */
 .ed-canvas-wrap {
   flex: 1 1 auto;
   overflow: auto;
-  margin: 0 12px 12px;
-  background:
-    repeating-linear-gradient(0deg, #e9eef2 0 1px, transparent 1px 24px),
-    repeating-linear-gradient(90deg, #e9eef2 0 1px, transparent 1px 24px),
-    #f7f9fb;
+  padding: 24px;
+  background: var(--content-bg);
   border: 1px solid var(--content-rule);
   border-radius: 8px;
 }
 .ed-canvas {
   position: relative;
-  width: 100%;
-  min-height: 1200px;
+  width: 820px;
+  max-width: 100%;
+  min-height: 1100px;
   margin: 0 auto;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 2px 18px rgba(16, 24, 40, 0.12);
+}
+
+/* Custom selection highlight on canvas text (no default blue/white) */
+.ed-el-content::selection,
+.ed-el-content *::selection {
+  background: rgba(22, 169, 224, 0.18);
+  color: inherit;
+}
+.ed-el-content::-moz-selection,
+.ed-el-content *::-moz-selection {
+  background: rgba(22, 169, 224, 0.18);
+  color: inherit;
 }
 
 /* ---- Element boxes ---- */
@@ -1160,4 +1222,7 @@ button { font: inherit; cursor: pointer; }
 @media (max-width: 720px) {
   .ed-bar2 { flex-direction: column; }
   .ed-bar2-left, .ed-bar2-right { width: 100%; flex-wrap: wrap; }
+  .ed-body { flex-direction: column; }
+  .ed-side { flex: 0 0 auto; }
+  .ed-canvas { width: 100%; }
 }

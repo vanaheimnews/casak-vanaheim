@@ -7,7 +7,7 @@
  *   DELETE ?id=<id>     -> delete article (admin only)
  * ============================================================ */
 import {
-  loadArticles, saveArticles, requireAdmin, readJsonBody, shapeArticle, uid
+  loadArticles, saveArticles, requireAdmin, isAdmin, readJsonBody, shapeArticle, uid
 } from "./_lib.js";
 
 export default async function handler(req, res) {
@@ -16,15 +16,24 @@ export default async function handler(req, res) {
     const id = url.searchParams.get("id");
 
     if (req.method === "GET") {
+      // Response varies by auth (admins see scheduled articles) — never cache it.
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       const items = await loadArticles();
+      // Scheduling: articles with a future publish date are hidden from the
+      // public until that calendar day; admins (signed-in) always see them.
+      const today = new Date().toISOString().slice(0, 10);
+      const admin = isAdmin(req);
+      const isPublished = (a) => admin || !a.date || a.date <= today;
+
       if (id) {
         const found = items.find((a) => a.id === id);
-        if (!found) return res.status(404).json({ error: "Not found" });
+        if (!found || !isPublished(found)) return res.status(404).json({ error: "Not found" });
         return res.status(200).json(found);
       }
-      // Newest first
-      items.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-      return res.status(200).json(items);
+      // Newest first, filtered for scheduling
+      const visible = items.filter(isPublished);
+      visible.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      return res.status(200).json(visible);
     }
 
     if (req.method === "POST") {

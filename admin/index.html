@@ -457,9 +457,32 @@
         </div>
       </div>
 
-      <!-- Canvas -->
-      <div class="ed-canvas-wrap">
-        <div class="ed-canvas" id="ed-canvas"></div>
+      <!-- Body: left meta sidebar + canvas -->
+      <div class="ed-body">
+        <aside class="ed-side">
+          <h3 class="ed-side-title">Metadata</h3>
+          <label>Autor / Autoři (čárkou)
+            <input type="text" id="ed-author" placeholder="Anna Nováková">
+          </label>
+          <label>Štítky (čárkou)
+            <input type="text" id="ed-tags" placeholder="Komiks, Humor">
+          </label>
+          <label>Typ
+            <select id="ed-kind">
+              <option value="article">Článek</option>
+              <option value="comic">Komiks</option>
+            </select>
+          </label>
+          <label>Datum vydání
+            <span class="ed-date-field" id="ed-date-field"><input type="date" id="ed-date"></span>
+            <span class="ed-sched-hint" id="ed-sched-hint" hidden>Naplánováno — vyjde v tento den.</span>
+          </label>
+        </aside>
+
+        <!-- Canvas (white paper, mimics the public reader view) -->
+        <div class="ed-canvas-wrap">
+          <div class="ed-canvas" id="ed-canvas"></div>
+        </div>
       </div>
     </div>
   </div>
