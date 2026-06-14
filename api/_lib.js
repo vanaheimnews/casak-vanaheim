@@ -233,6 +233,8 @@ export function shapeArticle(data) {
                     .filter(Boolean),
     date:     data.date || new Date().toISOString().slice(0, 10),
     kind:     data.kind === "comic" ? "comic" : "article",
+    // Visual-editor layout: array of positioned element objects (optional).
+    elements: Array.isArray(data.elements) ? data.elements : [],
     updatedAt: new Date().toISOString()
   };
 }

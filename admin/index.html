@@ -214,12 +214,17 @@
             <h2 id="form-title">Nový příspěvek</h2>
             <form class="form-grid" id="article-form" autocomplete="off">
               <input type="hidden" id="f-id">
+              <input type="hidden" id="f-elements">
               <label>Název
                 <input type="text" id="f-title" required maxlength="200">
               </label>
               <label>Tělo / Obsah článku
                 <textarea id="f-body" placeholder="Text příspěvku…"></textarea>
+                <span class="help">Vizuální rozvržení (přetahování bloků, formátování) upravíte v editoru níže. Toto pole drží čistý text jako záloha.</span>
               </label>
+              <div class="form-actions">
+                <button class="btn" type="button" id="open-editor-btn" style="background:var(--brand);border-color:var(--brand);color:#fff;">Otevřít vizuální editor</button>
+              </div>
               <label>Obrázek (URL nebo nahrát soubor)
                 <input type="url" id="f-image-url" placeholder="https://...">
                 <input type="file" id="f-image-file" accept="image/*">
@@ -403,6 +408,73 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ============================================================
+       VISUAL ARTICLE EDITOR (Canva + Google-Docs hybrid)
+       ============================================================ -->
+  <div class="ed-overlay" id="editor-overlay" hidden>
+    <div class="ed-workspace">
+
+      <!-- Bar 1 — top control bar (blue border) -->
+      <div class="ed-bar1">
+        <button class="ed-btn" type="button" id="ed-back-nochange">Zpět bez změn</button>
+        <button class="ed-btn" type="button" id="ed-back-change">Zpět se změnami</button>
+        <button class="ed-btn ed-btn--danger" type="button" id="ed-delete">Smazat</button>
+        <span class="ed-spacer">Vizuální editor článku</span>
+      </div>
+
+      <!-- Bar 2 — tools & formatting -->
+      <div class="ed-bar2">
+        <div class="ed-bar2-left">
+          <button class="ed-add-btn" type="button" id="ed-add-image">Přidat obrázek</button>
+          <button class="ed-add-btn" type="button" id="ed-add-text">Přidat text</button>
+          <input type="file" id="ed-image-file" accept="image/*" hidden>
+        </div>
+
+        <div class="ed-bar2-right" id="ed-format-tools" aria-hidden="true">
+          <!-- Font size -->
+          <div class="ed-fontsize">
+            <button type="button" id="ed-fs-dec" aria-label="Zmenšit písmo">&#8722;</button>
+            <input class="ed-fs-val" id="ed-fs-val" type="number" min="6" max="300" value="16" aria-label="Velikost písma (px)">
+            <button type="button" id="ed-fs-inc" aria-label="Zvětšit písmo">+</button>
+          </div>
+          <!-- Bold / Italic / Underline -->
+          <button class="ed-tool ed-tool-b" type="button" id="ed-bold" title="Tučně" aria-label="Tučně">S</button>
+          <button class="ed-tool ed-tool-i" type="button" id="ed-italic" title="Kurzíva" aria-label="Kurzíva">C</button>
+          <button class="ed-tool ed-tool-u" type="button" id="ed-underline" title="Podtržení" aria-label="Podtržení">I</button>
+          <!-- Color -->
+          <div class="ed-color-wrap">
+            <button class="ed-tool ed-tool-o" type="button" id="ed-color" title="Barva textu" aria-label="Barva textu" style="color:#000000;">O</button>
+            <div class="ed-color-panel" id="ed-color-panel" hidden>
+              <div class="ed-color-preview" id="ed-color-preview"></div>
+              <input class="ed-color-native" type="color" id="ed-color-native" value="#000000" aria-label="Výběr barvy">
+              <div class="ed-color-row"><label for="ed-r-num">R</label><input type="range" min="0" max="255" id="ed-r-range" value="0"><input type="number" min="0" max="255" id="ed-r-num" value="0"></div>
+              <div class="ed-color-row"><label for="ed-g-num">G</label><input type="range" min="0" max="255" id="ed-g-range" value="0"><input type="number" min="0" max="255" id="ed-g-num" value="0"></div>
+              <div class="ed-color-row"><label for="ed-b-num">B</label><input type="range" min="0" max="255" id="ed-b-range" value="0"><input type="number" min="0" max="255" id="ed-b-num" value="0"></div>
+              <div class="ed-color-hexrow"><label for="ed-hex">HEX</label><input type="text" id="ed-hex" maxlength="7" value="#000000"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Canvas -->
+      <div class="ed-canvas-wrap">
+        <div class="ed-canvas" id="ed-canvas"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm modal (shared by Bar 1 actions) -->
+  <div class="ed-confirm" id="ed-confirm" hidden>
+    <div class="ed-confirm-box">
+      <h3 id="ed-confirm-title">Potvrdit akci</h3>
+      <p id="ed-confirm-text">Opravdu chcete pokračovat?</p>
+      <div class="ed-confirm-actions">
+        <button class="ed-confirm-ok" type="button" id="ed-confirm-ok">Potvrdit změny</button>
+        <button class="ed-confirm-cancel" type="button" id="ed-confirm-cancel">Vrátit se k úpravě</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/admin/admin.js"></script>
 </body>

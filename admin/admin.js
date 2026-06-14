@@ -26,6 +26,7 @@
 
   var form        = document.querySelector("#article-form");
   var fId         = document.querySelector("#f-id");
+  var fElements   = document.querySelector("#f-elements");
   var fTitle      = document.querySelector("#f-title");
   var fBody       = document.querySelector("#f-body");
   var fImageUrl   = document.querySelector("#f-image-url");
@@ -253,6 +254,7 @@
   function resetForm() {
     form.reset();
     fId.value = "";
+    fElements.value = "";
     fDate.value = today();
     pendingImageUrl = "";
     updatePreview("");
@@ -261,6 +263,7 @@
   }
   function populateForm(article) {
     fId.value       = article.id;
+    fElements.value = (article.elements && article.elements.length) ? JSON.stringify(article.elements) : "";
     fTitle.value    = article.title || "";
     fBody.value     = article.body || "";
     fAuthors.value  = (article.authors || []).join(", ");
@@ -280,6 +283,8 @@
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     if (!fTitle.value.trim()) { toast("Název je povinný."); fTitle.focus(); return; }
+    var elements = [];
+    if (fElements.value) { try { elements = JSON.parse(fElements.value); } catch (e) { elements = []; } }
     var payload = {
       title:   fTitle.value,
       body:    fBody.value,
@@ -287,7 +292,8 @@
       authors: fAuthors.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean),
       tags:    fTags.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean),
       date:    fDate.value || today(),
-      kind:    fKind.value === "comic" ? "comic" : "article"
+      kind:    fKind.value === "comic" ? "comic" : "article",
+      elements: elements
     };
 
     submitBtn.disabled = true;
@@ -681,6 +687,736 @@
         .catch(function (err) { toast("Chyba: " + (err.detail || err.message)); });
     }
   });
+
+  /* ============================================================
+     VISUAL ARTICLE EDITOR (Canva + Google-Docs hybrid)
+     ============================================================ */
+  var EDITOR = {
+    overlay:   document.querySelector("#editor-overlay"),
+    canvas:    document.querySelector("#ed-canvas"),
+    addImage:  document.querySelector("#ed-add-image"),
+    addText:   document.querySelector("#ed-add-text"),
+    imageFile: document.querySelector("#ed-image-file"),
+    tools:     document.querySelector("#ed-format-tools"),
+    fsVal:     document.querySelector("#ed-fs-val"),
+    fsDec:     document.querySelector("#ed-fs-dec"),
+    fsInc:     document.querySelector("#ed-fs-inc"),
+    bold:      document.querySelector("#ed-bold"),
+    italic:    document.querySelector("#ed-italic"),
+    underline: document.querySelector("#ed-underline"),
+    colorBtn:  document.querySelector("#ed-color"),
+    colorPanel:document.querySelector("#ed-color-panel"),
+    colorNative:document.querySelector("#ed-color-native"),
+    rRange:    document.querySelector("#ed-r-range"),
+    gRange:    document.querySelector("#ed-g-range"),
+    bRange:    document.querySelector("#ed-b-range"),
+    rNum:      document.querySelector("#ed-r-num"),
+    gNum:      document.querySelector("#ed-g-num"),
+    bNum:      document.querySelector("#ed-b-num"),
+    hex:       document.querySelector("#ed-hex"),
+    preview:   document.querySelector("#ed-color-preview"),
+    confirm:   document.querySelector("#ed-confirm"),
+    confirmTitle: document.querySelector("#ed-confirm-title"),
+    confirmText:  document.querySelector("#ed-confirm-text"),
+    confirmOk: document.querySelector("#ed-confirm-ok"),
+    confirmCancel: document.querySelector("#ed-confirm-cancel"),
+    backNoChange: document.querySelector("#ed-back-nochange"),
+    backChange:   document.querySelector("#ed-back-change"),
+    deleteBtn:    document.querySelector("#ed-delete")
+  };
+
+  // ----- editor state -----
+  var ED = {
+    elements: [],          // array of element objects (the article layout)
+    selectedId: null,
+    editingId: null,
+    snapshot: "",          // JSON for "discard"
+    pendingAction: null,   // 'discard' | 'save' | 'delete'
+    savedRange: null,      // last text selection inside the editing content
+    lastFs: 16,            // last valid font size (for revert)
+    colorSyncing: false,
+    currentColor: "#000000"
+  };
+
+  function edUid() { return "el-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
+  function edStripHtml(html) {
+    var d = document.createElement("div");
+    d.innerHTML = html || "";
+    return (d.textContent || "").trim();
+  }
+  function defaultStyles(over) {
+    return Object.assign({
+      fontSize: "16px", color: "#1a1a1a",
+      bold: false, italic: false, underline: false, align: "left"
+    }, over || {});
+  }
+
+  /* ---------- open / close / seed ---------- */
+  function edOpen() {
+    ED.elements = [];
+    // 1) try to load an existing layout from the hidden form field
+    if (fElements.value) {
+      try {
+        var parsed = JSON.parse(fElements.value);
+        if (Array.isArray(parsed)) ED.elements = parsed;
+      } catch (e) { ED.elements = []; }
+    }
+    // 2) ensure a mandatory, non-deletable title element exists
+    var hasTitle = ED.elements.some(function (el) { return el.isTitle; });
+    if (!hasTitle) {
+      ED.elements.unshift({
+        id: edUid(), type: "text", isTitle: true,
+        content: escapeHtml(fTitle.value || "Nadpis článku"),
+        x: 40, y: 24, width: 640, height: "auto",
+        styles: defaultStyles({ fontSize: "34px", bold: true })
+      });
+      // 3) seed a body text element from the plain-text body, if any and no other text exists
+      var bodyText = (fBody.value || "").trim();
+      var hasBody = ED.elements.some(function (el) { return el.type === "text" && !el.isTitle; });
+      if (bodyText && !hasBody) {
+        ED.elements.push({
+          id: edUid(), type: "text", isTitle: false,
+          content: escapeHtml(bodyText).replace(/\n/g, "<br>"),
+          x: 40, y: 120, width: 640, height: "auto",
+          styles: defaultStyles()
+        });
+      }
+    }
+    ED.snapshot = JSON.stringify(ED.elements);
+    ED.selectedId = null;
+    ED.editingId = null;
+    edRenderCanvas();
+    edSetToolsVisible(false);
+    EDITOR.overlay.hidden = false;
+  }
+  function edClose() {
+    edCloseColorPanel();
+    EDITOR.overlay.hidden = true;
+  }
+  // Commit the layout back into the article form (title + plain-text body + JSON)
+  function edCommitToForm() {
+    fElements.value = JSON.stringify(ED.elements);
+    var titleEl = ED.elements.filter(function (el) { return el.isTitle; })[0];
+    if (titleEl) fTitle.value = edStripHtml(titleEl.content);
+    var bodyText = ED.elements
+      .filter(function (el) { return el.type === "text" && !el.isTitle; })
+      .map(function (el) { return edStripHtml(el.content); })
+      .filter(Boolean)
+      .join("\n\n");
+    fBody.value = bodyText;
+  }
+
+  /* ---------- rendering ---------- */
+  function edRenderCanvas() {
+    EDITOR.canvas.innerHTML = "";
+    ED.elements.forEach(function (el) {
+      EDITOR.canvas.appendChild(edBuildNode(el));
+    });
+  }
+
+  function edApplyContentStyles(content, el) {
+    content.style.fontSize = el.styles.fontSize || "16px";
+    content.style.color = el.styles.color || "#1a1a1a";
+    content.style.fontWeight = el.styles.bold ? "700" : "400";
+    content.style.fontStyle = el.styles.italic ? "italic" : "normal";
+    content.style.textDecoration = el.styles.underline ? "underline" : "none";
+    content.style.textAlign = el.styles.align || "left";
+  }
+
+  function edBuildNode(el) {
+    var node = document.createElement("div");
+    node.className = "ed-el ed-el--" + el.type + (el.isTitle ? " is-title" : "");
+    node.dataset.id = el.id;
+    node.style.left = el.x + "px";
+    node.style.top = el.y + "px";
+    node.style.width = el.width + "px";
+    node.style.height = (el.height === "auto" || el.height == null) ? "auto" : (el.height + "px");
+    if (ED.selectedId === el.id) node.classList.add("is-selected");
+    if (ED.editingId === el.id) node.classList.add("is-editing");
+
+    var content = document.createElement("div");
+    content.className = "ed-el-content";
+    if (el.type === "image") {
+      var img = document.createElement("img");
+      img.src = el.content;
+      img.alt = "";
+      content.appendChild(img);
+    } else {
+      content.innerHTML = el.content || "";
+      edApplyContentStyles(content, el);
+      content.contentEditable = (ED.editingId === el.id) ? "true" : "false";
+    }
+    node.appendChild(content);
+
+    if (el.isTitle) {
+      var badge = document.createElement("span");
+      badge.className = "ed-el-title-badge";
+      badge.textContent = "Titulek";
+      node.appendChild(badge);
+    }
+
+    // selection chrome: handles + delete
+    if (ED.selectedId === el.id) {
+      ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (h) {
+        var hd = document.createElement("div");
+        hd.className = "ed-handle";
+        hd.dataset.h = h;
+        hd.addEventListener("pointerdown", function (ev) { edStartResize(ev, el, node, h); });
+        node.appendChild(hd);
+      });
+      if (!el.isTitle) {
+        var del = document.createElement("button");
+        del.type = "button";
+        del.className = "ed-el-delete";
+        del.innerHTML = "&times;";
+        del.title = "Smazat blok";
+        del.addEventListener("pointerdown", function (ev) { ev.stopPropagation(); });
+        del.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          edDeleteElement(el.id);
+        });
+        node.appendChild(del);
+      }
+    }
+
+    // pointer interactions (drag / select / enter-edit)
+    content.addEventListener("pointerdown", function (ev) { edPointerDownOnElement(ev, el, node, content); });
+    content.addEventListener("dblclick", function (ev) {
+      if (el.type === "text") { ev.preventDefault(); edEnterEdit(el.id); }
+    });
+    // keep state in sync while editing
+    if (el.type === "text") {
+      content.addEventListener("input", function () {
+        el.content = content.innerHTML;
+      });
+    }
+    return node;
+  }
+
+  /* ---------- selection / drag / resize ---------- */
+  function edPointerDownOnElement(ev, el, node, content) {
+    if (ev.button !== 0) return;
+    // already editing this text box -> let the caret/selection work
+    if (ED.editingId === el.id) return;
+
+    var wasSelected = (ED.selectedId === el.id);
+    var startX = ev.clientX, startY = ev.clientY;
+    var origX = el.x, origY = el.y;
+    var moved = false;
+    // Do NOT re-render here (that would destroy the node mid-drag); just move
+    // the existing node live, then commit selection on pointerup.
+    try { content.setPointerCapture(ev.pointerId); } catch (e) {}
+
+    function move(e2) {
+      var dx = e2.clientX - startX, dy = e2.clientY - startY;
+      if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+      if (moved) {
+        el.x = Math.max(0, origX + dx);
+        el.y = Math.max(0, origY + dy);
+        node.style.left = el.x + "px";
+        node.style.top = el.y + "px";
+      }
+    }
+    function up() {
+      content.removeEventListener("pointermove", move);
+      content.removeEventListener("pointerup", up);
+      try { content.releasePointerCapture(ev.pointerId); } catch (e) {}
+      if (moved) {
+        if (!wasSelected) edSelect(el.id); else edUpdateToolbar();
+      } else if (wasSelected && el.type === "text") {
+        edEnterEdit(el.id);          // click on already-selected text -> edit
+      } else {
+        edSelect(el.id);             // first click -> select
+      }
+    }
+    content.addEventListener("pointermove", move);
+    content.addEventListener("pointerup", up);
+  }
+
+  function edStartResize(ev, el, node, h) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    // element is already selected (handles only exist when selected) -> no re-render
+    var startX = ev.clientX, startY = ev.clientY;
+    var origX = el.x, origY = el.y;
+    var origW = node.offsetWidth;
+    var origH = node.offsetHeight;
+    try { node.setPointerCapture(ev.pointerId); } catch (e) {}
+
+    function move(e2) {
+      var dx = e2.clientX - startX, dy = e2.clientY - startY;
+      var w = origW, ht = origH, x = origX, y = origY;
+      if (h.indexOf("e") > -1) w = origW + dx;
+      if (h.indexOf("s") > -1) ht = origH + dy;
+      if (h.indexOf("w") > -1) { w = origW - dx; x = origX + dx; }
+      if (h.indexOf("n") > -1) { ht = origH - dy; y = origY + dy; }
+      w = Math.max(40, w); ht = Math.max(24, ht);
+      // clamp x/y so resizing from top/left can't invert
+      if (h.indexOf("w") > -1) x = origX + (origW - w);
+      if (h.indexOf("n") > -1) y = origY + (origH - ht);
+      el.x = Math.max(0, x); el.y = Math.max(0, y);
+      el.width = Math.round(w); el.height = Math.round(ht);
+      node.style.left = el.x + "px"; node.style.top = el.y + "px";
+      node.style.width = el.width + "px"; node.style.height = el.height + "px";
+    }
+    function up() {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      try { node.releasePointerCapture(ev.pointerId); } catch (e) {}
+    }
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  }
+
+  function edSelect(id) {
+    if (ED.editingId && ED.editingId !== id) edExitEdit();
+    ED.selectedId = id;
+    edRenderCanvas();
+    var el = edFind(id);
+    edSetToolsVisible(!!el && el.type === "text");
+    edUpdateToolbar();
+  }
+  function edDeselect() {
+    if (ED.editingId) edExitEdit();
+    ED.selectedId = null;
+    edRenderCanvas();
+    edSetToolsVisible(false);
+    edCloseColorPanel();
+  }
+  function edFind(id) {
+    for (var i = 0; i < ED.elements.length; i++) if (ED.elements[i].id === id) return ED.elements[i];
+    return null;
+  }
+  function edDeleteElement(id) {
+    var el = edFind(id);
+    if (!el || el.isTitle) return;     // title is non-deletable
+    ED.elements = ED.elements.filter(function (e) { return e.id !== id; });
+    if (ED.selectedId === id) ED.selectedId = null;
+    if (ED.editingId === id) ED.editingId = null;
+    edRenderCanvas();
+    edSetToolsVisible(false);
+  }
+
+  /* ---------- inline editing ---------- */
+  function edEnterEdit(id) {
+    var el = edFind(id);
+    if (!el || el.type !== "text") return;
+    ED.editingId = id;
+    ED.selectedId = id;
+    edRenderCanvas();
+    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + id + '"]');
+    if (!node) return;
+    var content = node.querySelector(".ed-el-content");
+    content.contentEditable = "true";
+    content.focus();
+    edSetToolsVisible(true);
+    edUpdateToolbar();
+  }
+  function edExitEdit() {
+    if (!ED.editingId) return;
+    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"]');
+    if (node) {
+      var content = node.querySelector(".ed-el-content");
+      var el = edFind(ED.editingId);
+      if (el && content) el.content = content.innerHTML;
+      if (content) content.contentEditable = "false";
+    }
+    ED.editingId = null;
+    ED.savedRange = null;
+  }
+
+  /* ---------- add elements ---------- */
+  function edCanvasCenterX(w) {
+    var cw = EDITOR.canvas.clientWidth || 800;
+    return Math.max(20, Math.round((cw - w) / 2));
+  }
+  function edVisibleTop() {
+    var wrap = EDITOR.canvas.parentNode;
+    return (wrap ? wrap.scrollTop : 0) + 80;
+  }
+  EDITOR.addText.addEventListener("click", function () {
+    var w = 300;
+    var el = {
+      id: edUid(), type: "text", isTitle: false,
+      content: "textové pole",
+      x: edCanvasCenterX(w), y: edVisibleTop(), width: w, height: "auto",
+      styles: defaultStyles()
+    };
+    ED.elements.push(el);
+    edSelect(el.id);
+  });
+  EDITOR.addImage.addEventListener("click", function () { EDITOR.imageFile.click(); });
+  EDITOR.imageFile.addEventListener("change", function () {
+    var file = EDITOR.imageFile.files && EDITOR.imageFile.files[0];
+    if (!file) return;
+    toast("Nahrávám obrázek…");
+    uploadImageFile(file)
+      .then(function (url) {
+        var w = 360;
+        var el = {
+          id: edUid(), type: "image", isTitle: false,
+          content: url,
+          x: edCanvasCenterX(w), y: edVisibleTop(), width: w, height: 220,
+          styles: defaultStyles()
+        };
+        ED.elements.push(el);
+        edSelect(el.id);
+        toast("Obrázek přidán.");
+      })
+      .catch(function (err) { toast("Nahrání selhalo: " + err.message); })
+      .finally(function () { EDITOR.imageFile.value = ""; });
+  });
+
+  // deselect when clicking empty canvas
+  EDITOR.canvas.addEventListener("pointerdown", function (ev) {
+    if (ev.target === EDITOR.canvas) edDeselect();
+  });
+
+  /* ---------- rich-text helpers ---------- */
+  // remember the live text selection while editing
+  document.addEventListener("selectionchange", function () {
+    if (!ED.editingId) return;
+    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"]');
+    if (!node) return;
+    var content = node.querySelector(".ed-el-content");
+    var sel = window.getSelection();
+    if (sel && sel.rangeCount && content.contains(sel.anchorNode)) {
+      ED.savedRange = sel.getRangeAt(0).cloneRange();
+      edUpdateToolbar();
+    }
+  });
+
+  function edEditingContent() {
+    if (!ED.editingId) return null;
+    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"]');
+    return node ? node.querySelector(".ed-el-content") : null;
+  }
+  function edRestoreRange() {
+    var content = edEditingContent();
+    if (!content || !ED.savedRange) return false;
+    content.focus();
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(ED.savedRange);
+    return true;
+  }
+  function edCommitEditingContent() {
+    var content = edEditingContent();
+    var el = edFind(ED.editingId);
+    if (content && el) el.content = content.innerHTML;
+  }
+
+  // Apply an inline style to the current selection (range) or to subsequent
+  // typing (collapsed cursor -> zero-width styled span).
+  function edStyleSelection(styleObj) {
+    var content = edEditingContent();
+    if (!content) return;
+    edRestoreRange();
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    if (!content.contains(range.commonAncestorContainer)) return;
+
+    if (range.collapsed) {
+      // future-typing: insert a styled zero-width span, drop the caret inside it
+      var span = document.createElement("span");
+      applyStyleObj(span, styleObj);
+      span.appendChild(document.createTextNode(String.fromCharCode(0x200B))); // ZWSP holds the caret
+      range.insertNode(span);
+      var r = document.createRange();
+      r.setStart(span.firstChild, 1);
+      r.collapse(true);
+      sel.removeAllRanges(); sel.addRange(r);
+      ED.savedRange = r.cloneRange();
+    } else {
+      var wrap = document.createElement("span");
+      applyStyleObj(wrap, styleObj);
+      try {
+        range.surroundContents(wrap);
+      } catch (e) {
+        // selection spans multiple nodes -> extract + wrap + reinsert
+        var frag = range.extractContents();
+        wrap.appendChild(frag);
+        range.insertNode(wrap);
+      }
+      var r2 = document.createRange();
+      r2.selectNodeContents(wrap);
+      sel.removeAllRanges(); sel.addRange(r2);
+      ED.savedRange = r2.cloneRange();
+    }
+    edCommitEditingContent();
+    edUpdateToolbar();
+  }
+  function applyStyleObj(node, styleObj) {
+    Object.keys(styleObj).forEach(function (k) { node.style[k] = styleObj[k]; });
+  }
+
+  // detect whether the current selection/anchor already has a style on
+  function edSelectionAnchorEl() {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    var n = sel.anchorNode;
+    if (n && n.nodeType === 3) n = n.parentNode;
+    return n;
+  }
+  function edRangeIsActive(kind) {
+    var n = edSelectionAnchorEl();
+    var content = edEditingContent();
+    if (!n || !content || !content.contains(n)) return false;
+    var cs = window.getComputedStyle(n);
+    if (kind === "bold") return (parseInt(cs.fontWeight, 10) || 400) >= 600 || cs.fontWeight === "bold";
+    if (kind === "italic") return cs.fontStyle === "italic";
+    if (kind === "underline") return (cs.textDecorationLine || cs.textDecoration || "").indexOf("underline") > -1;
+    return false;
+  }
+
+  // context: are we formatting a text range (editing) or the whole box?
+  function edContext() {
+    return (ED.editingId && ED.editingId === ED.selectedId && ED.savedRange) ? "range" : "box";
+  }
+
+  /* ---------- toolbar: bold / italic / underline ---------- */
+  function edToggle(kind) {
+    var el = edFind(ED.selectedId);
+    if (!el || el.type !== "text") return;
+    if (edContext() === "range") {
+      if (kind === "bold") edStyleSelection({ fontWeight: edRangeIsActive("bold") ? "normal" : "700" });
+      if (kind === "italic") edStyleSelection({ fontStyle: edRangeIsActive("italic") ? "normal" : "italic" });
+      if (kind === "underline") edStyleSelection({ textDecoration: edRangeIsActive("underline") ? "none" : "underline" });
+    } else {
+      el.styles[kind] = !el.styles[kind];
+      var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
+      if (content) edApplyContentStyles(content, el);
+    }
+    edUpdateToolbar();
+  }
+  function edBtnMouseDownKeepFocus(e) { e.preventDefault(); }  // keep caret/selection
+  [EDITOR.bold, EDITOR.italic, EDITOR.underline, EDITOR.colorBtn, EDITOR.fsDec, EDITOR.fsInc].forEach(function (b) {
+    if (b) b.addEventListener("mousedown", edBtnMouseDownKeepFocus);
+  });
+  EDITOR.bold.addEventListener("click", function () { edToggle("bold"); });
+  EDITOR.italic.addEventListener("click", function () { edToggle("italic"); });
+  EDITOR.underline.addEventListener("click", function () { edToggle("underline"); });
+
+  /* ---------- toolbar: font size ---------- */
+  function edCurrentFontSize() {
+    if (edContext() === "range") {
+      var n = edSelectionAnchorEl();
+      if (n) return Math.round(parseFloat(window.getComputedStyle(n).fontSize)) || 16;
+    }
+    var el = edFind(ED.selectedId);
+    if (el) return parseInt(el.styles.fontSize, 10) || 16;
+    return 16;
+  }
+  function edSetFontSize(px) {
+    px = Math.max(6, Math.min(300, px));
+    ED.lastFs = px;
+    EDITOR.fsVal.value = px;
+    var el = edFind(ED.selectedId);
+    if (!el || el.type !== "text") return;
+    if (edContext() === "range") {
+      edStyleSelection({ fontSize: px + "px" });
+    } else {
+      el.styles.fontSize = px + "px";
+      var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
+      if (content) edApplyContentStyles(content, el);
+    }
+  }
+  EDITOR.fsDec.addEventListener("click", function () { edSetFontSize(edCurrentFontSize() - 1); });
+  EDITOR.fsInc.addEventListener("click", function () { edSetFontSize(edCurrentFontSize() + 1); });
+  EDITOR.fsVal.addEventListener("focus", function () { ED.lastFs = parseInt(EDITOR.fsVal.value, 10) || ED.lastFs; });
+  EDITOR.fsVal.addEventListener("change", function () {
+    var v = parseInt(EDITOR.fsVal.value, 10);
+    if (!v) return;
+    edSetFontSize(v);
+  });
+  EDITOR.fsVal.addEventListener("blur", function () {
+    // cleared and focused out -> revert to the pre-cleared value
+    if (!EDITOR.fsVal.value.trim() || !parseInt(EDITOR.fsVal.value, 10)) {
+      EDITOR.fsVal.value = ED.lastFs;
+    }
+  });
+
+  /* ---------- toolbar: color picker (bi-directional sync) ---------- */
+  function clamp255(n) { n = parseInt(n, 10); if (isNaN(n)) n = 0; return Math.max(0, Math.min(255, n)); }
+  function rgbToHex(r, g, b) {
+    return "#" + [r, g, b].map(function (x) { return ("0" + clamp255(x).toString(16)).slice(-2); }).join("");
+  }
+  function hexToRgb(hex) {
+    hex = String(hex || "").replace("#", "");
+    if (hex.length === 3) hex = hex.split("").map(function (c) { return c + c; }).join("");
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+    return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
+  }
+  // single source of truth: set all controls to one rgb (no text apply)
+  function edSyncColor(r, g, b) {
+    r = clamp255(r); g = clamp255(g); b = clamp255(b);
+    var hex = rgbToHex(r, g, b);
+    ED.colorSyncing = true;
+    EDITOR.rRange.value = r; EDITOR.rNum.value = r;
+    EDITOR.gRange.value = g; EDITOR.gNum.value = g;
+    EDITOR.bRange.value = b; EDITOR.bNum.value = b;
+    EDITOR.hex.value = hex.toUpperCase();
+    EDITOR.colorNative.value = hex;
+    EDITOR.preview.style.background = hex;
+    EDITOR.colorBtn.style.color = hex;
+    ED.currentColor = hex;
+    ED.colorSyncing = false;
+  }
+  function edApplyColorToText() {
+    var el = edFind(ED.selectedId);
+    if (!el || el.type !== "text") return;
+    if (edContext() === "range") {
+      edStyleSelection({ color: ED.currentColor });
+    } else {
+      el.styles.color = ED.currentColor;
+      var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
+      if (content) edApplyContentStyles(content, el);
+    }
+    edUpdateToolbar();
+  }
+  function edOpenColorPanel() {
+    // initialise from the current text/box color
+    var rgb = hexToRgb(ED.currentColor) || { r: 0, g: 0, b: 0 };
+    var el = edFind(ED.selectedId);
+    if (el) {
+      var c = (edContext() === "range")
+        ? rgbStringToHex(window.getComputedStyle(edSelectionAnchorEl() || el).color)
+        : el.styles.color;
+      var parsed = hexToRgb(c); if (parsed) rgb = parsed;
+    }
+    edSyncColor(rgb.r, rgb.g, rgb.b);
+    EDITOR.colorPanel.hidden = false;
+  }
+  function edCloseColorPanel() { if (EDITOR.colorPanel) EDITOR.colorPanel.hidden = true; }
+  function rgbStringToHex(rgbStr) {
+    var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgbStr || "");
+    if (!m) return ED.currentColor;
+    return rgbToHex(+m[1], +m[2], +m[3]);
+  }
+  EDITOR.colorBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (EDITOR.colorPanel.hidden) edOpenColorPanel(); else edCloseColorPanel();
+  });
+  // close panel when clicking elsewhere
+  document.addEventListener("pointerdown", function (e) {
+    if (EDITOR.overlay.hidden || EDITOR.colorPanel.hidden) return;
+    if (!EDITOR.colorPanel.contains(e.target) && e.target !== EDITOR.colorBtn) edCloseColorPanel();
+  });
+  // control listeners — sync live on input, apply to text on change
+  function colorFromRgbInputs() {
+    edSyncColor(EDITOR.rRange.value, EDITOR.gRange.value, EDITOR.bRange.value);
+  }
+  ["rRange", "gRange", "bRange"].forEach(function (k) {
+    EDITOR[k].addEventListener("input", function () {
+      if (ED.colorSyncing) return;
+      // mirror the matching number live
+      edSyncColor(EDITOR.rRange.value, EDITOR.gRange.value, EDITOR.bRange.value);
+    });
+    EDITOR[k].addEventListener("change", edApplyColorToText);
+  });
+  [["rNum", "rRange"], ["gNum", "gRange"], ["bNum", "bRange"]].forEach(function (pair) {
+    EDITOR[pair[0]].addEventListener("input", function () {
+      if (ED.colorSyncing) return;
+      edSyncColor(EDITOR.rNum.value, EDITOR.gNum.value, EDITOR.bNum.value);
+    });
+    EDITOR[pair[0]].addEventListener("change", edApplyColorToText);
+  });
+  EDITOR.colorNative.addEventListener("input", function () {
+    if (ED.colorSyncing) return;
+    var rgb = hexToRgb(EDITOR.colorNative.value); if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
+  });
+  EDITOR.colorNative.addEventListener("change", edApplyColorToText);
+  EDITOR.hex.addEventListener("input", function () {
+    if (ED.colorSyncing) return;
+    var rgb = hexToRgb(EDITOR.hex.value); if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
+  });
+  EDITOR.hex.addEventListener("change", function () {
+    var rgb = hexToRgb(EDITOR.hex.value);
+    if (rgb) { edSyncColor(rgb.r, rgb.g, rgb.b); edApplyColorToText(); }
+  });
+
+  /* ---------- toolbar visibility + active state ---------- */
+  function edSetToolsVisible(on) {
+    EDITOR.tools.classList.toggle("is-visible", !!on);
+    EDITOR.tools.setAttribute("aria-hidden", on ? "false" : "true");
+    if (!on) edCloseColorPanel();
+  }
+  function edUpdateToolbar() {
+    var el = edFind(ED.selectedId);
+    if (!el || el.type !== "text") return;
+    EDITOR.fsVal.value = edCurrentFontSize();
+    var ctx = edContext();
+    var bActive, iActive, uActive, color;
+    if (ctx === "range") {
+      bActive = edRangeIsActive("bold");
+      iActive = edRangeIsActive("italic");
+      uActive = edRangeIsActive("underline");
+      var n = edSelectionAnchorEl();
+      color = n ? rgbStringToHex(window.getComputedStyle(n).color) : el.styles.color;
+    } else {
+      bActive = !!el.styles.bold;
+      iActive = !!el.styles.italic;
+      uActive = !!el.styles.underline;
+      color = el.styles.color;
+    }
+    EDITOR.bold.classList.toggle("is-active", bActive);
+    EDITOR.italic.classList.toggle("is-active", iActive);
+    EDITOR.underline.classList.toggle("is-active", uActive);
+    ED.currentColor = color || "#000000";
+    EDITOR.colorBtn.style.color = ED.currentColor;
+  }
+
+  /* ---------- Bar 1: confirm-gated actions ---------- */
+  function edOpenConfirm(action, title, text) {
+    ED.pendingAction = action;
+    EDITOR.confirmTitle.textContent = title;
+    EDITOR.confirmText.textContent = text;
+    EDITOR.confirm.hidden = false;
+  }
+  EDITOR.backNoChange.addEventListener("click", function () {
+    edOpenConfirm("discard", "Zpět bez změn", "Změny provedené v editoru nebudou uloženy. Pokračovat?");
+  });
+  EDITOR.backChange.addEventListener("click", function () {
+    edOpenConfirm("save", "Zpět se změnami", "Rozvržení se převezme do formuláře článku. Pokračovat?");
+  });
+  EDITOR.deleteBtn.addEventListener("click", function () {
+    edOpenConfirm("delete", "Smazat příspěvek", "Tento příspěvek bude trvale smazán. Pokračovat?");
+  });
+  EDITOR.confirmCancel.addEventListener("click", function () {
+    EDITOR.confirm.hidden = true;
+    ED.pendingAction = null;
+  });
+  EDITOR.confirmOk.addEventListener("click", function () {
+    var action = ED.pendingAction;
+    EDITOR.confirm.hidden = true;
+    ED.pendingAction = null;
+    if (action === "discard") {
+      edClose();
+      toast("Editor zavřen bez uložení.");
+    } else if (action === "save") {
+      edExitEdit();
+      edCommitToForm();
+      edClose();
+      toast("Rozvržení převzato — uložte příspěvek tlačítkem Vytvořit / Uložit.");
+    } else if (action === "delete") {
+      var id = fId.value;
+      if (id) {
+        api("/api/articles?id=" + encodeURIComponent(id), { method: "DELETE" })
+          .then(function () { edClose(); resetForm(); refreshTable(); toast("Příspěvek smazán."); })
+          .catch(function (err) {
+            if (err.status === 401) { showLogin(); return; }
+            toast("Chyba: " + (err.detail || err.message));
+          });
+      } else {
+        edClose(); resetForm(); toast("Rozpracovaný příspěvek zahozen.");
+      }
+    }
+  });
+
+  // launch the editor from the article form
+  var openEditorBtn = document.querySelector("#open-editor-btn");
+  if (openEditorBtn) openEditorBtn.addEventListener("click", edOpen);
 
   /* ============================================================
      Boot
