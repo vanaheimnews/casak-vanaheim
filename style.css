@@ -1226,3 +1226,36 @@ button { font: inherit; cursor: pointer; }
   .ed-side { flex: 0 0 auto; }
   .ed-canvas { width: 100%; }
 }
+
+/* ============================================================
+   SPLIT PREVIEW vs. FULL-SCREEN VISUAL EDITOR (2 states)
+   ============================================================ */
+.admin-article-wrapper { display: flex; gap: 24px; padding: 20px; align-items: flex-start; }
+#metadata-sidebar { width: 280px; flex-shrink: 0; }
+#editor-canvas {
+  flex-grow: 1; max-width: 900px; background: #ffffff; padding: 40px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); border-radius: 8px;
+}
+#editor-canvas img,
+.ed-canvas img {
+  max-width: 100%; height: auto; display: block; margin: 20px 0; object-fit: contain;
+}
+
+/* State 2: full-screen Canva workspace */
+body.visual-editor-active #metadata-sidebar,
+body.visual-editor-active .ed-side { display: none; }
+body.visual-editor-active .ed-bar1,
+body.visual-editor-active .ed-bar2 { position: sticky; z-index: 210; }
+body.visual-editor-active .ed-bar1 { top: 0; }
+body.visual-editor-active .ed-canvas { width: 100%; max-width: 1100px; }
+
+/* Two states: toolbars appear ONLY in full-screen visual-editor mode;
+   otherwise the editor is a quiet metadata + preview view. */
+.ed-bar1, .ed-bar2 { display: none; }
+body.visual-editor-active .ed-bar1,
+body.visual-editor-active .ed-bar2 { display: flex; }
+/* preview state: center the white "paper" and give it room */
+.ed-body { transition: none; }
+.ed-side .ed-add-btn.ed-enter-visual {
+  width: 100%; margin-bottom: 8px; text-align: center;
+}

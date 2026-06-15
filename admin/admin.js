@@ -798,6 +798,7 @@
     ED.snapshot = JSON.stringify(ED.elements);
     ED.selectedId = null;
     ED.editingId = null;
+    document.body.classList.remove("visual-editor-active");   // open in preview state
     edRenderCanvas();
     edSetToolsVisible(false);
     EDITOR.overlay.hidden = false;
@@ -814,8 +815,10 @@
   EDITOR.date.addEventListener("change", edUpdateSchedule);
   function edClose() {
     edCloseColorPanel();
+    document.body.classList.remove("visual-editor-active");
     EDITOR.overlay.hidden = true;
   }
+  function edEnterVisual() { document.body.classList.add("visual-editor-active"); }
   // Commit the layout back into the article form (title + plain-text body + JSON)
   function edCommitToForm() {
     fElements.value = JSON.stringify(ED.elements);
@@ -1029,6 +1032,7 @@
   function edEnterEdit(id) {
     var el = edFind(id);
     if (!el || el.type !== "text") return;
+    edEnterVisual();                 // clicking into a text block opens full editor mode
     ED.editingId = id;
     ED.selectedId = id;
     edRenderCanvas();
@@ -1442,9 +1446,12 @@
     }
   });
 
-  // launch the editor from the article form
+  // launch the editor from the article form (opens in preview state)
   var openEditorBtn = document.querySelector("#open-editor-btn");
   if (openEditorBtn) openEditorBtn.addEventListener("click", edOpen);
+  // sidebar button -> enter full-screen visual editor mode
+  var enterVisualBtn = document.querySelector("#ed-enter-visual");
+  if (enterVisualBtn) enterVisualBtn.addEventListener("click", edEnterVisual);
 
   /* ============================================================
      Boot
