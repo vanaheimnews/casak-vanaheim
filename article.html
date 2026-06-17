@@ -118,6 +118,61 @@
         return d.getDate() + ". " + months[d.getMonth()] + " " + d.getFullYear();
       }
 
+      // Render the visual-editor element layout exactly as authored.
+      var CANVAS_W = 820;   // must match the editor canvas width
+      function renderElements(wrap, elements) {
+        var canvas = document.createElement("div");
+        canvas.className = "article-canvas";
+        canvas.style.width = CANVAS_W + "px";
+        elements.forEach(function (el) {
+          var node = document.createElement("div");
+          node.className = "ac-el ac-el--" + el.type;
+          node.style.left = el.x + "px";
+          node.style.top = el.y + "px";
+          node.style.width = el.width + "px";
+          if (el.height && el.height !== "auto") node.style.height = el.height + "px";
+          if (el.type === "image") {
+            var img = document.createElement("img");
+            img.src = el.content; img.alt = ""; img.loading = "lazy";
+            node.appendChild(img);
+          } else {
+            node.innerHTML = el.content || "";
+            var s = el.styles || {};
+            node.style.fontSize = s.fontSize || "16px";
+            node.style.color = s.color || "#1a1a1a";
+            node.style.fontWeight = s.bold ? "700" : "400";
+            node.style.fontStyle = s.italic ? "italic" : "normal";
+            node.style.textDecoration = s.underline ? "underline" : "none";
+            node.style.textAlign = s.align || "left";
+          }
+          canvas.appendChild(node);
+        });
+        wrap.innerHTML = "";
+        wrap.appendChild(canvas);
+        var doScale = function () { scaleCanvas(wrap, canvas); };
+        doScale();
+        window.addEventListener("resize", doScale);
+        // re-scale once images have loaded (their height can change auto rows)
+        Array.prototype.forEach.call(canvas.querySelectorAll("img"), function (im) {
+          if (!im.complete) im.addEventListener("load", doScale);
+        });
+      }
+      function scaleCanvas(wrap, canvas) {
+        canvas.style.transform = "none";
+        var h = 0;
+        Array.prototype.forEach.call(canvas.children, function (n) {
+          var b = n.offsetTop + n.offsetHeight;
+          if (b > h) h = b;
+        });
+        h += 40;
+        canvas.style.height = h + "px";
+        var avail = wrap.clientWidth || CANVAS_W;
+        var scale = Math.min(1, avail / CANVAS_W);
+        canvas.style.transformOrigin = "top left";
+        canvas.style.transform = "scale(" + scale + ")";
+        wrap.style.height = (h * scale) + "px";
+      }
+
       var params = new URLSearchParams(location.search);
       var id = params.get("id");
       var root = document.querySelector("#article-root");
@@ -134,25 +189,33 @@
           return r.json();
         })
         .then(function (a) {
-          document.title = a.title + " — Školní magazín";
+          document.title = (a.title || "Článek") + " — Školní magazín";
           var tagsHtml = (a.tags || []).map(function (t) {
             return '<span class="card-tag">' + escapeHtml(t) + "</span>";
           }).join("");
           var authors = (a.authors || []).join(", ");
-          var heroHtml = a.image
-            ? '<div class="article-hero"><img src="' + escapeHtml(a.image) + '" alt=""></div>'
-            : "";
-          root.innerHTML =
+          var metaHtml =
             '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
-            heroHtml +
-            '<h1 class="article-title">' + escapeHtml(a.title) + "</h1>" +
             '<div class="article-meta">' +
               '<time datetime="' + escapeHtml(a.date) + '">' + escapeHtml(formatDate(a.date)) + "</time>" +
               (authors ? "<span>" + escapeHtml(authors) + "</span>" : "") +
               "<span>" + (a.kind === "comic" ? "Komiks" : "Článek") + "</span>" +
             "</div>" +
-            (tagsHtml ? '<div class="article-tags">' + tagsHtml + "</div>" : "") +
-            '<div class="article-body"><p>' + escapeHtml(a.body || "") + "</p></div>";
+            (tagsHtml ? '<div class="article-tags">' + tagsHtml + "</div>" : "");
+
+          if (a.elements && a.elements.length) {
+            // Render the exact positioned layout from the visual editor.
+            root.innerHTML = metaHtml + '<div class="article-canvas-wrap" id="article-canvas-wrap"></div>';
+            renderElements(document.querySelector("#article-canvas-wrap"), a.elements);
+          } else {
+            var heroHtml = a.image
+              ? '<div class="article-hero"><img src="' + escapeHtml(a.image) + '" alt=""></div>'
+              : "";
+            root.innerHTML = metaHtml +
+              heroHtml +
+              '<h1 class="article-title">' + escapeHtml(a.title) + "</h1>" +
+              '<div class="article-body"><p>' + escapeHtml(a.body || "") + "</p></div>";
+          }
         })
         .catch(function (err) {
           root.innerHTML = '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +

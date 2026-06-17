@@ -1453,6 +1453,21 @@
   var enterVisualBtn = document.querySelector("#ed-enter-visual");
   if (enterVisualBtn) enterVisualBtn.addEventListener("click", edEnterVisual);
 
+  // sidebar "Vydat" -> commit layout + metadata to the form and save via the API
+  var publishBtn = document.querySelector("#ed-publish");
+  if (publishBtn) publishBtn.addEventListener("click", function () {
+    edExitEdit();
+    edCommitToForm();
+    edClose();
+    if (form.requestSubmit) form.requestSubmit();
+    else form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+  });
+  // sidebar "Smazat" -> confirm + delete
+  var sideDeleteBtn = document.querySelector("#ed-side-delete");
+  if (sideDeleteBtn) sideDeleteBtn.addEventListener("click", function () {
+    edOpenConfirm("delete", "Smazat příspěvek", "Tento příspěvek bude trvale smazán. Pokračovat?");
+  });
+
   /* ============================================================
      Boot
      ============================================================ */

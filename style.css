@@ -1162,7 +1162,7 @@ button { font: inherit; cursor: pointer; }
 .ed-el.is-editing .ed-el-content { cursor: text; user-select: text; overflow: auto; }
 .ed-el-content img { max-width: 100%; display: block; }
 .ed-el--image .ed-el-content { padding: 0; }
-.ed-el--image img { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.ed-el--image img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .ed-el-title-badge {
   position: absolute; top: -20px; left: 0;
   font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase;
@@ -1259,3 +1259,19 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 .ed-side .ed-add-btn.ed-enter-visual {
   width: 100%; margin-bottom: 8px; text-align: center;
 }
+.ed-side-actions { margin-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+.ed-side-actions .btn { width: 100%; }
+.ed-side-actions .btn--publish { background: #15a34a; border-color: #15a34a; color: #fff; }
+.ed-side-actions .btn--publish:hover { background: #138a3f; border-color: #138a3f; color: #fff; }
+.ed-side-actions .btn--del { color: #b00020; border-color: #b00020; }
+.ed-side-actions .btn--del:hover { background: #b00020; color: #fff; }
+
+/* ============================================================
+   PUBLIC render of the visual-editor element layout
+   (matches the editor canvas 1:1, scaled to fit the column)
+   ============================================================ */
+.article-canvas-wrap { position: relative; width: 100%; margin: 10px 0 24px; }
+.article-canvas { position: relative; }
+.ac-el { position: absolute; box-sizing: border-box; }
+.ac-el--text { padding: 6px 8px; white-space: pre-wrap; word-wrap: break-word; }
+.ac-el--image img { width: 100%; height: 100%; object-fit: contain; display: block; }
