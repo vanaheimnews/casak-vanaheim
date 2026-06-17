@@ -318,94 +318,115 @@
   });
 
   /* ============================================================
-     Table
+     Article list — public-style cards + tag filter.
+     Clicking a card opens that article in the editor (detail/preview).
      ============================================================ */
+  var articleGrid      = document.querySelector("#article-grid");
+  var articleEmpty     = document.querySelector("#article-empty");
+  var articleTagList   = document.querySelector("#article-tag-list");
+  var articleClearTags = document.querySelector("#article-clear-tags");
+  var newArticleBtn    = document.querySelector("#new-article-btn");
+  var ADMIN_ARTICLES = [];
+  var adminSelectedTags = {};
+
+  function articleThumb(a) {
+    if (a.image) return a.image;
+    if (Array.isArray(a.elements)) {
+      for (var i = 0; i < a.elements.length; i++) {
+        if (a.elements[i].type === "image" && a.elements[i].content) return a.elements[i].content;
+      }
+    }
+    return "";
+  }
+  function allArticleTags() {
+    var set = {};
+    ADMIN_ARTICLES.forEach(function (a) { (a.tags || []).forEach(function (t) { set[t] = true; }); });
+    return Object.keys(set).sort(function (x, y) { return x.localeCompare(y); });
+  }
+  function renderArticleFilter() {
+    articleTagList.innerHTML = allArticleTags().map(function (t) {
+      return '<label class="tag-checkbox"><input type="checkbox" value="' + escapeHtml(t) + '"' +
+        (adminSelectedTags[t] ? " checked" : "") + "><span>" + escapeHtml(t) + "</span></label>";
+    }).join("");
+  }
+  function renderArticleCards() {
+    var todayStr = today();
+    var sel = Object.keys(adminSelectedTags);
+    var list = ADMIN_ARTICLES.filter(function (a) {
+      if (sel.length === 0) return true;
+      return (a.tags || []).some(function (t) { return adminSelectedTags[t]; });
+    });
+    if (list.length === 0) { articleGrid.innerHTML = ""; articleEmpty.hidden = false; return; }
+    articleEmpty.hidden = true;
+    articleGrid.innerHTML = list.map(function (a) {
+      var thumb = articleThumb(a);
+      var media = thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy">' : "";
+      var authors = (a.authors || []).join(", ");
+      var future = a.date && a.date > todayStr;
+      var tagsHtml = (a.tags || []).map(function (t) { return '<span class="card-tag">' + escapeHtml(t) + "</span>"; }).join("");
+      return (
+        '<article class="card" data-id="' + escapeHtml(a.id) + '" role="button" tabindex="0">' +
+          '<div class="card-media">' + media + "</div>" +
+          '<div class="card-body">' +
+            '<h2 class="card-title">' + escapeHtml(a.title || "(bez názvu)") + "</h2>" +
+            '<div class="card-meta">' +
+              "<time>" + escapeHtml(a.date || "") + "</time>" +
+              (authors ? "<span>" + escapeHtml(authors) + "</span>" : "") +
+              "<span>" + (a.kind === "comic" ? "Komiks" : "Článek") + "</span>" +
+              (future ? '<span class="sched-badge">Naplánováno</span>' : "") +
+            "</div>" +
+          "</div>" +
+          '<div class="card-tags">' + tagsHtml + "</div>" +
+        "</article>"
+      );
+    }).join("");
+  }
+  // name kept (refreshTable) so existing callers — submit / delete / showShell — work
   function refreshTable() {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Načítám…</td></tr>';
     api("/api/articles")
       .then(function (items) {
-        if (!items || items.length === 0) {
-          tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Zatím žádné příspěvky. Vytvořte první v levém panelu.</td></tr>';
-          return;
-        }
-        tbody.innerHTML = items.map(function (a) {
-          var thumb = a.image
-            ? '<span class="thumb" style="background-image:url(\'' + a.image.replace(/'/g, "\\'") + '\')"></span>'
-            : '<span class="thumb"></span>';
-          // Base size = the article record itself (JSON, UTF-8 bytes).
-          // The image size is added asynchronously below (HEAD request).
-          var baseBytes = textBytes(JSON.stringify(a));
-          return (
-            '<tr data-id="' + escapeHtml(a.id) + '">' +
-              "<td>" + thumb + "</td>" +
-              "<td><strong>" + escapeHtml(a.title) + "</strong><br>" +
-                '<span style="color:var(--muted); font-size:0.8rem;">' + escapeHtml((a.tags || []).join(", ")) + "</span></td>" +
-              "<td>" + escapeHtml((a.authors || []).join(", ")) + "</td>" +
-              "<td>" + escapeHtml(a.date || "") + "</td>" +
-              '<td class="size-cell" data-base="' + baseBytes + '" title="Záznam + obrázek">' + formatBytes(baseBytes) + "</td>" +
-              '<td><div class="row-actions">' +
-                '<button type="button" data-action="edit">Upravit</button>' +
-                '<button type="button" data-action="view">Zobrazit</button>' +
-                '<button type="button" data-action="delete" class="danger">Smazat</button>' +
-              "</div></td>" +
-            "</tr>"
-          );
-        }).join("");
-
-        // Refine each size cell with the actual image byte size.
-        items.forEach(function (a) {
-          if (!a.image) return;
-          var cell = tbody.querySelector('tr[data-id="' + (window.CSS && CSS.escape ? CSS.escape(a.id) : a.id) + '"] .size-cell');
-          if (!cell) return;
-          fetchImageBytes(a.image).then(function (imgBytes) {
-            var base = parseInt(cell.getAttribute("data-base"), 10) || 0;
-            if (imgBytes != null) {
-              cell.textContent = formatBytes(base + imgBytes);
-              cell.title = "Záznam " + formatBytes(base) + " + obrázek " + formatBytes(imgBytes);
-            } else {
-              // Couldn't read image size (e.g. external host without CORS).
-              cell.textContent = formatBytes(base) + " + obr.";
-              cell.title = "Velikost obrázku nelze zjistit (externí zdroj)";
-            }
-          });
-        });
+        ADMIN_ARTICLES = Array.isArray(items) ? items : [];
+        renderArticleFilter();
+        renderArticleCards();
       })
       .catch(function (err) {
         if (err.status === 401) { showLogin(); return; }
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Chyba: ' + escapeHtml(err.message) + "</td></tr>";
+        articleEmpty.hidden = false;
+        articleEmpty.textContent = "Chyba: " + err.message;
       });
   }
 
-  tbody.addEventListener("click", function (event) {
-    var btn = event.target.closest("button[data-action]");
-    if (!btn) return;
-    var row = btn.closest("tr");
-    var id = row && row.dataset.id;
-    if (!id) return;
-    var action = btn.dataset.action;
-
-    if (action === "view") {
-      window.open("/article.html?id=" + encodeURIComponent(id), "_blank");
-      return;
-    }
-
-    if (action === "edit") {
-      api("/api/articles?id=" + encodeURIComponent(id))
-        .then(populateForm)
-        .catch(function (err) { toast("Chyba: " + err.message); });
-      return;
-    }
-
-    if (action === "delete") {
-      if (!confirm("Opravdu smazat tento příspěvek?")) return;
-      api("/api/articles?id=" + encodeURIComponent(id), { method: "DELETE" })
-        .then(function () {
-          if (fId.value === id) resetForm();
-          toast("Příspěvek smazán.");
-          refreshTable();
-        })
-        .catch(function (err) { toast("Chyba: " + err.message); });
-    }
+  function openArticleForEdit(id) {
+    var a = null;
+    for (var i = 0; i < ADMIN_ARTICLES.length; i++) { if (ADMIN_ARTICLES[i].id === id) { a = ADMIN_ARTICLES[i]; break; } }
+    if (!a) return;
+    populateForm(a);
+    edOpen();
+  }
+  articleGrid.addEventListener("click", function (event) {
+    var card = event.target.closest(".card[data-id]");
+    if (card) openArticleForEdit(card.dataset.id);
+  });
+  articleGrid.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    var card = event.target.closest(".card[data-id]");
+    if (card) { event.preventDefault(); openArticleForEdit(card.dataset.id); }
+  });
+  articleTagList.addEventListener("change", function (event) {
+    var inp = event.target;
+    if (!inp || inp.type !== "checkbox") return;
+    if (inp.checked) adminSelectedTags[inp.value] = true; else delete adminSelectedTags[inp.value];
+    renderArticleCards();
+  });
+  articleClearTags.addEventListener("click", function () {
+    adminSelectedTags = {};
+    renderArticleFilter();
+    renderArticleCards();
+  });
+  newArticleBtn.addEventListener("click", function () {
+    resetForm();
+    fDate.value = today();
+    edOpen();
   });
 
   /* ============================================================
@@ -1430,7 +1451,8 @@
       edExitEdit();
       edCommitToForm();
       edClose();
-      toast("Rozvržení převzato — uložte příspěvek tlačítkem Vytvořit / Uložit.");
+      if (form.requestSubmit) form.requestSubmit();
+      else form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
     } else if (action === "delete") {
       var id = fId.value;
       if (id) {

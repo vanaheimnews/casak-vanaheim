@@ -207,71 +207,44 @@
            TAB 1 — ARTICLES (existing functionality, same IDs)
            ==================================================== -->
       <section class="admin-section is-active" id="section-articles" aria-label="Správa příspěvků">
-        <h1 class="admin-section-title">Správa příspěvků</h1>
-        <div class="admin-grid">
-          <!-- Form -->
-          <section class="panel">
-            <h2 id="form-title">Nový příspěvek</h2>
-            <form class="form-grid" id="article-form" autocomplete="off">
-              <input type="hidden" id="f-id">
-              <input type="hidden" id="f-elements">
-              <label>Název
-                <input type="text" id="f-title" required maxlength="200">
-              </label>
-              <label>Tělo / Obsah článku
-                <textarea id="f-body" placeholder="Text příspěvku…"></textarea>
-                <span class="help">Vizuální rozvržení (přetahování bloků, formátování) upravíte v editoru níže. Toto pole drží čistý text jako záloha.</span>
-              </label>
-              <div class="form-actions">
-                <button class="btn" type="button" id="open-editor-btn" style="background:var(--brand);border-color:var(--brand);color:#fff;">Otevřít vizuální editor</button>
-              </div>
-              <label>Obrázek (URL nebo nahrát soubor)
-                <input type="url" id="f-image-url" placeholder="https://...">
-                <input type="file" id="f-image-file" accept="image/*">
-                <span class="help">Nahraný soubor se uloží do Vercel Blob. URL má přednost, pokud je vyplněna.</span>
-                <span class="image-preview" id="image-preview" hidden></span>
-              </label>
-              <div class="field-row">
-                <label>Autor / Autoři (čárkou oddělené)
-                  <input type="text" id="f-authors" placeholder="Anna Nováková">
-                </label>
-                <label>Datum
-                  <input type="date" id="f-date">
-                </label>
-              </div>
-              <div class="field-row">
-                <label>Štítky (čárkou oddělené)
-                  <input type="text" id="f-tags" placeholder="Komiks, Humor">
-                </label>
-                <label>Typ
-                  <select id="f-kind">
-                    <option value="article">Článek</option>
-                    <option value="comic">Komiks</option>
-                  </select>
-                </label>
-              </div>
-              <div class="form-actions">
-                <button class="btn" type="submit" id="submit-btn">Vytvořit</button>
-                <button class="btn btn-ghost" type="button" id="reset-btn">Vyčistit</button>
-              </div>
-            </form>
-          </section>
-
-          <!-- Table -->
-          <section class="panel">
-            <h2>Seznam příspěvků</h2>
-            <div class="table-wrap">
-              <table class="article-table">
-                <thead>
-                  <tr><th></th><th>Název</th><th>Autor</th><th>Datum</th><th>Velikost</th><th>Akce</th></tr>
-                </thead>
-                <tbody id="article-tbody">
-                  <tr class="empty-row"><td colspan="6">Načítám…</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
+        <div class="admin-list-head">
+          <h1 class="admin-section-title" style="margin:0;">Správa příspěvků</h1>
+          <button class="btn" type="button" id="new-article-btn"
+                  style="background:var(--brand);border-color:var(--brand);color:#fff;">+ Nový příspěvek</button>
         </div>
+
+        <!-- Same tag filter as the public Příspěvky page -->
+        <fieldset class="tag-filter" id="article-tag-filter" aria-label="Filtr štítků">
+          <legend>Filtr podle štítků</legend>
+          <div class="tag-list" id="article-tag-list"></div>
+          <button class="btn btn-ghost" type="button" id="article-clear-tags">Zrušit filtr</button>
+        </fieldset>
+
+        <!-- Public-style article cards; click a card to open its detail editor -->
+        <div class="card-grid" id="article-grid"></div>
+        <p class="empty-state" id="article-empty" hidden>Zatím žádné příspěvky. Vytvořte první tlačítkem „Nový příspěvek".</p>
+
+        <!-- Hidden data-bridge form (drives the visual editor + save) -->
+        <form class="form-grid" id="article-form" autocomplete="off" hidden>
+          <span id="form-title"></span>
+          <input type="hidden" id="f-id">
+          <input type="hidden" id="f-elements">
+          <input type="text" id="f-title" maxlength="200">
+          <textarea id="f-body"></textarea>
+          <button class="btn" type="button" id="open-editor-btn">Otevřít vizuální editor</button>
+          <input type="url" id="f-image-url">
+          <input type="file" id="f-image-file" accept="image/*">
+          <span class="image-preview" id="image-preview" hidden></span>
+          <input type="text" id="f-authors">
+          <input type="date" id="f-date">
+          <input type="text" id="f-tags">
+          <select id="f-kind">
+            <option value="article">Článek</option>
+            <option value="comic">Komiks</option>
+          </select>
+          <button class="btn" type="submit" id="submit-btn">Uložit</button>
+          <button class="btn btn-ghost" type="button" id="reset-btn">Vyčistit</button>
+        </form>
       </section>
 
       <!-- ====================================================
