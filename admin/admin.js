@@ -1372,39 +1372,38 @@
       return list && list.tagName === TAG && b.tagName === "LI";
     });
     if (allInTarget) {
+      // unwrap: each <li> back to a <div>, then drop the now-empty list
       blocks.forEach(function (li) {
         var list = li.parentNode;
         var div = document.createElement("div");
         while (li.firstChild) div.appendChild(li.firstChild);
-        // preserve color/align/padding if they were on the li
         if (li.style.textAlign) div.style.textAlign = li.style.textAlign;
-        if (li.style.color) div.style.color = li.style.color;
+        if (li.style.paddingLeft) div.style.paddingLeft = li.style.paddingLeft;
         list.parentNode.insertBefore(div, list);
         li.remove();
         if (!list.children.length) list.remove();
       });
     } else {
-      var list = document.createElement(tag);
+      var newList = document.createElement(tag);
       // marker color = current text color (matches selected text)
-      list.style.color = ED.currentColor || "#1a1a1a";
-      blocks[0].parentNode.insertBefore(list, blocks[0]);
+      newList.style.color = ED.currentColor || "#1a1a1a";
+      // Insert before the source list (if the blocks already live in one) or
+      // before the first block, so the new list is never nested in the old one.
+      var anchor = edAncestorList(blocks[0], content) || blocks[0];
+      anchor.parentNode.insertBefore(newList, anchor);
+      var srcLists = [];
       blocks.forEach(function (b) {
-        var li = document.createElement("li");
-        // a block inside another list of the OTHER type: unwrap first
         var srcList = edAncestorList(b, content);
-        if (b.tagName === "LI") {
-          while (b.firstChild) li.appendChild(b.firstChild);
-          if (b.style.textAlign) li.style.textAlign = b.style.textAlign;
-          b.remove();
-          if (srcList && !srcList.children.length) srcList.remove();
-        } else {
-          while (b.firstChild) li.appendChild(b.firstChild);
-          if (b.style.textAlign) li.style.textAlign = b.style.textAlign;
-          if (b.style.paddingLeft) li.style.paddingLeft = b.style.paddingLeft;
-          b.remove();
-        }
-        list.appendChild(li);
+        if (srcList && srcLists.indexOf(srcList) < 0) srcLists.push(srcList);
+        var li = document.createElement("li");
+        while (b.firstChild) li.appendChild(b.firstChild);
+        if (b.style.textAlign) li.style.textAlign = b.style.textAlign;
+        if (b.style.paddingLeft) li.style.paddingLeft = b.style.paddingLeft;
+        b.remove();
+        newList.appendChild(li);
       });
+      // Drop any source list left empty after moving its items out.
+      srcLists.forEach(function (l) { if (!l.children.length) l.remove(); });
     }
     edCommitActiveContent();
     edUpdateToolbar();
