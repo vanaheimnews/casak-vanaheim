@@ -1259,45 +1259,55 @@
   EDITOR.underline.addEventListener("click", function () { edToggle("underline"); });
 
   /* ---------- paragraph helpers: align / list / indent ---------- */
-  // Ensure the content has at least one block-level child; return the list of
-  // blocks (div/p/li/h*) intersecting the current selection.
-  function edSelectedBlocks() {
-    var content = edEditingContent();
-    if (!content) return [];
-    edRestoreRange();
-    var sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return [];
-    var range = sel.getRangeAt(0);
-    if (!content.contains(range.commonAncestorContainer)) return [];
-    // Guarantee at least one block exists; wrap inline content into a <div>
+  // The content node of whichever text element is active (editing OR selected).
+  function edActiveContentEl() {
+    var id = ED.editingId || ED.selectedId;
+    if (!id) return null;
+    var el = edFind(id);
+    if (!el || el.type !== "text") return null;
+    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + id + '"] .ed-el-content');
+    return node || null;
+  }
+  function edCommitActiveContent() {
+    var id = ED.editingId || ED.selectedId;
+    var el = edFind(id);
+    var content = edActiveContentEl();
+    if (el && content) el.content = content.innerHTML;
+  }
+  // Guarantee the content has at least one block-level child (wrap inline in a div).
+  function edEnsureBlocks(content) {
     if (!content.querySelector("div,p,li,h1,h2,h3,h4,h5,h6")) {
       var wrap = document.createElement("div");
       while (content.firstChild) wrap.appendChild(content.firstChild);
       content.appendChild(wrap);
-      var r2 = document.createRange();
-      r2.selectNodeContents(wrap); r2.collapse(false);
-      sel.removeAllRanges(); sel.addRange(r2);
-      ED.savedRange = r2.cloneRange();
-      range = r2;
     }
-    var all = Array.prototype.slice.call(content.querySelectorAll("div,p,li,h1,h2,h3,h4,h5,h6"));
-    var hit = all.filter(function (b) { try { return range.intersectsNode(b); } catch (e) { return false; } });
-    if (hit.length === 0) {
-      // collapsed caret inside a text node -> climb to nearest block
-      var n = range.startContainer;
-      while (n && n !== content && (n.nodeType !== 1 || !/^(DIV|P|LI|H[1-6])$/.test(n.tagName))) n = n.parentNode;
-      if (n && n !== content) hit = [n];
-    }
-    return hit;
+    return Array.prototype.slice.call(content.querySelectorAll("div,p,li,h1,h2,h3,h4,h5,h6"))
+      .filter(function (b) { return !b.querySelector("div,p,li,h1,h2,h3,h4,h5,h6"); });
   }
-  function edRestoreSelToBlocks(blocks) {
-    if (!blocks.length) return;
-    var sel = window.getSelection();
-    var r = document.createRange();
-    r.setStart(blocks[0], 0);
-    r.setEnd(blocks[blocks.length - 1], blocks[blocks.length - 1].childNodes.length);
-    sel.removeAllRanges(); sel.addRange(r);
-    ED.savedRange = r.cloneRange();
+  // Blocks targeted by a paragraph op: the ones intersecting the live selection
+  // when editing; otherwise the WHOLE element (applies to the selected block).
+  function edSelectedBlocks() {
+    var content = edActiveContentEl();
+    if (!content) return [];
+    var blocks = edEnsureBlocks(content);
+    if (ED.editingId) {
+      edRestoreRange();
+      var sel = window.getSelection();
+      if (sel && sel.rangeCount) {
+        var range = sel.getRangeAt(0);
+        if (content.contains(range.commonAncestorContainer)) {
+          var hit = blocks.filter(function (b) { try { return range.intersectsNode(b); } catch (e) { return false; } });
+          if (hit.length === 0) {
+            var n = range.startContainer;
+            while (n && n !== content && (n.nodeType !== 1 || !/^(DIV|P|LI|H[1-6])$/.test(n.tagName))) n = n.parentNode;
+            if (n && n !== content) hit = [n];
+          }
+          if (hit.length) return hit;
+        }
+      }
+    }
+    // not editing (block merely selected) -> whole element
+    return blocks;
   }
 
   /* ---------- alignment ---------- */
@@ -1305,7 +1315,7 @@
     var blocks = edSelectedBlocks();
     if (!blocks.length) return;
     blocks.forEach(function (b) { b.style.textAlign = value; });
-    edCommitEditingContent();
+    edCommitActiveContent();
     edUpdateToolbar();
   }
   EDITOR.alignL.addEventListener("click", function () { edAlign("left"); });
@@ -1367,7 +1377,7 @@
         list.appendChild(li);
       });
     }
-    edCommitEditingContent();
+    edCommitActiveContent();
     edUpdateToolbar();
   }
   EDITOR.ul.addEventListener("click", function () { edToggleList("ul"); });
@@ -1382,7 +1392,7 @@
       var next = Math.max(0, cur + delta);
       b.style.paddingLeft = next ? next + "px" : "";
     });
-    edCommitEditingContent();
+    edCommitActiveContent();
   }
   EDITOR.indInc.addEventListener("click", function () { edIndent(40); });
   EDITOR.indDec.addEventListener("click", function () { edIndent(-40); });
@@ -1565,22 +1575,21 @@
     ED.currentColor = color || "#000000";
     EDITOR.colorBtn.style.color = ED.currentColor;
 
-    // alignment + list active state (based on the anchor's nearest block/list)
-    var alignVal = "left", inUL = false, inOL = false;
-    var content = edEditingContent();
-    var an = edSelectionAnchorEl();
-    var node = an;
+    // alignment + list active state (anchor block when editing, else first block)
+    var alignVal = "", inUL = false, inOL = false;
+    var content = edActiveContentEl();
+    var node = ED.editingId
+      ? edSelectionAnchorEl()
+      : (content ? content.querySelector("div,p,li,h1,h2,h3,h4,h5,h6") : null);
     while (node && content && content.contains(node)) {
       if (node.nodeType === 1) {
-        if (!alignVal || alignVal === "left") {
-          var ta = (node.style && node.style.textAlign) || "";
-          if (ta) alignVal = ta;
-        }
+        if (!alignVal) { var ta = (node.style && node.style.textAlign) || ""; if (ta) alignVal = ta; }
         if (node.tagName === "UL") inUL = true;
         if (node.tagName === "OL") inOL = true;
       }
       node = node.parentNode;
     }
+    if (!alignVal) alignVal = "left";
     if (EDITOR.alignL) EDITOR.alignL.classList.toggle("btn-active", alignVal === "left");
     if (EDITOR.alignC) EDITOR.alignC.classList.toggle("btn-active", alignVal === "center");
     if (EDITOR.alignR) EDITOR.alignR.classList.toggle("btn-active", alignVal === "right");
