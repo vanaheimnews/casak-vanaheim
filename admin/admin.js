@@ -1304,14 +1304,12 @@
     }
     var leaves = Array.prototype.slice.call(content.querySelectorAll("div,p,li,h1,h2,h3,h4,h5,h6"))
       .filter(function (b) { return !b.querySelector("div,p,li,h1,h2,h3,h4,h5,h6"); });
-    // Drop empty cruft blocks (no text/<br>/img) so they never become stray
-    // bullets or numbers; always keep at least one block.
-    if (leaves.length > 1) {
-      leaves = leaves.filter(function (b) {
-        if (!b.textContent.trim() && !b.querySelector("br,img")) { b.remove(); return false; }
-        return true;
-      });
-      if (!leaves.length) { var d = document.createElement("div"); content.appendChild(d); leaves = [d]; }
+    // Trim trailing empty blocks (blank or <br>-only) — editor cruft that would
+    // otherwise render as a stray bullet/number. Always keep at least one block.
+    while (leaves.length > 1) {
+      var last = leaves[leaves.length - 1];
+      if (!last.textContent.trim() && !last.querySelector("img")) { last.remove(); leaves.pop(); }
+      else break;
     }
     return leaves;
   }
