@@ -1302,8 +1302,18 @@
     if (!content.querySelector("div,p,li,h1,h2,h3,h4,h5,h6")) {
       content.appendChild(document.createElement("div"));
     }
-    return Array.prototype.slice.call(content.querySelectorAll("div,p,li,h1,h2,h3,h4,h5,h6"))
+    var leaves = Array.prototype.slice.call(content.querySelectorAll("div,p,li,h1,h2,h3,h4,h5,h6"))
       .filter(function (b) { return !b.querySelector("div,p,li,h1,h2,h3,h4,h5,h6"); });
+    // Drop empty cruft blocks (no text/<br>/img) so they never become stray
+    // bullets or numbers; always keep at least one block.
+    if (leaves.length > 1) {
+      leaves = leaves.filter(function (b) {
+        if (!b.textContent.trim() && !b.querySelector("br,img")) { b.remove(); return false; }
+        return true;
+      });
+      if (!leaves.length) { var d = document.createElement("div"); content.appendChild(d); leaves = [d]; }
+    }
+    return leaves;
   }
   // Blocks targeted by a paragraph op: the ones intersecting the live selection
   // when editing; otherwise the WHOLE element (applies to the selected block).
