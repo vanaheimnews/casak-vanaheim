@@ -1274,12 +1274,33 @@
     var content = edActiveContentEl();
     if (el && content) el.content = content.innerHTML;
   }
-  // Guarantee the content has at least one block-level child (wrap inline in a div).
+  // Normalize content so every top-level run of inline nodes lives in its own
+  // block (div). Existing blocks are left in place; bare text/<span>/<br> beside
+  // an (often empty) block would otherwise be unalignable. Returns leaf blocks.
   function edEnsureBlocks(content) {
+    var BLOCK = /^(DIV|P|LI|UL|OL|H[1-6]|BLOCKQUOTE)$/;
+    var run = [];
+    function flush(before) {
+      if (!run.length) return;
+      var hasReal = run.some(function (n) {
+        return n.nodeType === 1 || (n.nodeType === 3 && n.nodeValue.trim() !== "");
+      });
+      if (hasReal) {
+        var wrap = document.createElement("div");
+        run.forEach(function (n) { wrap.appendChild(n); });
+        content.insertBefore(wrap, before);
+      } else {
+        run.forEach(function (n) { if (n.parentNode) n.parentNode.removeChild(n); });
+      }
+      run = [];
+    }
+    Array.prototype.slice.call(content.childNodes).forEach(function (n) {
+      if (n.nodeType === 1 && BLOCK.test(n.tagName)) flush(n);
+      else run.push(n);
+    });
+    flush(null);
     if (!content.querySelector("div,p,li,h1,h2,h3,h4,h5,h6")) {
-      var wrap = document.createElement("div");
-      while (content.firstChild) wrap.appendChild(content.firstChild);
-      content.appendChild(wrap);
+      content.appendChild(document.createElement("div"));
     }
     return Array.prototype.slice.call(content.querySelectorAll("div,p,li,h1,h2,h3,h4,h5,h6"))
       .filter(function (b) { return !b.querySelector("div,p,li,h1,h2,h3,h4,h5,h6"); });
