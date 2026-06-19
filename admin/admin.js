@@ -749,7 +749,14 @@
     kind:      document.querySelector("#ed-kind"),
     date:      document.querySelector("#ed-date"),
     dateField: document.querySelector("#ed-date-field"),
-    schedHint: document.querySelector("#ed-sched-hint")
+    schedHint: document.querySelector("#ed-sched-hint"),
+    alignL:    document.querySelector("#ed-align-left"),
+    alignC:    document.querySelector("#ed-align-center"),
+    alignR:    document.querySelector("#ed-align-right"),
+    ul:        document.querySelector("#ed-ul"),
+    ol:        document.querySelector("#ed-ol"),
+    indDec:    document.querySelector("#ed-indent-dec"),
+    indInc:    document.querySelector("#ed-indent-inc")
   };
 
   // ----- editor state -----
@@ -1244,12 +1251,151 @@
     edUpdateToolbar();
   }
   function edBtnMouseDownKeepFocus(e) { e.preventDefault(); }  // keep caret/selection
-  [EDITOR.bold, EDITOR.italic, EDITOR.underline, EDITOR.colorBtn, EDITOR.fsDec, EDITOR.fsInc].forEach(function (b) {
-    if (b) b.addEventListener("mousedown", edBtnMouseDownKeepFocus);
-  });
+  [EDITOR.bold, EDITOR.italic, EDITOR.underline, EDITOR.colorBtn, EDITOR.fsDec, EDITOR.fsInc,
+   EDITOR.alignL, EDITOR.alignC, EDITOR.alignR, EDITOR.ul, EDITOR.ol, EDITOR.indDec, EDITOR.indInc
+  ].forEach(function (b) { if (b) b.addEventListener("mousedown", edBtnMouseDownKeepFocus); });
   EDITOR.bold.addEventListener("click", function () { edToggle("bold"); });
   EDITOR.italic.addEventListener("click", function () { edToggle("italic"); });
   EDITOR.underline.addEventListener("click", function () { edToggle("underline"); });
+
+  /* ---------- paragraph helpers: align / list / indent ---------- */
+  // Ensure the content has at least one block-level child; return the list of
+  // blocks (div/p/li/h*) intersecting the current selection.
+  function edSelectedBlocks() {
+    var content = edEditingContent();
+    if (!content) return [];
+    edRestoreRange();
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return [];
+    var range = sel.getRangeAt(0);
+    if (!content.contains(range.commonAncestorContainer)) return [];
+    // Guarantee at least one block exists; wrap inline content into a <div>
+    if (!content.querySelector("div,p,li,h1,h2,h3,h4,h5,h6")) {
+      var wrap = document.createElement("div");
+      while (content.firstChild) wrap.appendChild(content.firstChild);
+      content.appendChild(wrap);
+      var r2 = document.createRange();
+      r2.selectNodeContents(wrap); r2.collapse(false);
+      sel.removeAllRanges(); sel.addRange(r2);
+      ED.savedRange = r2.cloneRange();
+      range = r2;
+    }
+    var all = Array.prototype.slice.call(content.querySelectorAll("div,p,li,h1,h2,h3,h4,h5,h6"));
+    var hit = all.filter(function (b) { try { return range.intersectsNode(b); } catch (e) { return false; } });
+    if (hit.length === 0) {
+      // collapsed caret inside a text node -> climb to nearest block
+      var n = range.startContainer;
+      while (n && n !== content && (n.nodeType !== 1 || !/^(DIV|P|LI|H[1-6])$/.test(n.tagName))) n = n.parentNode;
+      if (n && n !== content) hit = [n];
+    }
+    return hit;
+  }
+  function edRestoreSelToBlocks(blocks) {
+    if (!blocks.length) return;
+    var sel = window.getSelection();
+    var r = document.createRange();
+    r.setStart(blocks[0], 0);
+    r.setEnd(blocks[blocks.length - 1], blocks[blocks.length - 1].childNodes.length);
+    sel.removeAllRanges(); sel.addRange(r);
+    ED.savedRange = r.cloneRange();
+  }
+
+  /* ---------- alignment ---------- */
+  function edAlign(value) {
+    var blocks = edSelectedBlocks();
+    if (!blocks.length) return;
+    blocks.forEach(function (b) { b.style.textAlign = value; });
+    edCommitEditingContent();
+    edUpdateToolbar();
+  }
+  EDITOR.alignL.addEventListener("click", function () { edAlign("left"); });
+  EDITOR.alignC.addEventListener("click", function () { edAlign("center"); });
+  EDITOR.alignR.addEventListener("click", function () { edAlign("right"); });
+
+  /* ---------- lists (UL / OL) ---------- */
+  function edAncestorList(node, content) {
+    while (node && node !== content) {
+      if (node.nodeType === 1 && (node.tagName === "UL" || node.tagName === "OL")) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+  function edToggleList(tag) {
+    var content = edEditingContent();
+    if (!content) return;
+    var blocks = edSelectedBlocks();
+    if (!blocks.length) return;
+    var TAG = tag.toUpperCase();
+
+    // If every block is already an <li> inside a list of the SAME type -> unwrap
+    var allInTarget = blocks.every(function (b) {
+      var list = edAncestorList(b, content);
+      return list && list.tagName === TAG && b.tagName === "LI";
+    });
+    if (allInTarget) {
+      blocks.forEach(function (li) {
+        var list = li.parentNode;
+        var div = document.createElement("div");
+        while (li.firstChild) div.appendChild(li.firstChild);
+        // preserve color/align/padding if they were on the li
+        if (li.style.textAlign) div.style.textAlign = li.style.textAlign;
+        if (li.style.color) div.style.color = li.style.color;
+        list.parentNode.insertBefore(div, list);
+        li.remove();
+        if (!list.children.length) list.remove();
+      });
+    } else {
+      var list = document.createElement(tag);
+      // marker color = current text color (matches selected text)
+      list.style.color = ED.currentColor || "#1a1a1a";
+      blocks[0].parentNode.insertBefore(list, blocks[0]);
+      blocks.forEach(function (b) {
+        var li = document.createElement("li");
+        // a block inside another list of the OTHER type: unwrap first
+        var srcList = edAncestorList(b, content);
+        if (b.tagName === "LI") {
+          while (b.firstChild) li.appendChild(b.firstChild);
+          if (b.style.textAlign) li.style.textAlign = b.style.textAlign;
+          b.remove();
+          if (srcList && !srcList.children.length) srcList.remove();
+        } else {
+          while (b.firstChild) li.appendChild(b.firstChild);
+          if (b.style.textAlign) li.style.textAlign = b.style.textAlign;
+          if (b.style.paddingLeft) li.style.paddingLeft = b.style.paddingLeft;
+          b.remove();
+        }
+        list.appendChild(li);
+      });
+    }
+    edCommitEditingContent();
+    edUpdateToolbar();
+  }
+  EDITOR.ul.addEventListener("click", function () { edToggleList("ul"); });
+  EDITOR.ol.addEventListener("click", function () { edToggleList("ol"); });
+
+  /* ---------- indent ---------- */
+  function edIndent(delta) {
+    var blocks = edSelectedBlocks();
+    if (!blocks.length) return;
+    blocks.forEach(function (b) {
+      var cur = parseInt(b.style.paddingLeft, 10) || 0;
+      var next = Math.max(0, cur + delta);
+      b.style.paddingLeft = next ? next + "px" : "";
+    });
+    edCommitEditingContent();
+  }
+  EDITOR.indInc.addEventListener("click", function () { edIndent(40); });
+  EDITOR.indDec.addEventListener("click", function () { edIndent(-40); });
+
+  /* ---------- keyboard shortcuts (Ctrl+Shift+L / E / R) ---------- */
+  document.addEventListener("keydown", function (e) {
+    if (!ED.editingId) return;
+    if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
+    var k = e.key.toLowerCase();
+    if (k === "l") { e.preventDefault(); edAlign("left"); }
+    else if (k === "e") { e.preventDefault(); edAlign("center"); }
+    else if (k === "r") { e.preventDefault(); edAlign("right"); }
+  });
 
   /* ---------- toolbar: font size ---------- */
   function edCurrentFontSize() {
@@ -1418,6 +1564,28 @@
     EDITOR.underline.classList.toggle("is-active", uActive);
     ED.currentColor = color || "#000000";
     EDITOR.colorBtn.style.color = ED.currentColor;
+
+    // alignment + list active state (based on the anchor's nearest block/list)
+    var alignVal = "left", inUL = false, inOL = false;
+    var content = edEditingContent();
+    var an = edSelectionAnchorEl();
+    var node = an;
+    while (node && content && content.contains(node)) {
+      if (node.nodeType === 1) {
+        if (!alignVal || alignVal === "left") {
+          var ta = (node.style && node.style.textAlign) || "";
+          if (ta) alignVal = ta;
+        }
+        if (node.tagName === "UL") inUL = true;
+        if (node.tagName === "OL") inOL = true;
+      }
+      node = node.parentNode;
+    }
+    if (EDITOR.alignL) EDITOR.alignL.classList.toggle("btn-active", alignVal === "left");
+    if (EDITOR.alignC) EDITOR.alignC.classList.toggle("btn-active", alignVal === "center");
+    if (EDITOR.alignR) EDITOR.alignR.classList.toggle("btn-active", alignVal === "right");
+    if (EDITOR.ul)     EDITOR.ul.classList.toggle("btn-active", inUL);
+    if (EDITOR.ol)     EDITOR.ol.classList.toggle("btn-active", inOL);
   }
 
   /* ---------- Bar 1: confirm-gated actions ---------- */

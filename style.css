@@ -1010,11 +1010,30 @@ button { font: inherit; cursor: pointer; }
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 .ed-tool:hover { background: #eef3f6; }
-.ed-tool.is-active {
+.ed-tool.is-active,
+.ed-tool.btn-active {
   background: rgba(22, 169, 224, 0.16);
   border-color: var(--brand);
   color: var(--brand);
 }
+.ed-tool-svg { padding: 0; }
+.ed-bar2-right { flex-wrap: wrap; row-gap: 6px; }
+
+/* Lists (editor + public) — marker inherits text color; long lines wrap
+   under the text, a new bullet/number appears only on Enter (native <li>). */
+.ed-el-content ul, .ed-el-content ol,
+.ac-el ul, .ac-el ol {
+  margin: 0.35em 0;
+  padding-left: 1.5em;
+}
+.ed-el-content li, .ac-el li { line-height: 1.55; }
+.ed-el-content li::marker, .ac-el li::marker { color: inherit; }
+
+/* Indent — applied as inline padding-left on the block paragraph.
+   Wrapping continues under the indent automatically (block padding);
+   Enter ends the paragraph -> next paragraph starts without it. */
+.ed-el-content div, .ed-el-content p,
+.ac-el div, .ac-el p { margin: 0; }
 .ed-tool-b { font-weight: 800; }
 .ed-tool-i { font-style: italic; font-weight: 600; }
 .ed-tool-u { text-decoration: underline; font-weight: 600; }
