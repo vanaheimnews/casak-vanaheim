@@ -1352,7 +1352,7 @@
     return null;
   }
   function edToggleList(tag) {
-    var content = edEditingContent();
+    var content = edActiveContentEl();
     if (!content) return;
     var blocks = edSelectedBlocks();
     if (!blocks.length) return;
