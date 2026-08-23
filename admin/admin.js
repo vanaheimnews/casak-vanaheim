@@ -2025,11 +2025,18 @@
   function edBgTargetEl() {
     return DOC.root ? DOC.root : EDITOR.canvas;
   }
+  // The colour input fires continuously while dragging, so the (networked)
+  // document save is debounced; the local preview updates immediately.
+  var bgSaveTimer = null;
   function edBgChanged() {
     var bg = edCurrentBg();
     edApplyBackground(edBgTargetEl(), bg);
-    if (DOC.key) docSave(DOC.key, null, "Pozadí bylo uloženo.");
-    else fBackground.value = JSON.stringify(bg);
+    if (!DOC.key) { fBackground.value = JSON.stringify(bg); return; }
+    var key = DOC.key;
+    clearTimeout(bgSaveTimer);
+    bgSaveTimer = setTimeout(function () {
+      docSave(key, null, "Pozadí bylo uloženo.");
+    }, 600);
   }
 
   var bgBtn   = document.querySelector("#ed-bg");
