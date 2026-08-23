@@ -204,10 +204,45 @@
   /* ============================================================
      RENDERERS
      ============================================================ */
+  /* Pinned articles lock to the top of the feed, in pin order. */
+  function feedOrdered() {
+    var pinned = (CONTENT && CONTENT.home && Array.isArray(CONTENT.home.pinned))
+      ? CONTENT.home.pinned : [];
+    var byDate = ARTICLES.slice().sort(byDateDesc);
+    if (!pinned.length) return byDate;
+    var top = [];
+    pinned.forEach(function (id) {
+      var hit = byDate.filter(function (a) { return a.id === id; })[0];
+      if (hit) top.push(hit);
+    });
+    return top.concat(byDate.filter(function (a) { return pinned.indexOf(a.id) === -1; }));
+  }
+
+  /* Page background: solid colour or cover image (admin-configured). */
+  function applyPageBackground(section, bg) {
+    if (!section || !bg) return;
+    if (bg.image) {
+      section.style.backgroundImage = "url('" + String(bg.image).replace(/'/g, "\\'") + "')";
+      section.style.backgroundSize = "cover";
+      section.style.backgroundPosition = "center";
+    } else {
+      section.style.backgroundImage = "";
+    }
+    section.style.backgroundColor = bg.color || "";
+  }
+
+  /* Homepage rich document (incl. the „Téma" block) from the content store. */
+  function renderHomeDoc() {
+    var box = $("#home-doc-view");
+    if (!box || !CONTENT || !CONTENT.home) return;
+    box.innerHTML = CONTENT.home.doc || "";
+    applyPageBackground($("#page-home"), CONTENT.home.background);
+  }
+
   function renderHome() {
     var grid = $("#home-grid");
     if (!grid) return;
-    var newest = ARTICLES.slice().sort(byDateDesc).slice(0, 6);
+    var newest = feedOrdered().slice(0, 6);
     if (newest.length === 0) {
       grid.innerHTML = '<p class="empty-state" style="grid-column:1/-1;">Zatím žádné články.</p>';
       return;
@@ -292,6 +327,10 @@
   function renderAbout() {
     var box = $("#about-text");
     if (!box || !CONTENT || !CONTENT.about) return;
+    applyPageBackground($("#page-about"), CONTENT.about.background);
+    // Prefer the rich document authored in the admin editor; fall back to the
+    // plain-text field for content saved before the editor existed.
+    if (CONTENT.about.doc) { box.innerHTML = CONTENT.about.doc; return; }
     var text = CONTENT.about.text || "";
     // Split on blank lines into paragraphs.
     var paras = text.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
@@ -392,9 +431,11 @@
       .then(function (c) {
         CONTENT = c;
         writeCache(CONTENT_CACHE_KEY, c);
+        renderHomeDoc();
         renderAbout();
         renderTeam();
         renderContacts();
+        if (ARTICLES.length) renderHome();   // pin order depends on content
       })
       .catch(function () {
         // Offline / API down — keep whatever was rendered from cache.
@@ -433,9 +474,11 @@
     var cachedContent = readCache(CONTENT_CACHE_KEY);
     if (cachedContent) {
       CONTENT = cachedContent;
+      renderHomeDoc();
       renderAbout();
       renderTeam();
       renderContacts();
+      if (ARTICLES.length) renderHome();
     }
 
     // 2) Reveal the initial tab (already populated from cache when available).

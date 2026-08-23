@@ -1397,3 +1397,14 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 /* Canvas paints its background behind every element (elements get z >= 1). */
 .ed-canvas { background-size: cover; background-position: center; }
 .ed-canvas > .ed-el { z-index: 1; }
+
+/* Admin-authored rich documents rendered on the public site */
+.page-doc { margin: 0 0 28px; }
+.page-doc:empty { display: none; }
+.page-doc > * { margin: 0 0 0.65em; }
+.page-doc h1 { font-size: 2rem; line-height: 1.2; }
+.page-doc h2 { font-size: 1.5rem; line-height: 1.25; }
+.page-doc ul, .page-doc ol { padding-left: 1.5em; }
+.page-doc .home-theme-block p { opacity: 0.85; }
+/* Admin-set page backgrounds need breathing room around the content */
+.page[style*="background"] { padding: 18px; border-radius: 12px; }
