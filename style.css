@@ -1317,11 +1317,17 @@ body.visual-editor-active .ed-bar2 { display: flex; }
    exactly between the admin header/nav and the edited content. */
 .doc-toolbar-slot { margin: 0 0 18px; }
 .doc-toolbar-slot:empty { display: none; }
+/* .ed-bar2 is display:none unless the fullscreen editor is active, so the
+   docked toolbar has to re-assert its own display. */
 .ed-bar2.is-docked {
+  display: flex;
   position: sticky; top: 0; z-index: 40;
   border: 1px solid var(--line, #d9dee5); border-radius: 10px;
   background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
 }
+/* "Přidat obrázek"/"Přidat text" belong to the positioned article canvas,
+   not to a document flow — the background widget beside them stays. */
+.ed-bar2.is-docked .ed-add-btn { display: none; }
 
 .doc-canvas {
   min-height: 420px; padding: 48px 56px; margin-bottom: 24px;
