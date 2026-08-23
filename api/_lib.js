@@ -135,7 +135,15 @@ export async function saveArticles(articles) {
  *  live as a single JSON file (content.json) in Blob.
  * ----------------------------------------------------------- */
 export const DEFAULT_CONTENT = {
+  home: {
+    doc: "",
+    theme: { period: "měsíce", desc: "dané téma písmem" },
+    pinned: [],
+    background: { color: "", image: "" }
+  },
   about: {
+    doc: "",
+    background: { color: "", image: "" },
     text:
       "Školní magazín vznikl v roce 2022 jako nápad několika studentů, kteří chtěli dát svým spolužákům prostor pro vlastní texty, ilustrace a komiksy. Z malého newsletteru se postupně stal pravidelně vycházející časopis, na kterém se podílí celá redakce.\n\n" +
       "Každý týden se scházíme ve čtvrtek odpoledne ve školní knihovně. Plánujeme nové vydání, rozdělujeme témata, společně čteme rozpracované texty a chystáme rozhovory. Jednou za měsíc vychází nové číslo — tištěné i online."
@@ -180,14 +188,40 @@ function shapeContactItem(c) {
     url:   String(c.url || "").trim()
   };
 }
+/* Canvas background: a solid colour OR an image (image wins when both set). */
+export function shapeBackground(b) {
+  b = b || {};
+  return {
+    color: String(b.color || "").trim(),
+    image: String(b.image || "").trim()
+  };
+}
 /* Normalise an arbitrary object into the full content shape. */
 export function shapeContent(d) {
   d = d || {};
+  const home = d.home || {};
+  const theme = home.theme || {};
   const about = d.about || {};
   const contact = d.contact || {};
+  const DH = DEFAULT_CONTENT.home;
   return {
+    home: {
+      // Rich-text document (HTML) authored in the homepage editor.
+      doc: typeof home.doc === "string" ? home.doc : DH.doc,
+      theme: {
+        period: typeof theme.period === "string" ? theme.period : DH.theme.period,
+        desc:   typeof theme.desc   === "string" ? theme.desc   : DH.theme.desc
+      },
+      // Article ids locked to the top of the feed, in pin order.
+      pinned: Array.isArray(home.pinned)
+                ? home.pinned.map((id) => String(id).trim()).filter(Boolean)
+                : DH.pinned,
+      background: shapeBackground(home.background)
+    },
     about: {
-      text: typeof about.text === "string" ? about.text : DEFAULT_CONTENT.about.text
+      text: typeof about.text === "string" ? about.text : DEFAULT_CONTENT.about.text,
+      doc:  typeof about.doc  === "string" ? about.doc  : DEFAULT_CONTENT.about.doc,
+      background: shapeBackground(about.background)
     },
     team: Array.isArray(d.team) ? d.team.map(shapeMember) : DEFAULT_CONTENT.team,
     contact: {
@@ -234,7 +268,10 @@ export function shapeArticle(data) {
     date:     data.date || new Date().toISOString().slice(0, 10),
     kind:     data.kind === "comic" ? "comic" : "article",
     // Visual-editor layout: array of positioned element objects (optional).
+    // Each element may carry a `z` layer index; the page background sits
+    // behind all of them and is stored separately.
     elements: Array.isArray(data.elements) ? data.elements : [],
+    background: shapeBackground(data.background),
     updatedAt: new Date().toISOString()
   };
 }

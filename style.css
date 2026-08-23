@@ -1309,3 +1309,91 @@ body.visual-editor-active .ed-bar2 { display: flex; }
   text-transform: uppercase; padding: 2px 8px; border-radius: 999px;
   color: purple; background: rgba(128, 0, 128, 0.12); border: 1px solid rgba(128, 0, 128, 0.30);
 }
+
+/* ============================================================
+   GOOGLE-DOCS DOCUMENT EDITORS (homepage + „O nás")
+   ============================================================ */
+/* The shared .ed-bar2 toolbar is moved into this slot, so it sits
+   exactly between the admin header/nav and the edited content. */
+.doc-toolbar-slot { margin: 0 0 18px; }
+.doc-toolbar-slot:empty { display: none; }
+.ed-bar2.is-docked {
+  position: sticky; top: 0; z-index: 40;
+  border: 1px solid var(--line, #d9dee5); border-radius: 10px;
+  background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.doc-canvas {
+  min-height: 420px; padding: 48px 56px; margin-bottom: 24px;
+  background: #fff; border: 1px solid var(--line, #d9dee5); border-radius: 10px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
+  font-size: 16px; line-height: 1.65; color: #1a1a1a;
+  outline: none; overflow-wrap: break-word;
+  background-size: cover; background-position: center;
+}
+.doc-canvas:focus-visible { border-color: var(--brand); }
+.doc-canvas > * { margin: 0 0 0.65em; }
+.doc-canvas h1 { font-size: 2rem; line-height: 1.2; }
+.doc-canvas h2 { font-size: 1.5rem; line-height: 1.25; }
+/* Mandatory „Téma" block */
+.home-theme-block h2 { margin: 0 0 0.15em; }
+.home-theme-block p { margin: 0 0 0.9em; opacity: 0.85; }
+
+/* ---- Pinned articles ---- */
+.pin-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0 14px; }
+.pin-controls select { flex: 1 1 260px; min-width: 200px; padding: 9px 10px; border: 1px solid var(--line, #d9dee5); border-radius: 8px; background: #fff; }
+.pin-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+.pin-list li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border: 1px solid var(--line, #d9dee5); border-radius: 8px; background: #fff;
+}
+.pin-list li strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin-num { font-variant-numeric: tabular-nums; opacity: 0.6; }
+.feed-preview { margin: 8px 0 0; padding-left: 1.4em; display: grid; gap: 4px; }
+.feed-preview li.is-pinned { font-weight: 700; }
+.pin-badge {
+  display: inline-block; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+  color: var(--brand); background: rgba(0, 150, 214, 0.12); border: 1px solid rgba(0, 150, 214, 0.3);
+}
+
+/* ---- Team modular workspace (compact form + sidebar tools) ---- */
+.team-workspace {
+  display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px;
+  padding: 16px; margin: 0 0 18px;
+  border: 1px solid var(--line, #d9dee5); border-radius: 10px; background: #fbfcfd;
+}
+.team-form-box { display: grid; gap: 12px; align-content: start; }
+.team-side {
+  display: grid; gap: 10px; align-content: start;
+  padding-left: 18px; border-left: 1px solid var(--line, #d9dee5);
+}
+.team-side .image-preview { width: 96px; height: 96px; background-size: cover; background-position: center; }
+@media (max-width: 760px) {
+  .team-workspace { grid-template-columns: 1fr; }
+  .team-side { padding-left: 0; border-left: 0; border-top: 1px solid var(--line, #d9dee5); padding-top: 14px; }
+  .doc-canvas { padding: 24px 18px; }
+}
+
+/* ---- Toolbar popovers (background + layers) ---- */
+.ed-pop-wrap { position: relative; display: inline-flex; }
+.ed-pop {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
+  min-width: 210px; padding: 12px; display: grid; gap: 10px;
+  background: #fff; border: 1px solid var(--line, #d9dee5); border-radius: 10px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.16);
+}
+.ed-pop h4 { margin: 0; font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; }
+.ed-pop label { display: grid; gap: 5px; font-size: 0.82rem; }
+.ed-pop input[type="color"] { width: 100%; height: 36px; padding: 2px; border: 1px solid var(--line, #d9dee5); border-radius: 6px; background: #fff; }
+.ed-pop-actions { display: flex; justify-content: flex-end; }
+.ed-layer-menu { min-width: 190px; padding: 6px; gap: 2px; }
+.ed-layer-menu button {
+  display: block; width: 100%; text-align: left; padding: 9px 11px;
+  font: inherit; color: inherit; background: none; border: 0; border-radius: 7px; cursor: pointer;
+}
+.ed-layer-menu button:hover { background: rgba(0, 0, 0, 0.06); }
+
+/* Canvas paints its background behind every element (elements get z >= 1). */
+.ed-canvas { background-size: cover; background-position: center; }
+.ed-canvas > .ed-el { z-index: 1; }

@@ -46,6 +46,7 @@
   var navLinks    = Array.prototype.slice.call(document.querySelectorAll(".admin-nav-link[data-tab]"));
   var sections    = {
     articles: document.querySelector("#section-articles"),
+    home:     document.querySelector("#section-home"),
     about:    document.querySelector("#section-about"),
     contact:  document.querySelector("#section-contact")
   };
@@ -255,6 +256,7 @@
     form.reset();
     fId.value = "";
     fElements.value = "";
+    fBackground.value = "";
     fDate.value = today();
     pendingImageUrl = "";
     updatePreview("");
@@ -264,6 +266,7 @@
   function populateForm(article) {
     fId.value       = article.id;
     fElements.value = (article.elements && article.elements.length) ? JSON.stringify(article.elements) : "";
+    fBackground.value = article.background ? JSON.stringify(article.background) : "";
     fTitle.value    = article.title || "";
     fBody.value     = article.body || "";
     fAuthors.value  = (article.authors || []).join(", ");
@@ -293,7 +296,8 @@
       tags:    fTags.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean),
       date:    fDate.value || today(),
       kind:    fKind.value === "comic" ? "comic" : "article",
-      elements: elements
+      elements: elements,
+      background: edParseJson(fBackground.value, {})
     };
 
     submitBtn.disabled = true;
@@ -388,6 +392,7 @@
         ADMIN_ARTICLES = Array.isArray(items) ? items : [];
         renderArticleFilter();
         renderArticleCards();
+        if (CONTENT) renderPins();   // pin dropdown depends on the article list
       })
       .catch(function (err) {
         if (err.status === 401) { showLogin(); return; }
@@ -449,9 +454,11 @@
     navLinks.forEach(function (link) {
       link.classList.toggle("is-active", link.dataset.tab === name);
     });
-    // Lazy-load site content the first time About/Contact is opened.
-    if ((name === "about" || name === "contact") && !contentLoaded) {
-      loadContent();
+    // Lazy-load site content the first time Home/About/Contact is opened.
+    if ((name === "home" || name === "about" || name === "contact") && !contentLoaded) {
+      loadContent().then(function () { docMountFor(name); });
+    } else {
+      docMountFor(name);
     }
   }
   navLinks.forEach(function (link) {
@@ -487,17 +494,10 @@
     if (!CONTENT) return;
     aboutInput.value = (CONTENT.about && CONTENT.about.text) || "";
   }
+  // Saves the rich document (and its plain-text mirror) without dropping
+  // the other about fields — docFlush() writes them into CONTENT first.
   saveAboutBtn.addEventListener("click", function () {
-    if (!CONTENT) return;
-    CONTENT.about = { text: aboutInput.value };
-    saveAboutBtn.disabled = true;
-    saveContent()
-      .then(function () { toast("Text byl uložen."); })
-      .catch(function (err) {
-        if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + (err.detail || err.message));
-      })
-      .finally(function () { saveAboutBtn.disabled = false; });
+    docSave("about", saveAboutBtn, "Stránka „O nás“ byla uložena.");
   });
 
   /* ---------- About: team members ---------- */
@@ -505,6 +505,10 @@
     teamForm.reset();
     tmId.value = "";
     tmPendingImage = "";
+    // the photo inputs live in the workspace sidebar, outside the form,
+    // so form.reset() does not clear them
+    tmImageUrl.value = "";
+    tmImageFile.value = "";
     tmPreview.hidden = true;
     teamTitle.textContent = "Nový člen";
     teamSubmit.textContent = "Přidat člena";
@@ -548,7 +552,10 @@
 
     teamSubmit.disabled = true;
     saveContent()
-      .then(function () { toast(idx === -1 ? "Člen přidán." : "Člen uložen."); resetTeamForm(); renderTeamTable(); })
+      .then(function () {
+        toast(idx === -1 ? "Člen přidán." : "Člen uložen.");
+        resetTeamForm(); closeTeamWorkspace(); renderTeamTable();
+      })
       .catch(function (err) {
         if (err.status === 401) { showLogin(); return; }
         toast("Chyba: " + (err.detail || err.message));
@@ -597,7 +604,8 @@
       tmUpdatePreview(tmPendingImage);
       teamTitle.textContent = "Upravit člena";
       teamSubmit.textContent = "Uložit změny";
-      teamForm.scrollIntoView({ behavior: "smooth", block: "center" });
+      openTeamWorkspace();   // modular workspace in place — no separate page view
+      teamWorkspace.scrollIntoView({ behavior: "smooth", block: "center" });
     } else if (btn.dataset.action === "team-delete") {
       if (!confirm('Opravdu smazat „' + (member.name || "") + '"?')) return;
       CONTENT.team = (CONTENT.team || []).filter(function (m) { return m.id !== id; });
@@ -772,6 +780,16 @@
     currentColor: "#000000"
   };
 
+  /* Google-Docs document mode. While DOC.root is set, every formatting tool
+     (size, B/I/U, colour, align, lists, indent) targets this one contenteditable
+     document instead of a positioned canvas element — see edEditingContent()
+     and edActiveContentEl(), the two funnels all of them go through. */
+  var DOC = {
+    root: null,     // the contenteditable document element
+    key: null,      // "home" | "about"
+    dirty: false
+  };
+
   function edUid() { return "el-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
   function edStripHtml(html) {
     var d = document.createElement("div");
@@ -788,6 +806,7 @@
   /* ---------- open / close / seed ---------- */
   function edOpen() {
     ED.elements = [];
+    ED.background = edParseJson(fBackground.value, { color: "", image: "" });
     // 1) try to load an existing layout from the hidden form field
     if (fElements.value) {
       try {
@@ -827,6 +846,7 @@
     ED.selectedId = null;
     ED.editingId = null;
     document.body.classList.remove("visual-editor-active");   // open in preview state
+    edApplyBackground(EDITOR.canvas, ED.background);
     edRenderCanvas();
     edSetToolsVisible(false);
     EDITOR.overlay.hidden = false;
@@ -850,6 +870,7 @@
   // Commit the layout back into the article form (title + plain-text body + JSON)
   function edCommitToForm() {
     fElements.value = JSON.stringify(ED.elements);
+    fBackground.value = JSON.stringify(ED.background || { color: "", image: "" });
     var titleEl = ED.elements.filter(function (el) { return el.isTitle; })[0];
     if (titleEl) fTitle.value = edStripHtml(titleEl.content);
     var bodyText = ED.elements
@@ -868,6 +889,11 @@
   /* ---------- rendering ---------- */
   function edRenderCanvas() {
     EDITOR.canvas.innerHTML = "";
+    // Elements created before layering existed (or newly added, which are
+    // pushed last) get a z by array order — so new blocks land on top.
+    ED.elements.forEach(function (el, i) {
+      if (typeof el.z !== "number") el.z = i + 1;
+    });
     ED.elements.forEach(function (el) {
       EDITOR.canvas.appendChild(edBuildNode(el));
     });
@@ -890,6 +916,7 @@
     node.style.top = el.y + "px";
     node.style.width = el.width + "px";
     node.style.height = (el.height === "auto" || el.height == null) ? "auto" : (el.height + "px");
+    node.style.zIndex = el.z || 1;   // page background stays behind (z:0 on the canvas)
     if (ED.selectedId === el.id) node.classList.add("is-selected");
     if (ED.editingId === el.id) node.classList.add("is-editing");
 
@@ -1135,10 +1162,16 @@
   /* ---------- rich-text helpers ---------- */
   // remember the live text selection while editing
   document.addEventListener("selectionchange", function () {
-    if (!ED.editingId) return;
-    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"]');
-    if (!node) return;
-    var content = node.querySelector(".ed-el-content");
+    var content;
+    if (DOC.root) {
+      content = DOC.root;
+    } else {
+      if (!ED.editingId) return;
+      var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"]');
+      if (!node) return;
+      content = node.querySelector(".ed-el-content");
+    }
+    if (!content) return;
     var sel = window.getSelection();
     if (sel && sel.rangeCount && content.contains(sel.anchorNode)) {
       ED.savedRange = sel.getRangeAt(0).cloneRange();
@@ -1147,6 +1180,7 @@
   });
 
   function edEditingContent() {
+    if (DOC.root) return DOC.root;   // Google-Docs mode: the whole document is the editable
     if (!ED.editingId) return null;
     var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"]');
     return node ? node.querySelector(".ed-el-content") : null;
@@ -1161,6 +1195,7 @@
     return true;
   }
   function edCommitEditingContent() {
+    if (DOC.root) { DOC.dirty = true; return; }
     var content = edEditingContent();
     var el = edFind(ED.editingId);
     if (content && el) el.content = content.innerHTML;
@@ -1232,13 +1267,14 @@
 
   // context: are we formatting a text range (editing) or the whole box?
   function edContext() {
+    if (DOC.root) return "range";   // doc mode always formats the live text range
     return (ED.editingId && ED.editingId === ED.selectedId && ED.savedRange) ? "range" : "box";
   }
 
   /* ---------- toolbar: bold / italic / underline ---------- */
   function edToggle(kind) {
     var el = edFind(ED.selectedId);
-    if (!el || el.type !== "text") return;
+    if (!DOC.root && (!el || el.type !== "text")) return;
     if (edContext() === "range") {
       if (kind === "bold") edStyleSelection({ fontWeight: edRangeIsActive("bold") ? "normal" : "700" });
       if (kind === "italic") edStyleSelection({ fontStyle: edRangeIsActive("italic") ? "normal" : "italic" });
@@ -1261,6 +1297,7 @@
   /* ---------- paragraph helpers: align / list / indent ---------- */
   // The content node of whichever text element is active (editing OR selected).
   function edActiveContentEl() {
+    if (DOC.root) return DOC.root;   // Google-Docs mode
     var id = ED.editingId || ED.selectedId;
     if (!id) return null;
     var el = edFind(id);
@@ -1269,6 +1306,7 @@
     return node || null;
   }
   function edCommitActiveContent() {
+    if (DOC.root) { DOC.dirty = true; return; }
     var id = ED.editingId || ED.selectedId;
     var el = edFind(id);
     var content = edActiveContentEl();
@@ -1319,7 +1357,7 @@
     var content = edActiveContentEl();
     if (!content) return [];
     var blocks = edEnsureBlocks(content);
-    if (ED.editingId) {
+    if (ED.editingId || DOC.root) {
       edRestoreRange();
       var sel = window.getSelection();
       if (sel && sel.rangeCount) {
@@ -1427,7 +1465,7 @@
 
   /* ---------- keyboard shortcuts (Ctrl+Shift+L / E / R) ---------- */
   document.addEventListener("keydown", function (e) {
-    if (!ED.editingId) return;
+    if (!ED.editingId && !DOC.root) return;
     if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
     var k = e.key.toLowerCase();
     if (k === "l") { e.preventDefault(); edAlign("left"); }
@@ -1450,7 +1488,7 @@
     ED.lastFs = px;
     EDITOR.fsVal.value = px;
     var el = edFind(ED.selectedId);
-    if (!el || el.type !== "text") return;
+    if (!DOC.root && (!el || el.type !== "text")) return;
     if (edContext() === "range") {
       edStyleSelection({ fontSize: px + "px" });
     } else {
@@ -1581,7 +1619,7 @@
   }
   function edUpdateToolbar() {
     var el = edFind(ED.selectedId);
-    if (!el || el.type !== "text") return;
+    if (!DOC.root && (!el || el.type !== "text")) return;
     EDITOR.fsVal.value = edCurrentFontSize();
     var ctx = edContext();
     var bActive, iActive, uActive, color;
@@ -1590,7 +1628,8 @@
       iActive = edRangeIsActive("italic");
       uActive = edRangeIsActive("underline");
       var n = edSelectionAnchorEl();
-      color = n ? rgbStringToHex(window.getComputedStyle(n).color) : el.styles.color;
+      color = n ? rgbStringToHex(window.getComputedStyle(n).color)
+                : (el ? el.styles.color : ED.currentColor);
     } else {
       bActive = !!el.styles.bold;
       iActive = !!el.styles.italic;
@@ -1606,7 +1645,7 @@
     // alignment + list active state (anchor block when editing, else first block)
     var alignVal = "", inUL = false, inOL = false;
     var content = edActiveContentEl();
-    var node = ED.editingId
+    var node = (ED.editingId || DOC.root)
       ? edSelectionAnchorEl()
       : (content ? content.querySelector("div,p,li,h1,h2,h3,h4,h5,h6") : null);
     while (node && content && content.contains(node)) {
@@ -1693,6 +1732,364 @@
   var sideDeleteBtn = document.querySelector("#ed-side-delete");
   if (sideDeleteBtn) sideDeleteBtn.addEventListener("click", function () {
     edOpenConfirm("delete", "Smazat příspěvek", "Tento příspěvek bude trvale smazán. Pokračovat?");
+  });
+
+  /* ============================================================
+     GOOGLE-DOCS DOCUMENT EDITORS (homepage + „O nás")
+     The shared formatting toolbar (.ed-bar2) is MOVED into the
+     section's dock slot rather than duplicated, so every handler
+     that is already wired keeps working with no drift.
+     ============================================================ */
+  var fBackground = document.querySelector("#f-background");
+  function edParseJson(str, fallback) {
+    if (!str) return fallback;
+    try { var v = JSON.parse(str); return v || fallback; } catch (e) { return fallback; }
+  }
+
+  var DOC_TARGETS = {
+    home:  { root: document.querySelector("#home-doc"),  slot: document.querySelector("#home-toolbar-slot") },
+    about: { root: document.querySelector("#about-doc"), slot: document.querySelector("#about-toolbar-slot") }
+  };
+  var bar2El     = document.querySelector(".ed-bar2");
+  var bar2Parent = bar2El ? bar2El.parentNode : null;
+  var bar2Anchor = bar2El ? bar2El.nextSibling : null;
+
+  function docDock(slot) {
+    if (!bar2El || !slot) return;
+    bar2El.classList.add("is-docked");
+    slot.appendChild(bar2El);
+    if (typeof edSetToolsVisible === "function") edSetToolsVisible(true);
+  }
+  function docUndock() {
+    if (!bar2El || !bar2Parent || bar2El.parentNode === bar2Parent) return;
+    bar2El.classList.remove("is-docked");
+    bar2Parent.insertBefore(bar2El, bar2Anchor);
+  }
+
+  /* ---------- mandatory „Téma" component (homepage) ---------- */
+  function docEnsureTheme(root) {
+    if (!root || root.querySelector("[data-theme-title]")) return;
+    var t = (CONTENT && CONTENT.home && CONTENT.home.theme) || {};
+    var block = document.createElement("div");
+    block.className = "home-theme-block";
+    block.innerHTML =
+      '<h2 data-theme-title>Téma <span data-theme-period>' +
+        escapeHtml(t.period || "měsíce") + "</span></h2>" +
+      "<p data-theme-desc>" + escapeHtml(t.desc || "dané téma písmem") + "</p>";
+    root.insertBefore(block, root.firstChild);
+  }
+  function docReadTheme(root) {
+    var p = root.querySelector("[data-theme-period]");
+    var d = root.querySelector("[data-theme-desc]");
+    return {
+      period: p ? (p.textContent || "").trim() : "měsíce",
+      desc:   d ? (d.textContent || "").trim() : "dané téma písmem"
+    };
+  }
+
+  function docLoad(key) {
+    var root = DOC_TARGETS[key] && DOC_TARGETS[key].root;
+    if (!root || !CONTENT) return;
+    root.innerHTML = (CONTENT[key] && CONTENT[key].doc) || "";
+    if (key === "home") docEnsureTheme(root);
+    if (!root.querySelector("div,p,h1,h2,h3,h4,h5,h6,ul,ol")) {
+      var d = document.createElement("div");
+      d.innerHTML = "<br>";
+      root.appendChild(d);
+    }
+  }
+  function docPlainText(root) {
+    return Array.prototype.slice.call(root.children)
+      .map(function (b) { return (b.textContent || "").trim(); })
+      .filter(Boolean).join("\n\n");
+  }
+  // Write the live document back into CONTENT (no network call).
+  function docFlush() {
+    if (!DOC.root || !DOC.key || !CONTENT) return;
+    var key = DOC.key;
+    if (!CONTENT[key]) CONTENT[key] = {};
+    if (key === "home") {
+      docEnsureTheme(DOC.root);                    // mandatory — never let it vanish
+      CONTENT.home.theme = docReadTheme(DOC.root);
+    }
+    CONTENT[key].doc = DOC.root.innerHTML;
+    if (key === "about") {
+      // keep the plain-text mirror the public page's existing renderer reads
+      CONTENT.about.text = docPlainText(DOC.root);
+      if (aboutInput) aboutInput.value = CONTENT.about.text;
+    }
+    DOC.dirty = false;
+  }
+
+  function docMountFor(tab) {
+    var target = DOC_TARGETS[tab];
+    if (!target || !target.root || !CONTENT) { docUnmount(); return; }
+    if (DOC.root && DOC.key !== tab) docUnmount();
+    DOC.key = tab;
+    DOC.root = target.root;
+    DOC.dirty = false;
+    docLoad(tab);
+    docDock(target.slot);
+    edApplyBackground(target.root, (CONTENT[tab] && CONTENT[tab].background) || {});
+    if (tab === "home") renderPins();
+  }
+  function docUnmount() {
+    if (DOC.root) docFlush();
+    DOC.root = null;
+    DOC.key = null;
+    docUndock();
+  }
+  Object.keys(DOC_TARGETS).forEach(function (key) {
+    var root = DOC_TARGETS[key].root;
+    if (root) root.addEventListener("input", function () { DOC.dirty = true; });
+  });
+
+  /* ---------- save ---------- */
+  function docSave(key, btn, okMsg) {
+    if (!CONTENT) return;
+    docFlush();
+    if (btn) btn.disabled = true;
+    saveContent()
+      .then(function () { toast(okMsg); })
+      .catch(function (err) {
+        if (err.status === 401) { showLogin(); return; }
+        toast("Chyba: " + (err.detail || err.message));
+      })
+      .finally(function () { if (btn) btn.disabled = false; });
+  }
+  var saveHomeBtn = document.querySelector("#save-home-btn");
+  if (saveHomeBtn) saveHomeBtn.addEventListener("click", function () {
+    docSave("home", saveHomeBtn, "Domovská stránka byla uložena.");
+  });
+
+  /* ============================================================
+     Latest-articles feed — pinning
+     ============================================================ */
+  var pinSelect = document.querySelector("#home-pin-select");
+  var pinBtn    = document.querySelector("#home-pin-btn");
+  var pinList   = document.querySelector("#home-pinned-list");
+  var pinEmpty  = document.querySelector("#home-pinned-empty");
+  var feedPrev  = document.querySelector("#home-feed-preview");
+
+  function homePinned() {
+    if (!CONTENT.home) CONTENT.home = {};
+    if (!Array.isArray(CONTENT.home.pinned)) CONTENT.home.pinned = [];
+    return CONTENT.home.pinned;
+  }
+  function articleById(id) {
+    return ADMIN_ARTICLES.filter(function (a) { return a.id === id; })[0] || null;
+  }
+  // Feed order = pinned first (in pin order), then the rest newest-first.
+  function feedOrder(pinned) {
+    var top = pinned.map(articleById).filter(Boolean);
+    var rest = ADMIN_ARTICLES.filter(function (a) { return pinned.indexOf(a.id) === -1; })
+      .slice().sort(function (x, y) {
+        return String(y.date || "").localeCompare(String(x.date || ""));
+      });
+    return top.concat(rest);
+  }
+  function renderPins() {
+    if (!pinSelect || !CONTENT) return;
+    // drop pins whose article no longer exists
+    var alive = homePinned().filter(function (id) { return !!articleById(id); });
+    CONTENT.home.pinned = alive;
+
+    var options = ADMIN_ARTICLES.filter(function (a) { return alive.indexOf(a.id) === -1; });
+    pinSelect.innerHTML = options.length
+      ? options.map(function (a) {
+          return '<option value="' + escapeHtml(a.id) + '">' + escapeHtml(a.title || "(bez názvu)") + "</option>";
+        }).join("")
+      : '<option value="">Žádné další příspěvky</option>';
+    if (pinBtn) pinBtn.disabled = options.length === 0;
+
+    pinList.innerHTML = alive.map(function (id, i) {
+      var a = articleById(id);
+      return '<li data-id="' + escapeHtml(id) + '">' +
+               '<span class="pin-num">' + (i + 1) + ".</span>" +
+               "<strong>" + escapeHtml(a.title || "(bez názvu)") + "</strong>" +
+               '<button class="btn btn-ghost" type="button" data-action="unpin">Odepnout</button>' +
+             "</li>";
+    }).join("");
+    pinEmpty.hidden = alive.length > 0;
+
+    feedPrev.innerHTML = feedOrder(alive).slice(0, 12).map(function (a) {
+      var isPin = alive.indexOf(a.id) > -1;
+      return "<li" + (isPin ? ' class="is-pinned"' : "") + ">" + escapeHtml(a.title || "(bez názvu)") +
+             (isPin ? ' <span class="pin-badge">připnuto</span>' : "") + "</li>";
+    }).join("");
+  }
+  if (pinBtn) pinBtn.addEventListener("click", function () {
+    var id = pinSelect.value;
+    if (!id || !CONTENT) return;
+    var pinned = homePinned();
+    if (pinned.indexOf(id) === -1) pinned.push(id);
+    renderPins();
+    docSave("home", pinBtn, "Článek byl připnut.");
+  });
+  if (pinList) pinList.addEventListener("click", function (e) {
+    var btn = e.target.closest('button[data-action="unpin"]');
+    if (!btn || !CONTENT) return;
+    CONTENT.home.pinned = homePinned().filter(function (p) {
+      return p !== btn.closest("li").dataset.id;
+    });
+    renderPins();
+    docSave("home", null, "Článek byl odepnut.");
+  });
+
+  /* ============================================================
+     Team members — modular workspace (opens in place)
+     ============================================================ */
+  var teamWorkspace = document.querySelector("#team-workspace");
+  var teamAddBtn    = document.querySelector("#team-add-btn");
+  var teamCloseBtn  = document.querySelector("#team-close-btn");
+  function openTeamWorkspace() {
+    if (!teamWorkspace) return;
+    teamWorkspace.hidden = false;
+    if (tmName) tmName.focus();
+  }
+  function closeTeamWorkspace() {
+    if (teamWorkspace) teamWorkspace.hidden = true;
+  }
+  if (teamAddBtn) teamAddBtn.addEventListener("click", function () {
+    resetTeamForm();
+    openTeamWorkspace();
+  });
+  if (teamCloseBtn) teamCloseBtn.addEventListener("click", closeTeamWorkspace);
+
+  /* ============================================================
+     LAYERS — „Zarovnat vrstvy" (z-index).
+     The page background is a style on the canvas itself, never an
+     element, so it always sits behind everything and is unaffected.
+     ============================================================ */
+  function edNormalizeLayers() {
+    ED.elements.slice()
+      .sort(function (a, b) { return (a.z || 0) - (b.z || 0); })
+      .forEach(function (el, i) { el.z = i + 1; });
+  }
+  function edLayer(action) {
+    var el = edFind(ED.selectedId);
+    if (!el) { toast("Nejdřív vyberte prvek."); return; }
+    edNormalizeLayers();
+    var max = ED.elements.length;
+    // Fractional nudges land between neighbours; normalising then snaps to
+    // whole steps. The most recent call always wins — that is the priority rule.
+    if (action === "front")         el.z = max + 1;
+    else if (action === "back")     el.z = 0;
+    else if (action === "forward")  el.z = (el.z || 1) + 1.5;
+    else if (action === "backward") el.z = (el.z || 1) - 1.5;
+    edNormalizeLayers();
+    edRenderCanvas();
+  }
+  var layerBtn  = document.querySelector("#ed-layer");
+  var layerMenu = document.querySelector("#ed-layer-menu");
+  if (layerBtn) {
+    layerBtn.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    layerBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (layerMenu) layerMenu.hidden = !layerMenu.hidden;
+    });
+  }
+  if (layerMenu) layerMenu.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-layer]");
+    if (!btn) return;
+    edLayer(btn.dataset.layer);
+    layerMenu.hidden = true;
+  });
+
+  /* ============================================================
+     PAGE BACKGROUND — solid colour OR image, locked behind all
+     ============================================================ */
+  function edApplyBackground(target, bg) {
+    if (!target) return;
+    bg = bg || {};
+    if (bg.image) {
+      target.style.backgroundImage = "url('" + String(bg.image).replace(/'/g, "\\'") + "')";
+      target.style.backgroundSize = "cover";
+      target.style.backgroundPosition = "center";
+      target.style.backgroundColor = bg.color || "";
+    } else {
+      target.style.backgroundImage = "";
+      target.style.backgroundColor = bg.color || "";
+    }
+  }
+  // Which background is the toolbar currently editing?
+  function edCurrentBg() {
+    if (DOC.key && CONTENT) {
+      if (!CONTENT[DOC.key]) CONTENT[DOC.key] = {};
+      if (!CONTENT[DOC.key].background) CONTENT[DOC.key].background = { color: "", image: "" };
+      return CONTENT[DOC.key].background;
+    }
+    if (!ED.background) ED.background = { color: "", image: "" };
+    return ED.background;
+  }
+  function edBgTargetEl() {
+    return DOC.root ? DOC.root : EDITOR.canvas;
+  }
+  function edBgChanged() {
+    var bg = edCurrentBg();
+    edApplyBackground(edBgTargetEl(), bg);
+    if (DOC.key) docSave(DOC.key, null, "Pozadí bylo uloženo.");
+    else fBackground.value = JSON.stringify(bg);
+  }
+
+  var bgBtn   = document.querySelector("#ed-bg");
+  var bgPanel = document.querySelector("#ed-bg-panel");
+  var bgColor = document.querySelector("#ed-bg-color");
+  var bgHex   = document.querySelector("#ed-bg-hex");
+  var bgFile  = document.querySelector("#ed-bg-file");
+  var bgClear = document.querySelector("#ed-bg-clear");
+
+  if (bgBtn) {
+    bgBtn.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    bgBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (!bgPanel) return;
+      if (bgPanel.hidden) {
+        var bg = edCurrentBg();
+        if (bg.color && bgColor) { bgColor.value = bg.color; bgHex.value = bg.color; }
+      }
+      bgPanel.hidden = !bgPanel.hidden;
+    });
+  }
+  if (bgPanel) bgPanel.addEventListener("click", function (e) { e.stopPropagation(); });
+  if (bgColor) bgColor.addEventListener("input", function () {
+    var bg = edCurrentBg();
+    bg.color = bgColor.value;
+    bg.image = "";                       // a colour replaces an image
+    if (bgHex) bgHex.value = bgColor.value;
+    edBgChanged();
+  });
+  if (bgHex) bgHex.addEventListener("change", function () {
+    var v = bgHex.value.trim();
+    if (!/^#[0-9a-f]{6}$/i.test(v)) { bgHex.value = bgColor ? bgColor.value : ""; return; }
+    var bg = edCurrentBg();
+    bg.color = v; bg.image = "";
+    if (bgColor) bgColor.value = v;
+    edBgChanged();
+  });
+  if (bgFile) bgFile.addEventListener("change", function () {
+    var file = bgFile.files && bgFile.files[0];
+    if (!file) return;
+    bgFile.disabled = true;
+    uploadImageFile(file)
+      .then(function (url) {
+        var bg = edCurrentBg();
+        bg.image = url;
+        edBgChanged();
+        toast("Pozadí nahráno.");
+      })
+      .catch(function (err) { toast("Nahrání selhalo: " + err.message); })
+      .finally(function () { bgFile.disabled = false; bgFile.value = ""; });
+  });
+  if (bgClear) bgClear.addEventListener("click", function () {
+    var bg = edCurrentBg();
+    bg.color = ""; bg.image = "";
+    edBgChanged();
+  });
+  // click-away closes the popovers
+  document.addEventListener("click", function () {
+    if (bgPanel && !bgPanel.hidden) bgPanel.hidden = true;
+    if (layerMenu && !layerMenu.hidden) layerMenu.hidden = true;
   });
 
   /* ============================================================
