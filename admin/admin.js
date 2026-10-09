@@ -883,7 +883,6 @@
     confirmOk: document.querySelector("#ed-confirm-ok"),
     confirmCancel: document.querySelector("#ed-confirm-cancel"),
     backNoChange: document.querySelector("#ed-back-nochange"),
-    backChange:   document.querySelector("#ed-back-change"),
     deleteBtn:    document.querySelector("#ed-delete"),
     publish:      document.querySelector("#ed-publish"),
     metaToggle:   document.querySelector("#ed-meta-toggle"),
@@ -1028,8 +1027,8 @@
      through uploadImageFile() (validation + compression + Blob storage)
      -> the server URL replaces the preview. Only that URL goes into the
      article (`image`), never Base64, so articles.json stays small.
-     State lives in ED.thumbUrl until Vydat/"Zpět se změnami" commits it
-     (edCommitToForm), so "Zpět bez změn" really discards a new thumbnail.
+     State lives in ED.thumbUrl until Vydat commits it
+     (edCommitToForm), so "Zpět" really discards a new thumbnail.
      Every blob: URL is revoked as soon as it is replaced, removed, or the
      editor closes. A token drops results of uploads that were superseded. */
   var THUMB = {
@@ -2120,11 +2119,7 @@
     EDITOR.confirm.hidden = false;
   }
   EDITOR.backNoChange.addEventListener("click", function () {
-    edOpenConfirm("discard", "Zpět bez změn", "Změny provedené v editoru nebudou uloženy. Pokračovat?");
-  });
-  EDITOR.backChange.addEventListener("click", function () {
-    if (uploadsBusy()) return;
-    edOpenConfirm("save", "Zpět se změnami", "Rozvržení se převezme do formuláře článku. Pokračovat?");
+    edOpenConfirm("discard", "Zpět", "Změny provedené v editoru nebudou uloženy. Pokračovat?");
   });
   EDITOR.deleteBtn.addEventListener("click", function () {
     edOpenConfirm("delete", "Smazat příspěvek", "Tento příspěvek bude trvale smazán. Pokračovat?");
@@ -2140,12 +2135,6 @@
     if (action === "discard") {
       edClose();
       toast("Editor zavřen bez uložení.");
-    } else if (action === "save") {
-      edExitEdit();
-      edCommitToForm();
-      edClose();
-      if (form.requestSubmit) form.requestSubmit();
-      else form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
     } else if (action === "delete") {
       var id = fId.value;
       if (id) {

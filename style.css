@@ -923,7 +923,6 @@ button { font: inherit; cursor: pointer; }
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .ed-btn:hover { border-color: var(--brand); color: var(--brand); }
-.ed-btn--danger:hover { border-color: #b00020; color: #b00020; }
 
 /* ---- Bar 2 — tools & formatting ---- */
 .ed-bar2 {
@@ -1283,12 +1282,25 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 /* ---- Bar 1 action buttons ---- */
 .ed-btn--meta { display: inline-flex; align-items: center; gap: 6px; }
 .ed-btn--meta[aria-expanded="true"] { border-color: var(--brand); color: var(--brand); }
-.ed-btn--publish { background: #15a34a; border-color: #15a34a; color: #fff; font-weight: 600; }
-.ed-btn--publish:hover { background: #138a3f; border-color: #138a3f; color: #fff; }
-.ed-btn--publish.is-scheduled { background: purple; border-color: purple; }
-.ed-btn--publish.is-scheduled:hover { background: #5c005c; border-color: #5c005c; }
-.ed-btn--danger { color: #b00020; border-color: #b00020; }
-.ed-btn--danger:hover { background: #b00020; color: #fff; }
+/* Zpět / Vydat / Smazat share one solid-button shape; only the colour differs
+   (set through --btn-bg / --btn-bg-hover per variant). */
+.ed-btn--action {
+  --btn-bg: #3b82f6; --btn-bg-hover: #2563eb;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 96px; min-height: 38px; padding: 0 18px;
+  border: 1px solid var(--btn-bg); border-radius: 6px;
+  background: var(--btn-bg); color: #fff;
+  font-size: 0.88rem; font-weight: 600; line-height: 1;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.ed-btn--action:hover,
+.ed-btn--action:focus-visible { background: var(--btn-bg-hover); border-color: var(--btn-bg-hover); color: #fff; }
+.ed-btn--action:focus-visible { outline: 2px solid var(--btn-bg-hover); outline-offset: 2px; }
+.ed-btn--action:active { transform: translateY(1px); }
+.ed-btn--back    { --btn-bg: #3b82f6; --btn-bg-hover: #2563eb; }   /* blue  */
+.ed-btn--publish { --btn-bg: #15a34a; --btn-bg-hover: #138a3f; }   /* green */
+.ed-btn--publish.is-scheduled { --btn-bg: #7e22ce; --btn-bg-hover: #6b21a8; }  /* purple = Naplánovat */
+.ed-btn--danger  { --btn-bg: #ef4444; --btn-bg-hover: #dc2626; }   /* red   */
 
 /* ---- Collapsible metadata drawer ----
    The drawer animates its flex-basis to 0; inner content keeps a fixed
