@@ -52,3 +52,21 @@ serverless functions.
 
 Articles are stored as a single JSON file (`articles.json`) inside the Blob
 store; uploaded images live under `images/`.
+
+Each save writes a new version of the JSON; the newest three versions are
+kept as backups (Vercel → Storage → Blob → `articles-*.json`). If a save ever
+goes wrong, the previous version can be restored by deleting the newest file.
+
+## Sessions & security
+
+- The login cookie is a signed, 14-day token — it never contains the password.
+  **Changing `ADMIN_PASSWORD` logs out every device** (use it after a leak).
+- Optional `SESSION_SECRET` env var (any long random string) adds extra
+  server-only entropy to the token signature.
+- Wrong-password attempts are slowed and capped per IP (best effort: each
+  serverless instance counts on its own). For a hard limit, add a Vercel
+  Firewall rate-limit rule for `POST /api/login`, or keep the counter in a
+  shared store such as Upstash Redis.
+- Logging out removes the cookie from that browser; a copied cookie stays
+  valid until it expires or the password changes (true server-side logout
+  would need a session store).

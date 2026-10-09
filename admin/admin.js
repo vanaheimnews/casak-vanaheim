@@ -202,6 +202,11 @@
      ============================================================ */
   function showLogin() {
     loginScreen.hidden = false;
+    // Session expired while the article editor is open: show the login as a
+    // modal ABOVE the editor so the unsaved work stays put underneath.
+    var editorOpen = !document.querySelector("#editor-overlay").hidden;
+    loginScreen.classList.toggle("is-modal", editorOpen);
+    if (editorOpen) { setTimeout(function () { loginPass.focus(); }, 0); return; }
     shell.hidden = true;
     if (headerNav) headerNav.hidden = true;   // hide admin controls until logged in
     if (adminTag) adminTag.hidden = true;
@@ -209,6 +214,7 @@
   }
   function showShell() {
     loginScreen.hidden = true;
+    loginScreen.classList.remove("is-modal");
     shell.hidden = false;
     if (headerNav) headerNav.hidden = false;   // reveal admin controls in the header
     if (adminTag) adminTag.hidden = false;
@@ -239,7 +245,7 @@
      ============================================================ */
   function updatePreview(url) {
     if (url) {
-      imagePreview.style.backgroundImage = "url('" + url.replace(/'/g, "\\'") + "')";
+      imagePreview.style.backgroundImage = VNSafe.cssUrl(url);
       imagePreview.hidden = false;
     } else {
       imagePreview.hidden = true;
@@ -320,8 +326,17 @@
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
-    if (uploadsBusy()) return;
-    if (!fTitle.value.trim()) { toast("Název je povinný."); fTitle.focus(); return; }
+    saveArticle();
+  });
+
+  /* Save the article in the form. Resolves true on success, false otherwise
+     (validation error, upload still running, API error, expired session) —
+     callers such as Vydat keep the editor open until it resolves true. */
+  var articleSaving = false;
+  function saveArticle() {
+    if (articleSaving) return Promise.resolve(false);   // no double POST
+    if (uploadsBusy()) return Promise.resolve(false);
+    if (!fTitle.value.trim()) { toast("Název je povinný."); return Promise.resolve(false); }
     var elements = [];
     if (fElements.value) { try { elements = JSON.parse(fElements.value); } catch (e) { elements = []; } }
     // Empty/invalid date -> publish now. Past or current -> live immediately;
@@ -341,28 +356,36 @@
       background: edParseJson(fBackground.value, {})
     };
 
+    articleSaving = true;
     submitBtn.disabled = true;
     var savingId = fId.value;
     var req = savingId
       ? api("/api/articles?id=" + encodeURIComponent(savingId), { method: "PUT", body: payload })
       : api("/api/articles", { method: "POST", body: payload });
 
-    req
+    return req
       .then(function () {
         toast(scheduled
           ? "Naplánováno — vyjde " + formatLocalInput(toLocalInput(when)) + "."
           : (savingId ? "Příspěvek uložen a zveřejněn." : "Příspěvek zveřejněn."));
         resetForm();
         refreshTable();
+        return true;
       })
       .catch(function (err) {
-        if (err.status === 401) { toast("Vypršela platnost přihlášení."); showLogin(); return; }
-        toast("Chyba: " + err.message);
+        if (err.status === 401) {
+          toast("Vypršela platnost přihlášení — přihlaste se a klikněte znovu na Vydat.");
+          showLogin();
+          return false;
+        }
+        toast("Uložení selhalo: " + err.message);
+        return false;
       })
       .finally(function () {
+        articleSaving = false;
         submitBtn.disabled = false;
       });
-  });
+  }
 
   /* ============================================================
      Article list — public-style cards + tag filter.
@@ -374,6 +397,7 @@
   var articleClearTags = document.querySelector("#article-clear-tags");
   var newArticleBtn    = document.querySelector("#new-article-btn");
   var ADMIN_ARTICLES = [];
+  var articlesLoaded = false;   // true after the first successful /api/articles
   var adminSelectedTags = {};
 
   function articleThumb(a) {
@@ -432,6 +456,7 @@
     api("/api/articles")
       .then(function (items) {
         ADMIN_ARTICLES = Array.isArray(items) ? items : [];
+        articlesLoaded = true;
         renderArticleFilter();
         renderArticleCards();
         if (CONTENT) renderPins();   // pin dropdown depends on the article list
@@ -579,8 +604,10 @@
   /* ============================================================
      Tab switching
      ============================================================ */
+  var currentTab = "articles";
   function showTab(name) {
     if (!sections[name]) name = "articles";
+    currentTab = name;
     Object.keys(sections).forEach(function (key) {
       if (sections[key]) sections[key].hidden = key !== name;
     });
@@ -589,7 +616,12 @@
     });
     // Lazy-load site content the first time Home/About/Contact is opened.
     if ((name === "home" || name === "about" || name === "contact") && !contentLoaded) {
-      loadContent().then(function () { docMountFor(name); });
+      loadContent().then(function () {
+        // The admin may have moved on while it loaded: mount only the tab that
+        // is still shown, never under an open article editor (it would steal
+        // the shared toolbar).
+        if (currentTab === name && EDITOR.overlay.hidden) docMountFor(name);
+      });
     } else {
       docMountFor(name);
     }
@@ -601,24 +633,41 @@
   /* ============================================================
      Content (about / team / contact) — load + persist whole object
      ============================================================ */
+  var contentRequest = null;   // one in-flight load shared by quick tab clicks
   function loadContent() {
-    return api("/api/content").then(function (c) {
+    if (contentRequest) return contentRequest;
+    contentRequest = api("/api/content").then(function (c) {
       CONTENT = c;
       contentLoaded = true;
       renderAbout();
       renderTeamTable();
       renderContactTable();
+      if (articlesLoaded) renderPins();
       return c;
     }).catch(function (err) {
       if (err.status === 401) { showLogin(); return; }
       toast("Chyba načtení obsahu: " + err.message);
-    });
+    }).finally(function () { contentRequest = null; });
+    return contentRequest;
   }
   // Persist the whole CONTENT object; returns the (shaped) saved content.
+  var contentDirty = false;   // document edits flushed into CONTENT but not saved
   function saveContent() {
     return api("/api/content", { method: "PUT", body: CONTENT }).then(function (saved) {
       CONTENT = saved;
+      contentDirty = false;
       return saved;
+    });
+  }
+  // Apply a change to CONTENT and save it; if the save fails the change is
+  // rolled back. (Before, a failed add stayed in memory — retry = duplicate —
+  // and a failed delete left a row the next unrelated save removed anyway.)
+  function saveContentChange(mutate) {
+    var before = JSON.stringify(CONTENT);
+    mutate(CONTENT);
+    return saveContent().catch(function (err) {
+      CONTENT = JSON.parse(before);
+      throw err;
     });
   }
 
@@ -648,7 +697,7 @@
   }
   function tmUpdatePreview(url) {
     if (url) {
-      tmPreview.style.backgroundImage = "url('" + url.replace(/'/g, "\\'") + "')";
+      tmPreview.style.backgroundImage = VNSafe.cssUrl(url);
       tmPreview.hidden = false;
     } else { tmPreview.hidden = true; }
   }
@@ -679,17 +728,19 @@
       role: tmRole.value.trim(),
       image: tmPendingImage || tmImageUrl.value.trim() || ""
     };
-    if (!Array.isArray(CONTENT.team)) CONTENT.team = [];
-    var idx = CONTENT.team.findIndex(function (m) { return m.id === member.id; });
-    if (idx === -1) CONTENT.team.push(member); else CONTENT.team[idx] = member;
+    var idx = (CONTENT.team || []).findIndex(function (m) { return m.id === member.id; });
 
     teamSubmit.disabled = true;
-    saveContent()
+    saveContentChange(function (c) {
+      if (!Array.isArray(c.team)) c.team = [];
+      if (idx === -1) c.team.push(member); else c.team[idx] = member;
+    })
       .then(function () {
         toast(idx === -1 ? "Člen přidán." : "Člen uložen.");
         resetTeamForm(); closeTeamWorkspace(); renderTeamTable();
       })
       .catch(function (err) {
+        renderTeamTable();
         if (err.status === 401) { showLogin(); return; }
         toast("Chyba: " + (err.detail || err.message));
       })
@@ -704,8 +755,9 @@
       return;
     }
     teamTbody.innerHTML = list.map(function (m) {
-      var thumb = m.image
-        ? '<span class="thumb round" style="background-image:url(\'' + m.image.replace(/'/g, "\\'") + '\')"></span>'
+      var bg = VNSafe.cssUrl(m.image);   // validated + quoted; escaped for the attribute
+      var thumb = bg
+        ? '<span class="thumb round" style="background-image:' + escapeHtml(bg) + '"></span>'
         : '<span class="thumb round"></span>';
       return (
         '<tr data-id="' + escapeHtml(m.id) + '">' +
@@ -741,10 +793,15 @@
       teamWorkspace.scrollIntoView({ behavior: "smooth", block: "center" });
     } else if (btn.dataset.action === "team-delete") {
       if (!confirm('Opravdu smazat „' + (member.name || "") + '"?')) return;
-      CONTENT.team = (CONTENT.team || []).filter(function (m) { return m.id !== id; });
-      saveContent()
+      saveContentChange(function (c) {
+        c.team = (c.team || []).filter(function (m) { return m.id !== id; });
+      })
         .then(function () { if (tmId.value === id) resetTeamForm(); renderTeamTable(); toast("Člen smazán."); })
-        .catch(function (err) { toast("Chyba: " + (err.detail || err.message)); });
+        .catch(function (err) {
+          renderTeamTable();
+          if (err.status === 401) { showLogin(); return; }
+          toast("Chyba: " + (err.detail || err.message));
+        });
     }
   });
 
@@ -780,21 +837,29 @@
     e.preventDefault();
     if (!CONTENT) return;
     if (!ctLabel.value.trim()) { toast("Zobrazený text je povinný."); ctLabel.focus(); return; }
-    if (!CONTENT.contact) CONTENT.contact = { subtitle: "", items: [] };
-    if (!Array.isArray(CONTENT.contact.items)) CONTENT.contact.items = [];
     var item = {
       id: ctId.value || ("c-" + Date.now().toString(36)),
       type: ctType.value,
       label: ctLabel.value.trim(),
       url: ctUrl.value.trim()
     };
-    var idx = CONTENT.contact.items.findIndex(function (c) { return c.id === item.id; });
-    if (idx === -1) CONTENT.contact.items.push(item); else CONTENT.contact.items[idx] = item;
+    if (item.url && !VNSafe.url(item.url)) {
+      toast("Odkaz musí začínat https://, http://, mailto: nebo tel:");
+      ctUrl.focus();
+      return;
+    }
+    var items = (CONTENT.contact && Array.isArray(CONTENT.contact.items)) ? CONTENT.contact.items : [];
+    var idx = items.findIndex(function (c) { return c.id === item.id; });
 
     contactSubmit.disabled = true;
-    saveContent()
+    saveContentChange(function (c) {
+      if (!c.contact) c.contact = { subtitle: "", items: [] };
+      if (!Array.isArray(c.contact.items)) c.contact.items = [];
+      if (idx === -1) c.contact.items.push(item); else c.contact.items[idx] = item;
+    })
       .then(function () { toast(idx === -1 ? "Kontakt přidán." : "Kontakt uložen."); resetContactForm(); renderContactTable(); })
       .catch(function (err) {
+        renderContactTable();
         if (err.status === 401) { showLogin(); return; }
         toast("Chyba: " + (err.detail || err.message));
       })
@@ -810,9 +875,10 @@
       return;
     }
     contactTbody.innerHTML = list.map(function (c) {
-      var link = c.url
-        ? '<a href="' + escapeHtml(c.url) + '" target="_blank" rel="noopener">' + escapeHtml(c.url) + "</a>"
-        : '<span style="color:var(--muted);">— text —</span>';
+      var safeHref = VNSafe.url(c.url);
+      var link = safeHref
+        ? '<a href="' + escapeHtml(safeHref) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(c.url) + "</a>"
+        : (c.url ? escapeHtml(c.url) : '<span style="color:var(--muted);">— text —</span>');
       return (
         '<tr data-id="' + escapeHtml(c.id) + '">' +
           "<td><strong>" + escapeHtml(c.type) + "</strong></td>" +
@@ -843,10 +909,15 @@
       contactForm.scrollIntoView({ behavior: "smooth", block: "center" });
     } else if (btn.dataset.action === "contact-delete") {
       if (!confirm('Opravdu smazat „' + (item.label || "") + '"?')) return;
-      CONTENT.contact.items = CONTENT.contact.items.filter(function (c) { return c.id !== id; });
-      saveContent()
+      saveContentChange(function (c) {
+        c.contact.items = c.contact.items.filter(function (x) { return x.id !== id; });
+      })
         .then(function () { if (ctId.value === id) resetContactForm(); renderContactTable(); toast("Kontakt smazán."); })
-        .catch(function (err) { toast("Chyba: " + (err.detail || err.message)); });
+        .catch(function (err) {
+          renderContactTable();
+          if (err.status === 401) { showLogin(); return; }
+          toast("Chyba: " + (err.detail || err.message));
+        });
     }
   });
 
@@ -927,6 +998,8 @@
     dirty: false
   };
 
+  // Page width of the article canvas; article.html renders the same 820px.
+  var ED_CANVAS_W = 820;
   function edUid() { return "el-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
   function edStripHtml(html) {
     var d = document.createElement("div");
@@ -949,6 +1022,10 @@
       try {
         var parsed = JSON.parse(fElements.value);
         if (Array.isArray(parsed)) ED.elements = parsed;
+        // stored HTML is cleaned before it ever reaches a contenteditable
+        ED.elements.forEach(function (el) {
+          if (el && el.type === "text") el.content = VNSafe.html(el.content);
+        });
       } catch (e) { ED.elements = []; }
     }
     // 2) ensure a mandatory, non-deletable title element exists
@@ -980,7 +1057,7 @@
     edUpdateSchedule();
     edThumbLoad(pendingImageUrl || fImageUrl.value.trim());
 
-    ED.snapshot = JSON.stringify(ED.elements);
+    ED.session = (ED.session || 0) + 1;  // lets late async results detect a new editor session
     ED.selectedId = null;
     ED.editingId = null;
     ED.liveSpan = null;
@@ -991,6 +1068,12 @@
     edRenderCanvas();
     edSetToolsVisible(false);
     EDITOR.overlay.hidden = false;
+    ED.snapshot = edStateSnapshot();     // compared by the leave-page warning
+  }
+  // Everything Vydat would save — compared with the state at open time.
+  function edStateSnapshot() {
+    return JSON.stringify([ED.elements, ED.background || null, EDITOR.author.value, EDITOR.tags.value,
+      EDITOR.kind.value, EDITOR.date.value, ED.thumbUrl || ""]);
   }
 
   /* ---------- collapsible metadata drawer ---------- */
@@ -1117,6 +1200,12 @@
   function edClose() {
     edThumbRevoke();
     edCloseColorPanel();
+    // Leave no editing state behind: a stale editingId kept the global
+    // shortcuts (and selection tracking) aimed at a closed editor.
+    ED.editingId = null;
+    ED.selectedId = null;
+    ED.savedRange = null;
+    ED.liveSpan = null;
     document.body.classList.remove("visual-editor-active");
     EDITOR.overlay.hidden = true;
   }
@@ -1260,7 +1349,7 @@
       var dx = e2.clientX - startX, dy = e2.clientY - startY;
       if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       if (moved) {
-        el.x = Math.max(0, origX + dx);
+        el.x = Math.min(Math.max(0, origX + dx), Math.max(0, ED_CANVAS_W - (+el.width || 0)));
         el.y = Math.max(0, origY + dy);
         node.style.left = el.x + "px";
         node.style.top = el.y + "px";
@@ -1303,7 +1392,10 @@
       // clamp x/y so resizing from top/left can't invert
       if (h.indexOf("w") > -1) x = origX + (origW - w);
       if (h.indexOf("n") > -1) y = origY + (origH - ht);
-      el.x = Math.max(0, x); el.y = Math.max(0, y);
+      // keep the box inside the page — the public article is exactly ED_CANVAS_W wide
+      if (x < 0) { if (h.indexOf("w") > -1) w += x; x = 0; }
+      if (x + w > ED_CANVAS_W) w = Math.max(40, ED_CANVAS_W - x);
+      el.x = x; el.y = Math.max(0, y);
       el.width = Math.round(w); el.height = Math.round(ht);
       node.style.left = el.x + "px"; node.style.top = el.y + "px";
       node.style.width = el.width + "px"; node.style.height = el.height + "px";
@@ -1408,13 +1500,16 @@
 
   // Article canvas: the block appears immediately with a local blob: URL,
   // then its content is swapped for the server URL (or removed on failure).
-  function edInsertIntoCanvas(file, kind) {
+  // pos (optional): canvas coordinates of a drop point.
+  function edInsertIntoCanvas(file, kind, pos) {
     var localUrl = URL.createObjectURL(file);
     var w = kind === "pdf" ? 300 : 360;
+    var x = pos ? Math.min(Math.max(0, Math.round(pos.x - w / 2)), ED_CANVAS_W - w) : edCanvasCenterX(w);
+    var y = pos ? Math.max(0, Math.round(pos.y - 20)) : edVisibleTop();
     var el = {
       id: edUid(), type: kind === "pdf" ? "file" : "image", isTitle: false,
       content: localUrl, name: file.name, uploading: true,
-      x: edCanvasCenterX(w), y: edVisibleTop(), width: w, height: kind === "pdf" ? "auto" : 220,
+      x: x, y: y, width: w, height: kind === "pdf" ? "auto" : 220,
       styles: defaultStyles()
     };
     ED.elements.push(el);
@@ -1648,7 +1743,7 @@
   // Normalize content so every top-level run of inline nodes lives in its own
   // block (div). Existing blocks are left in place; bare text/<span>/<br> beside
   // an (often empty) block would otherwise be unalignable. Returns leaf blocks.
-  function edEnsureBlocks(content) {
+  function edEnsureBlocks(content, keepNode) {
     var BLOCK = /^(DIV|P|LI|UL|OL|H[1-6]|BLOCKQUOTE)$/;
     var run = [];
     function flush(before) {
@@ -1676,10 +1771,13 @@
     var leaves = Array.prototype.slice.call(content.querySelectorAll("div,p,li,h1,h2,h3,h4,h5,h6"))
       .filter(function (b) { return !b.querySelector("div,p,li,h1,h2,h3,h4,h5,h6"); });
     // Trim trailing empty blocks (blank or <br>-only) — editor cruft that would
-    // otherwise render as a stray bullet/number. Always keep at least one block.
+    // otherwise render as a stray bullet/number. Always keep at least one block,
+    // and never the one holding the caret (Enter at the end, then "center" or
+    // "list", must act on that new empty line — not on the whole text).
     while (leaves.length > 1) {
       var last = leaves[leaves.length - 1];
-      if (!last.textContent.trim() && !last.querySelector("img")) { last.remove(); leaves.pop(); }
+      var holdsCaret = keepNode && (last === keepNode || last.contains(keepNode));
+      if (!holdsCaret && !last.textContent.trim() && !last.querySelector("img")) { last.remove(); leaves.pop(); }
       else break;
     }
     return leaves;
@@ -1689,8 +1787,22 @@
   function edSelectedBlocks() {
     var content = edActiveContentEl();
     if (!content) return [];
-    var blocks = edEnsureBlocks(content);
-    if (ED.editingId || DOC.root) {
+    var editing = !!(ED.editingId || DOC.root);
+    // Remember the selection's boundary nodes BEFORE normalising: moving nodes
+    // collapses live Ranges onto the container, after which every block
+    // looked "selected" and the op hit the whole text.
+    var r0 = (editing && ED.savedRange && content.contains(ED.savedRange.startContainer)) ? ED.savedRange : null;
+    var sN = r0 && r0.startContainer, sO = r0 && r0.startOffset;
+    var eN = r0 && r0.endContainer, eO = r0 && r0.endOffset;
+    var blocks = edEnsureBlocks(content, sN && sN !== content ? sN : null);
+    if (editing) {
+      if (sN && sN !== content && eN !== content && content.contains(sN) && content.contains(eN)) {
+        try {
+          var rr = document.createRange();
+          rr.setStart(sN, sO); rr.setEnd(eN, eO);
+          ED.savedRange = rr;
+        } catch (e) { /* keep whatever the live range became */ }
+      }
       edRestoreRange();
       var sel = window.getSelection();
       if (sel && sel.rangeCount) {
@@ -1730,10 +1842,20 @@
     }
     return null;
   }
+  // Move every <li> after `li` into a new list of the same type (returned,
+  // not yet inserted); null when `li` is the last item.
+  function edSplitListAfter(li) {
+    if (!li.nextSibling) return null;
+    var tail = li.parentNode.cloneNode(false);
+    tail.removeAttribute("start");
+    while (li.nextSibling) tail.appendChild(li.nextSibling);
+    return tail;
+  }
   function edToggleList(tag) {
     var content = edActiveContentEl();
     if (!content) return;
-    var blocks = edSelectedBlocks();
+    // the mandatory „Téma" heading on the homepage must stay a heading
+    var blocks = edSelectedBlocks().filter(function (b) { return !b.closest(".home-theme-block"); });
     if (!blocks.length) return;
     var TAG = tag.toUpperCase();
 
@@ -1743,25 +1865,57 @@
       return list && list.tagName === TAG && b.tagName === "LI";
     });
     if (allInTarget) {
-      // unwrap: each <li> back to a <div>, then drop the now-empty list
+      // unwrap: each <li> becomes a <div> IN PLACE — the list is split around
+      // it (A, B, C with B unlisted -> list[A], B, list[C]); it used to jump
+      // above the whole list.
       blocks.forEach(function (li) {
         var list = li.parentNode;
+        var tail = edSplitListAfter(li);
         var div = document.createElement("div");
         while (li.firstChild) div.appendChild(li.firstChild);
         if (li.style.textAlign) div.style.textAlign = li.style.textAlign;
         if (li.style.paddingLeft) div.style.paddingLeft = li.style.paddingLeft;
-        list.parentNode.insertBefore(div, list);
+        list.parentNode.insertBefore(div, list.nextSibling);
+        if (tail) {
+          // numbered lists continue counting after the unlisted line
+          if (list.tagName === "OL") {
+            var startAt = (parseInt(list.getAttribute("start"), 10) || 1) +
+              Array.prototype.indexOf.call(list.children, li);
+            tail.setAttribute("start", startAt);
+          }
+          div.parentNode.insertBefore(tail, div.nextSibling);
+        }
         li.remove();
         if (!list.children.length) list.remove();
       });
     } else {
       var newList = document.createElement(tag);
-      // marker color = current text color (matches selected text)
-      newList.style.color = ED.currentColor || "#1a1a1a";
-      // Insert before the source list (if the blocks already live in one) or
-      // before the first block, so the new list is never nested in the old one.
-      var anchor = edAncestorList(blocks[0], content) || blocks[0];
-      anchor.parentNode.insertBefore(newList, anchor);
+      // Marker colour follows the text only when ALL of it has one colour —
+      // forcing the caret's colour recoloured every uncoloured word.
+      var colors = {};
+      blocks.forEach(function (b) {
+        var w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+        for (var t = w.nextNode(); t; t = w.nextNode()) {
+          if (t.nodeValue.replace(/[\s​]/g, "")) colors[window.getComputedStyle(t.parentNode).color] = 1;
+        }
+      });
+      if (Object.keys(colors).length === 1) newList.style.color = Object.keys(colors)[0];
+      // Insert where the first block is: inside a list (UL<->OL switch) the
+      // source list is split there, so the converted items keep their place.
+      var srcAtFirst = edAncestorList(blocks[0], content);
+      if (srcAtFirst && blocks[0].parentNode === srcAtFirst) {
+        var rest = edSplitListAfter(blocks[0]);
+        if (rest) {
+          if (srcAtFirst.tagName === "OL") {
+            rest.setAttribute("start", (parseInt(srcAtFirst.getAttribute("start"), 10) || 1) +
+              Array.prototype.indexOf.call(srcAtFirst.children, blocks[0]));
+          }
+          srcAtFirst.parentNode.insertBefore(rest, srcAtFirst.nextSibling);
+        }
+        srcAtFirst.parentNode.insertBefore(newList, srcAtFirst.nextSibling);
+      } else {
+        blocks[0].parentNode.insertBefore(newList, blocks[0]);
+      }
       var srcLists = [];
       blocks.forEach(function (b) {
         var srcList = edAncestorList(b, content);
@@ -1798,8 +1952,11 @@
 
   /* ---------- keyboard shortcuts (Ctrl+Shift+L / E / R) ---------- */
   document.addEventListener("keydown", function (e) {
-    if (!ED.editingId && !DOC.root) return;
     if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
+    // Only while the caret is in the text being edited — elsewhere the keys
+    // keep their browser meaning (Ctrl+Shift+R = hard reload).
+    var content = edEditingContent();
+    if (!content || !(content === document.activeElement || content.contains(document.activeElement))) return;
     var k = e.key.toLowerCase();
     if (k === "l") { e.preventDefault(); edAlign("left"); }
     else if (k === "e") { e.preventDefault(); edAlign("center"); }
@@ -2155,15 +2312,62 @@
   if (openEditorBtn) openEditorBtn.addEventListener("click", edOpen);
 
   // Bar 1 "Vydat" / "Naplánovat" -> commit layout + metadata and save via the API.
-  // The submit handler decides live vs. scheduled from the chosen date/time.
+  /* Leaving the page (refresh, „Zobrazit web", closing the tab) with unsaved
+     work asks first: editor changes, unsaved Home/About edits, uploads. */
+  window.addEventListener("beforeunload", function (e) {
+    var unsaved = pendingUploads > 0 || DOC.dirty || contentDirty ||
+      (!EDITOR.overlay.hidden && edStateSnapshot() !== ED.snapshot);
+    if (!unsaved) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+
+  /* A file dropped anywhere used to make the browser open it — navigating
+     away and losing all unsaved work. File drops are swallowed everywhere;
+     on the article canvas or a Home/About document they insert the file. */
+  function dragHasFiles(e) {
+    var types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && Array.prototype.indexOf.call(types, "Files") > -1;
+  }
+  document.addEventListener("dragover", function (e) { if (dragHasFiles(e)) e.preventDefault(); });
+  document.addEventListener("drop", function (e) {
+    if (!dragHasFiles(e) || e.defaultPrevented) return;   // e.g. the thumbnail zone handled it
+    e.preventDefault();
+    var file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    var onCanvas = !EDITOR.overlay.hidden && EDITOR.canvas.contains(e.target);
+    var onDoc = DOC.root && DOC.root.contains(e.target);
+    if (!onCanvas && !onDoc) return;
+    var kind = fileKind(file);
+    if (!kind) { toast("Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF."); return; }
+    if (onCanvas) {
+      var r = EDITOR.canvas.getBoundingClientRect();
+      edInsertIntoCanvas(file, kind, { x: e.clientX - r.left, y: e.clientY - r.top });
+    } else {
+      // put the caret where the file was dropped
+      var caret = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+      if (caret && DOC.root.contains(caret.startContainer)) ED.savedRange = caret;
+      edInsertIntoDoc(file, kind);
+    }
+  });
+
+  // saveArticle() decides live vs. scheduled from the chosen date/time. The
+  // editor closes only AFTER a successful save — on any failure (API error,
+  // expired login, missing title) it stays open with the work intact.
   EDITOR.publish.addEventListener("click", function () {
-    if (uploadsBusy()) return;
+    if (uploadsBusy() || EDITOR.publish.disabled) return;
     edCommitLive();
     edExitEdit();
     edCommitToForm();
-    edClose();
-    if (form.requestSubmit) form.requestSubmit();
-    else form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+    var label = EDITOR.publish.textContent;
+    EDITOR.publish.disabled = true;
+    EDITOR.publish.textContent = "Ukládám…";
+    saveArticle().then(function (ok) {
+      EDITOR.publish.disabled = false;
+      EDITOR.publish.textContent = label;
+      if (ok) edClose();
+      else edRenderCanvas();     // edit mode was exited above — redraw the canvas
+    });
   });
 
   /* ============================================================
@@ -2222,7 +2426,16 @@
   function docLoad(key) {
     var root = DOC_TARGETS[key] && DOC_TARGETS[key].root;
     if (!root || !CONTENT) return;
-    root.innerHTML = (CONTENT[key] && CONTENT[key].doc) || "";
+    var html = (CONTENT[key] && CONTENT[key].doc) || "";
+    // „O nás" saved before the document editor existed has only plain text:
+    // turn it into paragraphs instead of opening (and later saving) it empty.
+    if (!html && key === "about" && CONTENT.about && CONTENT.about.text) {
+      html = CONTENT.about.text.split(/\n\s*\n/)
+        .map(function (p) { return p.trim(); }).filter(Boolean)
+        .map(function (p) { return "<div>" + escapeHtml(p).replace(/\n/g, "<br>") + "</div>"; })
+        .join("");
+    }
+    root.innerHTML = VNSafe.html(html);
     if (key === "home") docEnsureTheme(root);
     if (!root.querySelector("div,p,h1,h2,h3,h4,h5,h6,ul,ol")) {
       var d = document.createElement("div");
@@ -2244,19 +2457,28 @@
       docEnsureTheme(DOC.root);                    // mandatory — never let it vanish
       CONTENT.home.theme = docReadTheme(DOC.root);
     }
-    CONTENT[key].doc = DOC.root.innerHTML;
+    // Serialize a copy without images/PDFs still uploading (their blob: URL
+    // is only valid in this tab); the finished upload lands on the next flush.
+    var copy = DOC.root.cloneNode(true);
+    Array.prototype.forEach.call(copy.querySelectorAll(".is-uploading"), function (n) { n.remove(); });
+    var hasContent = (copy.textContent || "").replace(/[\s​]/g, "") !== "" || !!copy.querySelector("img,a");
+    CONTENT[key].doc = hasContent ? copy.innerHTML : "";
     if (key === "about") {
       // keep the plain-text mirror the public page's existing renderer reads
-      CONTENT.about.text = docPlainText(DOC.root);
+      CONTENT.about.text = docPlainText(copy);
       if (aboutInput) aboutInput.value = CONTENT.about.text;
     }
+    if (DOC.dirty) contentDirty = true;   // in CONTENT now, not yet on the server
     DOC.dirty = false;
   }
 
   function docMountFor(tab) {
     var target = DOC_TARGETS[tab];
     if (!target || !target.root || !CONTENT) { docUnmount(); return; }
-    if (DOC.root && DOC.key !== tab) docUnmount();
+    // Same document already mounted (e.g. its tab clicked again): keep the
+    // live, possibly unsaved edits — reloading from CONTENT discarded them.
+    if (DOC.root && DOC.key === tab) { docDock(target.slot); return; }
+    if (DOC.root) docUnmount();
     DOC.key = tab;
     DOC.root = target.root;
     DOC.dirty = false;
@@ -2322,7 +2544,14 @@
   }
   function renderPins() {
     if (!pinSelect || !CONTENT) return;
-    // drop pins whose article no longer exists
+    // Drop pins whose article no longer exists — but only once the article
+    // list has really loaded; before that every pin would look "dead" and the
+    // next content save would erase them all.
+    if (!articlesLoaded) {
+      pinList.innerHTML = "";
+      pinEmpty.hidden = true;
+      return;
+    }
     var alive = homePinned().filter(function (id) { return !!articleById(id); });
     CONTENT.home.pinned = alive;
 
@@ -2435,7 +2664,7 @@
     if (!target) return;
     bg = bg || {};
     if (bg.image) {
-      target.style.backgroundImage = "url('" + String(bg.image).replace(/'/g, "\\'") + "')";
+      target.style.backgroundImage = VNSafe.cssUrl(bg.image);
       target.style.backgroundSize = "cover";
       target.style.backgroundPosition = "center";
       target.style.backgroundColor = bg.color || "";
@@ -2510,12 +2739,27 @@
     var file = bgFile.files && bgFile.files[0];
     if (!file) return;
     bgFile.disabled = true;
+    // Remember WHAT was being edited when the file was picked: the upload can
+    // finish after the admin switched pages and must not land on the new one.
+    var targetKey = DOC.key || null;
+    var session = ED.session;
     uploadImageFile(file)
       .then(function (url) {
-        var bg = edCurrentBg();
-        bg.image = url;
-        edBgChanged();
-        toast("Pozadí nahráno.");
+        var sameTarget = (DOC.key || null) === targetKey &&
+          (targetKey || (!EDITOR.overlay.hidden && ED.session === session));
+        if (sameTarget) {
+          var bg = edCurrentBg();
+          bg.image = url;
+          edBgChanged();
+          toast("Pozadí nahráno.");
+        } else if (targetKey && CONTENT) {
+          if (!CONTENT[targetKey]) CONTENT[targetKey] = {};
+          var old = CONTENT[targetKey].background || {};
+          CONTENT[targetKey].background = { color: old.color || "", image: url };
+          docSave(targetKey, null, "Pozadí bylo uloženo.");
+        } else {
+          toast("Editor byl mezitím zavřen — pozadí se nepoužilo.");
+        }
       })
       .catch(function (err) { toast("Nahrání selhalo: " + err.message); })
       .finally(function () { bgFile.disabled = false; bgFile.value = ""; });

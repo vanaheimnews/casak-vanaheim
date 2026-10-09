@@ -78,6 +78,7 @@
     </article>
   </main>
 
+  <script src="/sanitize.js"></script>
   <script>
     /* Reuse only the burger/drawer logic from the main script. */
     (function () {
@@ -109,40 +110,73 @@
           return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
         });
       }
+      // "YYYY-MM-DD" is a calendar date — build it in LOCAL time. new Date(iso)
+      // means UTC midnight, which showed the previous day west of UTC.
       function formatDate(iso) {
         if (!iso) return "";
-        var d = new Date(iso);
+        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+        var d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(iso);
         if (isNaN(d.getTime())) return iso;
         var months = ["ledna","února","března","dubna","května","června",
                       "července","srpna","září","října","listopadu","prosince"];
         return d.getDate() + ". " + months[d.getMonth()] + " " + d.getFullYear();
       }
 
-      // Render the visual-editor element layout exactly as authored.
-      var CANVAS_W = 820;   // must match the editor canvas width
-      function renderElements(wrap, elements) {
+      /* Visual-editor layout. The editor canvas is 820px wide; older articles
+         may hold blocks placed further right (the editor used to be wider), so
+         the public canvas grows to include every block, then scales to fit the
+         column. Below FLOW_BELOW px the blocks are shown as one readable
+         column in reading order instead — scaling would make text tiny. */
+      var EDITOR_W = 820;
+      var FLOW_BELOW = 560;
+      function renderElements(wrap, a) {
+        var elements = a.elements;
+        var canvasW = EDITOR_W;
+        elements.forEach(function (el) {
+          var right = (+el.x || 0) + (+el.width || 0);
+          if (right > canvasW) canvasW = right;
+        });
         var canvas = document.createElement("div");
         canvas.className = "article-canvas";
-        canvas.style.width = CANVAS_W + "px";
-        elements.forEach(function (el) {
-          var node = document.createElement("div");
-          node.className = "ac-el ac-el--" + el.type;
-          node.style.left = el.x + "px";
-          node.style.top = el.y + "px";
-          node.style.width = el.width + "px";
-          if (el.height && el.height !== "auto") node.style.height = el.height + "px";
+        canvas.style.width = canvasW + "px";
+        applyBackground(canvas, a.background);
+        // DOM in reading order (top->bottom, left->right) for the flow layout
+        // and screen readers; z-index reproduces the editor's layers.
+        var ordered = elements.map(function (el, i) { return { el: el, i: i }; })
+          .sort(function (p, q) {
+            return ((+p.el.y || 0) - (+q.el.y || 0)) || ((+p.el.x || 0) - (+q.el.x || 0));
+          });
+        var imgNo = 0;
+        ordered.forEach(function (p) {
+          var el = p.el;
+          var node = document.createElement(el.isTitle ? "h1" : "div");
+          node.className = "ac-el ac-el--" + el.type + (el.isTitle ? " ac-title" : "");
+          node.style.left = (+el.x || 0) + "px";
+          node.style.top = (+el.y || 0) + "px";
+          node.style.width = (+el.width || 0) + "px";
+          node.style.zIndex = typeof el.z === "number" ? el.z : p.i + 1;
+          if (el.height && el.height !== "auto") {
+            node.style.height = el.height + "px";
+            node.classList.add("has-fixed-h");
+          }
           if (el.type === "image") {
+            var src = VNSafe.url(el.content, { image: true });
+            if (!src) return;
+            imgNo++;
             var img = document.createElement("img");
-            img.src = el.content; img.alt = ""; img.loading = "lazy";
+            img.src = src; img.loading = "lazy";
+            img.alt = (a.title ? a.title + " — " : "") + "obrázek " + imgNo;
             node.appendChild(img);
           } else if (el.type === "file") {
+            var href = VNSafe.url(el.content);
+            if (!href) return;
             var link = document.createElement("a");
             link.className = "ac-file";
-            link.href = el.content; link.target = "_blank"; link.rel = "noopener";
+            link.href = href; link.target = "_blank"; link.rel = "noopener noreferrer";
             link.textContent = "📄 " + (el.name || "Dokument PDF");
             node.appendChild(link);
           } else {
-            node.innerHTML = el.content || "";
+            node.innerHTML = VNSafe.html(el.content);
             var s = el.styles || {};
             node.style.fontSize = s.fontSize || "16px";
             node.style.color = s.color || "#1a1a1a";
@@ -155,16 +189,20 @@
         });
         wrap.innerHTML = "";
         wrap.appendChild(canvas);
-        var doScale = function () { scaleCanvas(wrap, canvas); };
-        doScale();
-        window.addEventListener("resize", doScale);
-        // re-scale once images have loaded (their height can change auto rows)
+        var doLayout = function () { layoutCanvas(wrap, canvas, canvasW); };
+        doLayout();
+        window.addEventListener("resize", doLayout);
+        // re-measure once images have loaded (their height can change auto rows)
         Array.prototype.forEach.call(canvas.querySelectorAll("img"), function (im) {
-          if (!im.complete) im.addEventListener("load", doScale);
+          if (!im.complete) im.addEventListener("load", doLayout);
         });
       }
-      function scaleCanvas(wrap, canvas) {
+      function layoutCanvas(wrap, canvas, canvasW) {
+        var avail = wrap.clientWidth || canvasW;
+        var flow = avail < FLOW_BELOW;
+        canvas.classList.toggle("article-canvas--flow", flow);
         canvas.style.transform = "none";
+        if (flow) { canvas.style.height = ""; wrap.style.height = ""; return; }
         var h = 0;
         Array.prototype.forEach.call(canvas.children, function (n) {
           var b = n.offsetTop + n.offsetHeight;
@@ -172,11 +210,21 @@
         });
         h += 40;
         canvas.style.height = h + "px";
-        var avail = wrap.clientWidth || CANVAS_W;
-        var scale = Math.min(1, avail / CANVAS_W);
+        var scale = Math.min(1, avail / canvasW);
         canvas.style.transformOrigin = "top left";
         canvas.style.transform = "scale(" + scale + ")";
         wrap.style.height = (h * scale) + "px";
+      }
+      // Page background from the editor: image (wins) or a hex colour.
+      function applyBackground(node, bg) {
+        if (!bg) return;
+        var img = bg.image ? VNSafe.cssUrl(bg.image) : "";
+        if (img) {
+          node.style.backgroundImage = img;
+          node.style.backgroundSize = "cover";
+          node.style.backgroundPosition = "center";
+        }
+        if (/^#[0-9a-f]{3,8}$/i.test(bg.color || "")) node.style.backgroundColor = bg.color;
       }
 
       var params = new URLSearchParams(location.search);
@@ -212,15 +260,20 @@
           if (a.elements && a.elements.length) {
             // Render the exact positioned layout from the visual editor.
             root.innerHTML = metaHtml + '<div class="article-canvas-wrap" id="article-canvas-wrap"></div>';
-            renderElements(document.querySelector("#article-canvas-wrap"), a.elements);
+            renderElements(document.querySelector("#article-canvas-wrap"), a);
           } else {
-            var heroHtml = a.image
-              ? '<div class="article-hero"><img src="' + escapeHtml(a.image) + '" alt=""></div>'
+            var heroSrc = VNSafe.url(a.image, { image: true });
+            var heroHtml = heroSrc
+              ? '<div class="article-hero"><img src="' + escapeHtml(heroSrc) + '" alt=""></div>'
               : "";
+            // blank line = new paragraph, single newline = line break
+            var paras = String(a.body || "").split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
             root.innerHTML = metaHtml +
               heroHtml +
               '<h1 class="article-title">' + escapeHtml(a.title) + "</h1>" +
-              '<div class="article-body"><p>' + escapeHtml(a.body || "") + "</p></div>";
+              '<div class="article-body">' + paras.map(function (p) {
+                return "<p>" + escapeHtml(p).replace(/\n/g, "<br>") + "</p>";
+              }).join("") + "</div>";
           }
         })
         .catch(function (err) {

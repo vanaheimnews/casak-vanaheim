@@ -9,39 +9,18 @@
   "use strict";
 
   /* ============================================================
-     FALLBACK SAMPLE DATA (only used if the API can't be reached)
-     ============================================================ */
-  var FALLBACK_ARTICLES = [
-    {
-      id: "sample-1",
-      title: "Vítejte ve školním magazínu",
-      date: new Date().toISOString().slice(0, 10),
-      authors: ["Redakce"],
-      image: "",
-      tags: ["Redakce"],
-      kind: "article",
-      body: "Toto je ukázkový článek. Až přidáte první vlastní článek v administraci, nahradí tento text."
-    }
-  ];
-
-  var TEAM = [
-    { name: "Anna Nováková",   role: "Šéfredaktorka",      image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80" },
-    { name: "Petr Svoboda",    role: "Redaktor",           image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80" },
-    { name: "Klára Dvořáková", role: "Ilustrátorka",       image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=400&q=80" },
-    { name: "Tomáš Marek",     role: "Fotograf",           image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=400&q=80" },
-    { name: "Eliška Horáková", role: "Korektorka",         image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80" },
-    { name: "Martin Král",     role: "Grafik",             image: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=400&q=80" },
-    { name: "Jan Bárta",       role: "Autor komiksů",      image: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=400&q=80" },
-    { name: "Lucie Pokorná",   role: "Pedagogický dohled", image: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80" }
-  ];
-
-  /* ============================================================
      STATE
+     (No built-in sample articles/team any more: an empty magazine shows an
+     empty state, and an API failure shows the cached data or an error —
+     never fake articles whose links 404.)
      ============================================================ */
   var ARTICLES = [];
+  var articlesFailed = false;    // last /api/articles load failed and nothing is cached
   var CONTENT = null;            // about/team/contact, loaded from /api/content
   var selectedTags = new Set();
   var PAGES = ["home", "articles", "about", "contact"];
+  var HOME_PAGE_SIZE = 6;
+  var homeVisible = HOME_PAGE_SIZE;   // grows with „Starší články"
 
   /* Inline SVG icons for contact cards, keyed by type. */
   var CONTACT_ICONS = {
@@ -64,16 +43,28 @@
     });
   }
 
+  // Does an HTML string contain visible text? (an emptied editor leaves "<div><br></div>")
+  function docHasText(html) {
+    var t = document.createElement("template");
+    t.innerHTML = html;
+    return (t.content.textContent || "").replace(/[\s​]/g, "") !== "";
+  }
+
+  // "YYYY-MM-DD" is a calendar date — build it in LOCAL time. new Date(iso)
+  // means UTC midnight, which showed the previous day west of UTC.
   function formatDate(iso) {
     if (!iso) return "";
-    var d = new Date(iso);
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    var d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(iso);
     if (isNaN(d.getTime())) return iso;
     var months = ["ledna","února","března","dubna","května","června",
                   "července","srpna","září","října","listopadu","prosince"];
     return d.getDate() + ". " + months[d.getMonth()] + " " + d.getFullYear();
   }
 
-  function byDateDesc(a, b) { return (b.date || "").localeCompare(a.date || ""); }
+  // Newest first: exact publish time when known, else the calendar date.
+  function publishKey(a) { return a.publishAt || a.date || ""; }
+  function byDateDesc(a, b) { return publishKey(b).localeCompare(publishKey(a)); }
 
   /* ============================================================
      PAGE SWITCHING
@@ -106,6 +97,9 @@
     });
     window.addEventListener("hashchange", function () {
       var name = (location.hash || "#home").slice(1);
+      // Only real pages switch tabs; other anchors (e.g. the „Přejít k obsahu"
+      // skip link -> #main) keep their normal in-page jump.
+      if (PAGES.indexOf(name) === -1) return;
       showPage(name);
     });
   }
@@ -144,8 +138,9 @@
     var authors = (article.authors || []).join(", ");
     var kindLabel = article.kind === "comic" ? "Komiks" : "Článek";
     var href = "./article.html?id=" + encodeURIComponent(article.id);
-    var imgHtml = article.image
-      ? '<img src="' + escapeHtml(article.image) + '" alt="" loading="lazy" decoding="async">'
+    var imgSrc = VNSafe.url(article.image, { image: true });
+    var imgHtml = imgSrc
+      ? '<img src="' + escapeHtml(imgSrc) + '" alt="" loading="lazy" decoding="async">'
       : "";
 
     return (
@@ -174,8 +169,9 @@
     var authors = (article.authors || []).join(", ");
     var kindLabel = article.kind === "comic" ? "Komiks" : "Článek";
     var href = "./article.html?id=" + encodeURIComponent(article.id);
-    var imgHtml = article.image
-      ? '<img src="' + escapeHtml(article.image) + '" alt="" loading="lazy" decoding="async">'
+    var imgSrc = VNSafe.url(article.image, { image: true });
+    var imgHtml = imgSrc
+      ? '<img src="' + escapeHtml(imgSrc) + '" alt="" loading="lazy" decoding="async">'
       : "";
     // Build a short excerpt from the body.
     var excerpt = String(article.body || "").trim().replace(/\s+/g, " ");
@@ -221,35 +217,48 @@
   /* Page background: solid colour or cover image (admin-configured). */
   function applyPageBackground(section, bg) {
     if (!section || !bg) return;
-    if (bg.image) {
-      section.style.backgroundImage = "url('" + String(bg.image).replace(/'/g, "\\'") + "')";
+    var img = bg.image ? VNSafe.cssUrl(bg.image) : "";
+    if (img) {
+      section.style.backgroundImage = img;
       section.style.backgroundSize = "cover";
       section.style.backgroundPosition = "center";
     } else {
       section.style.backgroundImage = "";
     }
-    section.style.backgroundColor = bg.color || "";
+    section.style.backgroundColor = /^#[0-9a-f]{3,8}$/i.test(bg.color || "") ? bg.color : "";
   }
 
   /* Homepage rich document (incl. the „Téma" block) from the content store. */
   function renderHomeDoc() {
     var box = $("#home-doc-view");
     if (!box || !CONTENT || !CONTENT.home) return;
-    box.innerHTML = CONTENT.home.doc || "";
+    box.innerHTML = VNSafe.html(CONTENT.home.doc);
     applyPageBackground($("#page-home"), CONTENT.home.background);
   }
 
   function renderHome() {
     var grid = $("#home-grid");
     if (!grid) return;
-    var newest = feedOrdered().slice(0, 6);
+    var feed = feedOrdered();
+    var newest = feed.slice(0, homeVisible);
+    updateOlderBtn(feed.length);
     if (newest.length === 0) {
-      grid.innerHTML = '<p class="empty-state" style="grid-column:1/-1;">Zatím žádné články.</p>';
+      grid.innerHTML = '<p class="empty-state" style="grid-column:1/-1;">' +
+        (articlesFailed ? "Články se nepodařilo načíst. Zkuste stránku obnovit." : "Zatím žádné články.") +
+        "</p>";
       return;
     }
     // First (newest) article is the featured card; the rest are normal cards.
     grid.innerHTML = buildFeaturedCard(newest[0]) + newest.slice(1).map(buildCard).join("");
     renderQuickTags();
+  }
+  // „Starší články" reveals the next HOME_PAGE_SIZE articles; disabled at the end.
+  function updateOlderBtn(total) {
+    var btn = $("#older-btn");
+    if (!btn) return;
+    var more = total > homeVisible;
+    btn.disabled = !more;
+    btn.textContent = more ? "Starší články" : "Žádné starší články";
   }
 
   /* Quick-tags widget — top categories as badges. */
@@ -273,10 +282,14 @@
   function renderTagFilter() {
     var list = $("#tag-list");
     if (!list) return;
-    list.innerHTML = getAllTags().map(function (tag) {
+    var tags = getAllTags();
+    // Keep the user's ticks across re-renders (cache paint -> server data);
+    // drop selections whose tag no longer exists so no invisible filter stays.
+    selectedTags.forEach(function (t) { if (tags.indexOf(t) === -1) selectedTags.delete(t); });
+    list.innerHTML = tags.map(function (tag) {
       return (
         '<label class="tag-checkbox">' +
-          '<input type="checkbox" value="' + escapeHtml(tag) + '">' +
+          '<input type="checkbox" value="' + escapeHtml(tag) + '"' + (selectedTags.has(tag) ? " checked" : "") + ">" +
           "<span>" + escapeHtml(tag) + "</span>" +
         "</label>"
       );
@@ -293,7 +306,12 @@
     });
     if (filtered.length === 0) {
       grid.innerHTML = "";
-      if (empty) empty.hidden = false;
+      if (empty) {
+        empty.textContent = ARTICLES.length
+          ? "Žádné příspěvky neodpovídají vybraným štítkům."
+          : (articlesFailed ? "Články se nepodařilo načíst. Zkuste stránku obnovit." : "Zatím žádné příspěvky.");
+        empty.hidden = false;
+      }
     } else {
       if (empty) empty.hidden = true;
       grid.innerHTML = filtered.map(buildCard).join("");
@@ -303,11 +321,14 @@
   function renderTeam() {
     var grid = $("#team-grid");
     if (!grid) return;
-    // Prefer team from the content store; fall back to the built-in list.
-    var team = (CONTENT && Array.isArray(CONTENT.team) && CONTENT.team.length) ? CONTENT.team : TEAM;
+    var team = (CONTENT && Array.isArray(CONTENT.team)) ? CONTENT.team : [];
+    // No members -> hide the whole „Náš tým" section instead of stock photos.
+    var section = grid.closest(".team");
+    if (section) section.hidden = team.length === 0;
     grid.innerHTML = team.map(function (m) {
-      var img = m.image
-        ? '<img src="' + escapeHtml(m.image) + '" alt="Fotografie: ' + escapeHtml(m.name) + '" loading="lazy" decoding="async">'
+      var src = VNSafe.url(m.image, { image: true });
+      var img = src
+        ? '<img src="' + escapeHtml(src) + '" alt="Fotografie: ' + escapeHtml(m.name) + '" loading="lazy" decoding="async">'
         : "";
       return (
         '<article class="team-card">' +
@@ -330,11 +351,11 @@
     applyPageBackground($("#page-about"), CONTENT.about.background);
     // Prefer the rich document authored in the admin editor; fall back to the
     // plain-text field for content saved before the editor existed.
-    if (CONTENT.about.doc) { box.innerHTML = CONTENT.about.doc; return; }
+    var doc = VNSafe.html(CONTENT.about.doc);
+    if (doc && (/<img\b/i.test(doc) || docHasText(doc))) { box.innerHTML = doc; return; }
     var text = CONTENT.about.text || "";
     // Split on blank lines into paragraphs.
     var paras = text.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
-    if (paras.length === 0) return;
     box.innerHTML = paras.map(function (p) {
       return "<p>" + escapeHtml(p).replace(/\n/g, "<br>") + "</p>";
     }).join("");
@@ -361,10 +382,12 @@
           '<span class="contact-label">' + escapeHtml(c.type) + "</span>" +
           '<span class="contact-value">' + escapeHtml(c.label) + "</span>" +
         "</span>";
-      if (c.url) {
-        var external = /^https?:/i.test(c.url);
-        var attrs = external ? ' target="_blank" rel="noopener"' : "";
-        return '<li><a class="contact-item" href="' + escapeHtml(c.url) + '"' + attrs + ">" + inner + "</a></li>";
+      // Only http(s)/mailto/tel/relative links; e.g. javascript: renders as plain text.
+      var href = VNSafe.url(c.url);
+      if (href) {
+        var external = /^https?:/i.test(href);
+        var attrs = external ? ' target="_blank" rel="noopener noreferrer"' : "";
+        return '<li><a class="contact-item" href="' + escapeHtml(href) + '"' + attrs + ">" + inner + "</a></li>";
       }
       return '<li><div class="contact-item">' + inner + "</div></li>";
     }).join("");
@@ -414,11 +437,13 @@
         return r.json();
       })
       .then(function (items) {
-        ARTICLES = Array.isArray(items) && items.length ? items : FALLBACK_ARTICLES;
+        ARTICLES = Array.isArray(items) ? items : [];   // an empty magazine stays empty
+        articlesFailed = false;
         writeCache(ARTICLES_CACHE_KEY, ARTICLES);
       })
       .catch(function () {
-        if (!ARTICLES.length) ARTICLES = FALLBACK_ARTICLES;
+        // API down: keep the cached articles if we painted any, else show an error.
+        articlesFailed = ARTICLES.length === 0;
       });
   }
 
@@ -452,8 +477,8 @@
     var olderBtn = $("#older-btn");
     if (olderBtn) {
       olderBtn.addEventListener("click", function () {
-        olderBtn.disabled = true;
-        olderBtn.textContent = "Žádné starší články";
+        homeVisible += HOME_PAGE_SIZE;
+        renderHome();
       });
     }
 
@@ -464,8 +489,10 @@
     // 1) Instant paint from cache (only what we actually have cached) so a
     //    refresh shows the correct content immediately — no flash of default,
     //    empty, or "no articles" states before the server responds.
-    var cachedArticles = readCache(ARTICLES_CACHE_KEY);
-    if (Array.isArray(cachedArticles) && cachedArticles.length) {
+    // (filter: older versions cached a built-in sample article)
+    var rawCached = readCache(ARTICLES_CACHE_KEY);
+    var cachedArticles = Array.isArray(rawCached) ? rawCached.filter(function (a) { return a && a.id !== "sample-1"; }) : [];
+    if (cachedArticles.length) {
       ARTICLES = cachedArticles;
       renderHome();
       renderTagFilter();

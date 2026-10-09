@@ -122,6 +122,8 @@
 
     /* Login screen */
     .login-screen { min-height: 60vh; display: grid; place-items: center; padding: 40px 24px; }
+    /* session expired while the editor is open: login floats above it */
+    .login-screen.is-modal { position: fixed; inset: 0; z-index: 400; min-height: 0; background: rgba(10, 16, 20, 0.6); }
     .login-card {
       width: min(420px, 100%);
       background: var(--surface); border: 1px solid var(--content-rule);
@@ -142,7 +144,7 @@
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
       padding: 12px 20px; background: var(--accent); color: #fff;
       font-size: 0.88rem; letter-spacing: 0.04em; border-radius: 2px;
-      opacity: 0; pointer-events: none; transition: opacity 180ms ease; z-index: 60;
+      opacity: 0; pointer-events: none; transition: opacity 180ms ease; z-index: 1000; /* above the editor (200) and its dialogs */
     }
     .toast.is-visible { opacity: 1; }
     @media (max-width: 700px) {
@@ -604,6 +606,7 @@
     </div>
   </div>
 
+  <script src="/sanitize.js"></script>
   <script src="/admin/admin.js"></script>
 </body>
 </html>

@@ -4,9 +4,11 @@
  * so this is import-only — not an HTTP endpoint.
  * ============================================================ */
 import { list, put, del } from "@vercel/blob";
+import { webcrypto } from "node:crypto";
 
 const ARTICLES_PATHNAME = "articles.json";
 const CONTENT_PATHNAME = "content.json";
+const KEEP_VERSIONS = 3;   // newest JSON versions never deleted (backup)
 
 /* ----------------------------------------------------------------
  * Mutable-JSON-in-Blob helper.
@@ -34,28 +36,38 @@ async function saveJson(baseName, value) {
     addRandomSuffix: true,     // brand-new URL each save -> never a stale CDN hit
     cacheControlMaxAge: 0
   });
-  // Best-effort cleanup of older versions (keep the one we just wrote).
+  // Best-effort cleanup. Only versions OLDER than the one we just wrote are
+  // removed (a parallel save that landed after ours must survive), and the
+  // newest KEEP_VERSIONS copies always stay as a safety net / backup.
   try {
-    const versions = await listVersions(baseName);
-    const stale = versions
-      .filter(function (b) { return b.url !== written.url; })
-      .map(function (b) { return b.url; });
-    if (stale.length) await del(stale);
+    const versions = await listVersions(baseName);   // newest first
+    const mine = versions.find(function (b) { return b.url === written.url; });
+    if (mine) {
+      const myTime = new Date(mine.uploadedAt).getTime();
+      const stale = versions.slice(KEEP_VERSIONS)
+        .filter(function (b) { return new Date(b.uploadedAt).getTime() < myTime; })
+        .map(function (b) { return b.url; });
+      if (stale.length) await del(stale);
+    }
   } catch (e) { /* cleanup is non-critical */ }
   return written;
 }
 
+/* Read the newest version. `fallback` is returned ONLY when no version
+ * exists yet. Every failure (Blob API down, network error, bad JSON) THROWS:
+ * returning an empty list here made the next save overwrite the store with
+ * just one article — i.e. a short outage could wipe the whole magazine. */
 async function loadJson(baseName, fallback) {
-  try {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const versions = await listVersions(baseName);
     if (!versions.length) return fallback;
     const response = await fetch(versions[0].url, { cache: "no-store" });
-    if (!response.ok) return fallback;
+    // 404: that version was cleaned up between list() and fetch() -> re-list.
+    if (response.status === 404) continue;
+    if (!response.ok) throw new Error("Blob read of " + baseName + " failed: HTTP " + response.status);
     return await response.json();
-  } catch (err) {
-    console.error("loadJson(" + baseName + ") failed", err);
-    return fallback;
   }
+  throw new Error("Blob read of " + baseName + " failed: version disappeared while reading");
 }
 const COOKIE_NAME = "vn_admin";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 14; // 14 days
@@ -67,16 +79,69 @@ export function parseCookies(req) {
   header.split(";").forEach((part) => {
     const [k, ...v] = part.split("=");
     if (!k) return;
-    out[k.trim()] = decodeURIComponent((v.join("=") || "").trim());
+    const raw = (v.join("=") || "").trim();
+    try { out[k.trim()] = decodeURIComponent(raw); } catch (e) { out[k.trim()] = raw; }
   });
   return out;
 }
 
-export function isAdmin(req) {
+/* ---------------- signed session tokens ----------------
+ * The cookie used to hold the admin password itself. Now it holds
+ *   v1.<expiry>.<nonce>.<HMAC-SHA256 signature>
+ * The HMAC key is derived from ADMIN_PASSWORD (+ optional SESSION_SECRET),
+ * so the password never leaves the server and changing it invalidates
+ * every existing session. Web Crypto keeps this code runtime-neutral.
+ * ------------------------------------------------------- */
+const enc = new TextEncoder();
+
+function b64url(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Compare without an early exit, so response time doesn't reveal how many
+// leading characters matched.
+export function safeEqual(a, b) {
+  a = String(a == null ? "" : a);
+  b = String(b == null ? "" : b);
+  let diff = a.length ^ b.length;
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return diff === 0;
+}
+
+async function sessionKey() {
   const password = process.env.ADMIN_PASSWORD;
-  if (!password) return false;
-  const cookies = parseCookies(req);
-  return cookies[COOKIE_NAME] === password;
+  if (!password) return null;
+  const material = enc.encode("vn-session-v1\u0000" + password + "\u0000" + (process.env.SESSION_SECRET || ""));
+  return webcrypto.subtle.importKey("raw", material, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+}
+async function hmac(key, data) {
+  return b64url(new Uint8Array(await webcrypto.subtle.sign("HMAC", key, enc.encode(data))));
+}
+
+export async function createSessionToken() {
+  const key = await sessionKey();
+  if (!key) throw new Error("ADMIN_PASSWORD env var not set");
+  const exp = Math.floor(Date.now() / 1000) + COOKIE_MAX_AGE;
+  const nonce = b64url(webcrypto.getRandomValues(new Uint8Array(12)));
+  const payload = "v1." + exp + "." + nonce;
+  return payload + "." + (await hmac(key, payload));
+}
+
+export async function verifySessionToken(token) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 4 || parts[0] !== "v1") return false;
+  const exp = Number(parts[1]);
+  if (!Number.isFinite(exp) || exp * 1000 <= Date.now()) return false;
+  const key = await sessionKey();
+  if (!key) return false;
+  return safeEqual(parts[3], await hmac(key, parts.slice(0, 3).join(".")));
+}
+
+export async function isAdmin(req) {
+  return verifySessionToken(parseCookies(req)[COOKIE_NAME]);
 }
 
 export function setAdminCookie(res, value) {
@@ -93,12 +158,23 @@ export function clearAdminCookie(res) {
   );
 }
 
-export function requireAdmin(req, res) {
-  if (!isAdmin(req)) {
+export async function requireAdmin(req, res) {
+  if (!(await isAdmin(req))) {
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
   return true;
+}
+
+/* 500 response. Internal details (useful: e.g. a missing Blob token) are
+ * shown only to signed-in admins; the public gets a generic message. */
+export async function sendServerError(req, res, err, where, label = "Server error") {
+  console.error(where + " error", err);
+  let admin = false;
+  try { admin = await isAdmin(req); } catch (e) { /* treat as public */ }
+  return res.status(500).json(admin
+    ? { error: label, detail: String((err && err.message) || err) }
+    : { error: label });
 }
 
 /* ---------------- request body ---------------- */

@@ -1,0 +1,5 @@
+# Old prototypes — not part of the live site. Without this, Vercel serves
+# every committed file statically (incl. a hardcoded demo password).
+editorial-news-feed-layout/
+school-magazine/
+vanaheim-news/

@@ -8,7 +8,7 @@
  * ============================================================ */
 import {
   loadArticles, saveArticles, requireAdmin, isAdmin, readJsonBody, shapeArticle, uid,
-  isLive, compareNewest
+  isLive, compareNewest, sendServerError
 } from "./_lib.js";
 
 export default async function handler(req, res) {
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
       const items = await loadArticles();
       // Scheduling: an article with a future publish time is hidden from the
       // public until that moment; admins (signed-in) always see them.
-      const admin = isAdmin(req);
+      const admin = await isAdmin(req);
       const now = Date.now();
       const isPublished = (a) => admin || isLive(a, now);
 
@@ -38,17 +38,17 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "POST") {
-      if (!requireAdmin(req, res)) return;
+      if (!(await requireAdmin(req, res))) return;
       const body = await readJsonBody(req);
       const items = await loadArticles();
-      const newArticle = shapeArticle({ ...body, id: body.id || uid() });
+      const newArticle = shapeArticle({ ...body, id: uid() });   // never trust a client id
       items.push(newArticle);
       await saveArticles(items);
       return res.status(201).json(newArticle);
     }
 
     if (req.method === "PUT") {
-      if (!requireAdmin(req, res)) return;
+      if (!(await requireAdmin(req, res))) return;
       if (!id) return res.status(400).json({ error: "Missing id" });
       const body = await readJsonBody(req);
       const items = await loadArticles();
@@ -60,7 +60,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "DELETE") {
-      if (!requireAdmin(req, res)) return;
+      if (!(await requireAdmin(req, res))) return;
       if (!id) return res.status(400).json({ error: "Missing id" });
       const items = await loadArticles();
       const next = items.filter((a) => a.id !== id);
@@ -74,7 +74,6 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "GET, POST, PUT, DELETE");
     return res.status(405).json({ error: "Method not allowed" });
   } catch (err) {
-    console.error("/api/articles error", err);
-    return res.status(500).json({ error: "Server error", detail: String(err.message || err) });
+    return sendServerError(req, res, err, "/api/articles");
   }
 }

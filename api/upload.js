@@ -5,7 +5,7 @@
  * Returns: { url, mime }  — public Blob URL of the uploaded file.
  * ============================================================ */
 import { put } from "@vercel/blob";
-import { requireAdmin, readJsonBody } from "./_lib.js";
+import { requireAdmin, readJsonBody, sendServerError } from "./_lib.js";
 
 // Whitelisted MIME types -> stored file extension.
 const ALLOWED = {
@@ -30,7 +30,7 @@ export default async function handler(req, res) {
       res.setHeader("Allow", "POST");
       return res.status(405).json({ error: "Method not allowed" });
     }
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
 
     const body = await readJsonBody(req);
     const { filename, dataUrl } = body || {};
@@ -65,7 +65,6 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ url: result.url, mime });
   } catch (err) {
-    console.error("/api/upload error", err);
-    return res.status(500).json({ error: "Upload failed", detail: String(err.message || err) });
+    return sendServerError(req, res, err, "/api/upload", "Upload failed");
   }
 }

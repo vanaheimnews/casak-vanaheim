@@ -5,7 +5,7 @@
  * Body for PUT = the whole content object; it is shaped/validated
  * server-side before saving.
  * ============================================================ */
-import { loadContent, saveContent, requireAdmin, readJsonBody } from "./_lib.js";
+import { loadContent, saveContent, requireAdmin, readJsonBody, sendServerError } from "./_lib.js";
 
 export const config = {
   api: { bodyParser: { sizeLimit: "2mb" } }
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "PUT") {
-      if (!requireAdmin(req, res)) return;
+      if (!(await requireAdmin(req, res))) return;
       const body = await readJsonBody(req);
       const saved = await saveContent(body);
       return res.status(200).json(saved);
@@ -31,7 +31,6 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "GET, PUT");
     return res.status(405).json({ error: "Method not allowed" });
   } catch (err) {
-    console.error("/api/content error", err);
-    return res.status(500).json({ error: "Server error", detail: String(err.message || err) });
+    return sendServerError(req, res, err, "/api/content");
   }
 }
