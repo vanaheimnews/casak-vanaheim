@@ -238,7 +238,7 @@
           <input type="file" id="f-image-file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif">
           <span class="image-preview" id="image-preview" hidden></span>
           <input type="text" id="f-authors">
-          <input type="date" id="f-date">
+          <input type="datetime-local" id="f-date">
           <input type="text" id="f-tags">
           <select id="f-kind">
             <option value="article">Článek</option>
@@ -435,8 +435,14 @@
 
       <!-- Bar 1 — top control bar (blue border) -->
       <div class="ed-bar1">
+        <button class="ed-btn ed-btn--meta" type="button" id="ed-meta-toggle"
+                aria-controls="metadata-sidebar" aria-expanded="true" title="Zobrazit / skrýt metadata">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+          Metadata
+        </button>
         <button class="ed-btn" type="button" id="ed-back-nochange">Zpět bez změn</button>
         <button class="ed-btn" type="button" id="ed-back-change">Zpět se změnami</button>
+        <button class="ed-btn ed-btn--publish" type="button" id="ed-publish">Vydat</button>
         <button class="ed-btn ed-btn--danger" type="button" id="ed-delete">Smazat</button>
         <span class="ed-spacer">Vizuální editor článku</span>
       </div>
@@ -481,6 +487,18 @@
           <button class="ed-tool ed-tool-b" type="button" id="ed-bold" title="Tučně" aria-label="Tučně">S</button>
           <button class="ed-tool ed-tool-i" type="button" id="ed-italic" title="Kurzíva" aria-label="Kurzíva">C</button>
           <button class="ed-tool ed-tool-u" type="button" id="ed-underline" title="Podtržení" aria-label="Podtržení">I</button>
+          <!-- Text color — grouped with the typography controls -->
+          <div class="ed-color-wrap">
+            <button class="ed-tool ed-tool-o" type="button" id="ed-color" title="Barva textu" aria-label="Barva textu" style="color:#000000;">O</button>
+            <div class="ed-color-panel" id="ed-color-panel" hidden>
+              <div class="ed-color-preview" id="ed-color-preview"></div>
+              <input class="ed-color-native" type="color" id="ed-color-native" value="#000000" aria-label="Výběr barvy">
+              <div class="ed-color-row"><label for="ed-r-num">R</label><input type="range" min="0" max="255" id="ed-r-range" value="0"><input type="number" min="0" max="255" id="ed-r-num" value="0"></div>
+              <div class="ed-color-row"><label for="ed-g-num">G</label><input type="range" min="0" max="255" id="ed-g-range" value="0"><input type="number" min="0" max="255" id="ed-g-num" value="0"></div>
+              <div class="ed-color-row"><label for="ed-b-num">B</label><input type="range" min="0" max="255" id="ed-b-range" value="0"><input type="number" min="0" max="255" id="ed-b-num" value="0"></div>
+              <div class="ed-color-hexrow"><label for="ed-hex">HEX</label><input type="text" id="ed-hex" maxlength="7" value="#000000"></div>
+            </div>
+          </div>
 
           <!-- Alignment (Ctrl+Shift+L / E / R) -->
           <button class="ed-tool ed-tool-svg" type="button" id="ed-align-left" title="Zarovnat vlevo (Ctrl+Shift+L)" aria-label="Zarovnat vlevo">
@@ -521,26 +539,13 @@
               <button type="button" role="menuitem" data-layer="back">Dát dozadu</button>
             </div>
           </div>
-
-          <!-- Color -->
-          <div class="ed-color-wrap">
-            <button class="ed-tool ed-tool-o" type="button" id="ed-color" title="Barva textu" aria-label="Barva textu" style="color:#000000;">O</button>
-            <div class="ed-color-panel" id="ed-color-panel" hidden>
-              <div class="ed-color-preview" id="ed-color-preview"></div>
-              <input class="ed-color-native" type="color" id="ed-color-native" value="#000000" aria-label="Výběr barvy">
-              <div class="ed-color-row"><label for="ed-r-num">R</label><input type="range" min="0" max="255" id="ed-r-range" value="0"><input type="number" min="0" max="255" id="ed-r-num" value="0"></div>
-              <div class="ed-color-row"><label for="ed-g-num">G</label><input type="range" min="0" max="255" id="ed-g-range" value="0"><input type="number" min="0" max="255" id="ed-g-num" value="0"></div>
-              <div class="ed-color-row"><label for="ed-b-num">B</label><input type="range" min="0" max="255" id="ed-b-range" value="0"><input type="number" min="0" max="255" id="ed-b-num" value="0"></div>
-              <div class="ed-color-hexrow"><label for="ed-hex">HEX</label><input type="text" id="ed-hex" maxlength="7" value="#000000"></div>
-            </div>
-          </div>
         </div>
       </div>
 
       <!-- Body: left meta sidebar + canvas -->
       <div class="ed-body">
+        <!-- Collapsible metadata drawer (toggled by #ed-meta-toggle) -->
         <aside class="ed-side" id="metadata-sidebar">
-          <button class="ed-add-btn ed-enter-visual" type="button" id="ed-enter-visual">Vizuální editor</button>
           <h3 class="ed-side-title">Metadata</h3>
           <label>Autor / Autoři (čárkou)
             <input type="text" id="ed-author" placeholder="Anna Nováková">
@@ -554,14 +559,10 @@
               <option value="comic">Komiks</option>
             </select>
           </label>
-          <label>Datum vydání
-            <span class="ed-date-field" id="ed-date-field"><input type="date" id="ed-date"></span>
-            <span class="ed-sched-hint" id="ed-sched-hint" hidden>Naplánováno — vyjde v tento den.</span>
+          <label>Datum a čas vydání
+            <span class="ed-date-field" id="ed-date-field"><input type="datetime-local" id="ed-date"></span>
+            <span class="ed-sched-hint" id="ed-sched-hint" hidden></span>
           </label>
-          <div class="ed-side-actions">
-            <button class="btn btn--publish" type="button" id="ed-publish">Vydat</button>
-            <button class="btn btn--del" type="button" id="ed-side-delete">Smazat</button>
-          </div>
         </aside>
 
         <!-- Canvas (white paper, mimics the public reader view) -->

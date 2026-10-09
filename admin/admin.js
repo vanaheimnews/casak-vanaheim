@@ -93,7 +93,41 @@
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
     });
   }
-  function today() { return new Date().toISOString().slice(0, 10); }
+  /* ---------- publish date/time (scheduling) ----------
+     The editor uses <input type="datetime-local"> ("YYYY-MM-DDTHH:MM",
+     local time). Articles store `publishAt` as an absolute ISO timestamp
+     plus `date` (local YYYY-MM-DD) for display. The API hides an article
+     from the public until publishAt <= now, so a past/current value is
+     live immediately and a future one stays scheduled until that minute. */
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function toLocalInput(d) {
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) +
+           "T" + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+  function nowLocalInput() { return toLocalInput(new Date()); }
+  // Parse "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" as LOCAL time (Date.parse of a
+  // date-only string would be UTC). Returns a Date or null.
+  function parseLocalInput(v) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(v || "");
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0));
+  }
+  // Editor value for a stored article (falls back to legacy date-only records).
+  function articleLocalInput(a) {
+    if (a.publishAt) { var d = new Date(a.publishAt); if (!isNaN(d)) return toLocalInput(d); }
+    return a.date ? a.date + "T00:00" : "";
+  }
+  function articlePublishTime(a) {
+    if (a.publishAt) { var t = Date.parse(a.publishAt); if (!isNaN(t)) return t; }
+    var d = parseLocalInput(a.date);
+    return d ? d.getTime() : 0;
+  }
+  function isScheduled(a) { return articlePublishTime(a) > Date.now(); }
+  function formatLocalInput(v) {
+    var d = parseLocalInput(v);
+    return d ? d.getDate() + ". " + (d.getMonth() + 1) + ". " + d.getFullYear() + " v " +
+               pad2(d.getHours()) + ":" + pad2(d.getMinutes()) : "";
+  }
 
   /* Byte length of a string in UTF-8 (for the article record size). */
   function textBytes(str) {
@@ -258,7 +292,7 @@
     fId.value = "";
     fElements.value = "";
     fBackground.value = "";
-    fDate.value = today();
+    fDate.value = nowLocalInput();
     pendingImageUrl = "";
     updatePreview("");
     formTitle.textContent = "Nový příspěvek";
@@ -271,7 +305,7 @@
     fTitle.value    = article.title || "";
     fBody.value     = article.body || "";
     fAuthors.value  = (article.authors || []).join(", ");
-    fDate.value     = article.date || "";
+    fDate.value     = articleLocalInput(article);
     fTags.value     = (article.tags || []).join(", ");
     fKind.value     = article.kind || "article";
     pendingImageUrl = article.image || "";
@@ -290,13 +324,18 @@
     if (!fTitle.value.trim()) { toast("Název je povinný."); fTitle.focus(); return; }
     var elements = [];
     if (fElements.value) { try { elements = JSON.parse(fElements.value); } catch (e) { elements = []; } }
+    // Empty/invalid date -> publish now. Past or current -> live immediately;
+    // future -> scheduled (the API hides it until publishAt).
+    var when = parseLocalInput(fDate.value) || new Date();
+    var scheduled = when.getTime() > Date.now();
     var payload = {
       title:   fTitle.value,
       body:    fBody.value,
       image:   pendingImageUrl || fImageUrl.value || "",
       authors: fAuthors.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean),
       tags:    fTags.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean),
-      date:    fDate.value || today(),
+      date:    toLocalInput(when).slice(0, 10),
+      publishAt: when.toISOString(),
       kind:    fKind.value === "comic" ? "comic" : "article",
       elements: elements,
       background: edParseJson(fBackground.value, {})
@@ -310,7 +349,9 @@
 
     req
       .then(function () {
-        toast(savingId ? "Příspěvek uložen." : "Příspěvek vytvořen.");
+        toast(scheduled
+          ? "Naplánováno — vyjde " + formatLocalInput(toLocalInput(when)) + "."
+          : (savingId ? "Příspěvek uložen a zveřejněn." : "Příspěvek zveřejněn."));
         resetForm();
         refreshTable();
       })
@@ -356,7 +397,6 @@
     }).join("");
   }
   function renderArticleCards() {
-    var todayStr = today();
     var sel = Object.keys(adminSelectedTags);
     var list = ADMIN_ARTICLES.filter(function (a) {
       if (sel.length === 0) return true;
@@ -368,7 +408,7 @@
       var thumb = articleThumb(a);
       var media = thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy">' : "";
       var authors = (a.authors || []).join(", ");
-      var future = a.date && a.date > todayStr;
+      var future = isScheduled(a);
       var tagsHtml = (a.tags || []).map(function (t) { return '<span class="card-tag">' + escapeHtml(t) + "</span>"; }).join("");
       return (
         '<article class="card" data-id="' + escapeHtml(a.id) + '" role="button" tabindex="0">' +
@@ -432,7 +472,7 @@
   });
   newArticleBtn.addEventListener("click", function () {
     resetForm();
-    fDate.value = today();
+    fDate.value = nowLocalInput();
     edOpen();
   });
 
@@ -845,6 +885,10 @@
     backNoChange: document.querySelector("#ed-back-nochange"),
     backChange:   document.querySelector("#ed-back-change"),
     deleteBtn:    document.querySelector("#ed-delete"),
+    publish:      document.querySelector("#ed-publish"),
+    metaToggle:   document.querySelector("#ed-meta-toggle"),
+    side:         document.querySelector("#metadata-sidebar"),
+    body:         document.querySelector("#editor-overlay .ed-body"),
     author:    document.querySelector("#ed-author"),
     tags:      document.querySelector("#ed-tags"),
     kind:      document.querySelector("#ed-kind"),
@@ -868,6 +912,7 @@
     snapshot: "",          // JSON for "discard"
     pendingAction: null,   // 'discard' | 'save' | 'delete'
     savedRange: null,      // last text selection inside the editing content
+    liveSpan: null,        // span being restyled live by the size box / colour panel
     lastFs: 16,            // last valid font size (for revert)
     colorSyncing: false,
     currentColor: "#000000"
@@ -932,25 +977,48 @@
     EDITOR.author.value = fAuthors.value || "";
     EDITOR.tags.value = fTags.value || "";
     EDITOR.kind.value = fKind.value || "article";
-    EDITOR.date.value = fDate.value || today();
+    EDITOR.date.value = fDate.value || nowLocalInput();
     edUpdateSchedule();
 
     ED.snapshot = JSON.stringify(ED.elements);
     ED.selectedId = null;
     ED.editingId = null;
-    document.body.classList.remove("visual-editor-active");   // open in preview state
+    ED.liveSpan = null;
+    // Straight into the visual editor — there is no separate preview step.
+    document.body.classList.add("visual-editor-active");
+    edSetMetaOpen(edMetaPref());
     edApplyBackground(EDITOR.canvas, ED.background);
     edRenderCanvas();
     edSetToolsVisible(false);
     EDITOR.overlay.hidden = false;
   }
 
-  // purple border + hint when a future publish date is chosen
+  /* ---------- collapsible metadata drawer ---------- */
+  var META_PREF_KEY = "vn-editor-meta-open";
+  function edMetaPref() {
+    try { return localStorage.getItem(META_PREF_KEY) !== "0"; } catch (e) { return true; }
+  }
+  function edSetMetaOpen(open, remember) {
+    EDITOR.body.classList.toggle("is-meta-collapsed", !open);
+    EDITOR.metaToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    EDITOR.side.inert = !open;            // keep collapsed fields out of the tab order
+    if (remember) { try { localStorage.setItem(META_PREF_KEY, open ? "1" : "0"); } catch (e) {} }
+  }
+  EDITOR.metaToggle.addEventListener("click", function () {
+    edSetMetaOpen(EDITOR.body.classList.contains("is-meta-collapsed"), true);
+  });
+
+  // Purple border + hint + "Naplánovat" label when the chosen time is in the future.
   function edUpdateSchedule() {
-    var v = EDITOR.date.value;
-    var future = !!v && v > today();   // yyyy-mm-dd string compare is chronological
+    var d = parseLocalInput(EDITOR.date.value);
+    var future = !!d && d.getTime() > Date.now();
     EDITOR.dateField.classList.toggle("is-scheduled", future);
     EDITOR.schedHint.hidden = !future;
+    EDITOR.schedHint.textContent = future
+      ? "Naplánováno — vyjde " + formatLocalInput(EDITOR.date.value) + "."
+      : "";
+    EDITOR.publish.textContent = future ? "Naplánovat" : "Vydat";
+    EDITOR.publish.classList.toggle("is-scheduled", future);
   }
   EDITOR.date.addEventListener("input", edUpdateSchedule);
   EDITOR.date.addEventListener("change", edUpdateSchedule);
@@ -959,7 +1027,6 @@
     document.body.classList.remove("visual-editor-active");
     EDITOR.overlay.hidden = true;
   }
-  function edEnterVisual() { document.body.classList.add("visual-editor-active"); }
   // Commit the layout back into the article form (title + plain-text body + JSON)
   function edCommitToForm() {
     fElements.value = JSON.stringify(ED.elements);
@@ -976,7 +1043,7 @@
     fAuthors.value = EDITOR.author.value;
     fTags.value = EDITOR.tags.value;
     fKind.value = EDITOR.kind.value;
-    fDate.value = EDITOR.date.value || today();
+    fDate.value = EDITOR.date.value || nowLocalInput();
   }
 
   /* ---------- rendering ---------- */
@@ -1186,7 +1253,6 @@
   function edEnterEdit(id) {
     var el = edFind(id);
     if (!el || el.type !== "text") return;
-    edEnterVisual();                 // clicking into a text block opens full editor mode
     ED.editingId = id;
     ED.selectedId = id;
     edRenderCanvas();
@@ -1209,6 +1275,7 @@
     }
     ED.editingId = null;
     ED.savedRange = null;
+    ED.liveSpan = null;
   }
 
   /* ---------- add elements ---------- */
@@ -1340,7 +1407,10 @@
     if (!content) return;
     var sel = window.getSelection();
     if (sel && sel.rangeCount && content.contains(sel.anchorNode)) {
-      ED.savedRange = sel.getRangeAt(0).cloneRange();
+      var r = sel.getRangeAt(0);
+      // A genuinely new selection ends the live-styling session (see edLiveStyle).
+      if (ED.liveSpan && !edRangeIsLiveSpan(r)) edCommitLive();
+      ED.savedRange = r.cloneRange();
       edUpdateToolbar();
     }
   });
@@ -1639,43 +1709,139 @@
     else if (k === "r") { e.preventDefault(); edAlign("right"); }
   });
 
+  /* ---------- live styling (Google-Docs style, no Enter needed) ----------
+     The size box and the colour controls restyle text on every `input`
+     event. In "range" context the FIRST live change wraps the saved
+     selection in one <span> (ED.liveSpan); every later event only updates
+     that span's style. So: no span nesting per keystroke/slider tick, and
+     focus stays in the control (we never move the caret while the user is
+     typing in an input). The session ends — the change is already in the
+     DOM, edCommitLive() just persists it — on blur, Enter, colour-panel
+     close, a new text selection, or leaving edit mode. */
+  function edLiveStyle(styleObj) {
+    var content = edEditingContent();
+    if (!content) return;
+    var span = ED.liveSpan;
+    if (!span || !span.isConnected || !content.contains(span)) {
+      var range = ED.savedRange;
+      if (!range || !content.contains(range.commonAncestorContainer)) return;
+      range = range.cloneRange();
+      span = document.createElement("span");
+      if (range.collapsed) {
+        // caret only -> style what gets typed next (ZWSP keeps the caret inside)
+        span.appendChild(document.createTextNode("​"));
+        range.insertNode(span);
+        range.setStart(span.firstChild, 1);
+        range.collapse(true);
+      } else {
+        try { range.surroundContents(span); }
+        catch (e) {                        // selection crosses element boundaries
+          span.appendChild(range.extractContents());
+          range.insertNode(span);
+        }
+        range.selectNodeContents(span);
+      }
+      ED.savedRange = range.cloneRange();
+      ED.liveSpan = span;
+      // Toolbar-button path (focus still in the text): keep the visible
+      // selection on the span. Input path: leave focus where the user types.
+      if (content.contains(document.activeElement) || content === document.activeElement) {
+        var sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(range);
+      }
+    }
+    applyStyleObj(span, styleObj);
+    // Older inline styles of the same property inside the span would win
+    // over the new value — clear them.
+    Array.prototype.forEach.call(span.querySelectorAll("[style]"), function (n) {
+      Object.keys(styleObj).forEach(function (k) { n.style[k] = ""; });
+      if (!n.getAttribute("style")) n.removeAttribute("style");
+    });
+    edCommitEditingContent();
+  }
+  // Is `r` still "the live span" (vs. a new selection the user made)?
+  function edRangeIsLiveSpan(r) {
+    var s = ED.liveSpan;
+    if (!s || !s.isConnected) return false;
+    if (r.collapsed) return s.textContent === "​" && s.contains(r.startContainer);
+    return (s === r.commonAncestorContainer || s.contains(r.commonAncestorContainer) ||
+            r.commonAncestorContainer.contains(s)) && r.toString() === s.textContent;
+  }
+  // End the live session and persist the result (canvas element or doc).
+  function edCommitLive() {
+    if (!ED.liveSpan) return;
+    ED.liveSpan = null;
+    edCommitEditingContent();
+  }
+  // Element the toolbar should read styles from in range context.
+  function edRangeAnchorEl() {
+    if (ED.liveSpan && ED.liveSpan.isConnected) return ED.liveSpan;
+    var n = ED.savedRange ? ED.savedRange.startContainer : edSelectionAnchorEl();
+    if (n && n.nodeType === 3) n = n.parentNode;
+    return n;
+  }
+
   /* ---------- toolbar: font size ---------- */
+  var FS_MIN = 6, FS_MAX = 300;
   function edCurrentFontSize() {
     if (edContext() === "range") {
-      var n = edSelectionAnchorEl();
-      if (n) return Math.round(parseFloat(window.getComputedStyle(n).fontSize)) || 16;
+      var n = edRangeAnchorEl();
+      if (n && n.nodeType === 1) return Math.round(parseFloat(window.getComputedStyle(n).fontSize)) || 16;
     }
     var el = edFind(ED.selectedId);
     if (el) return parseInt(el.styles.fontSize, 10) || 16;
     return 16;
   }
-  function edSetFontSize(px) {
-    px = Math.max(6, Math.min(300, px));
-    ED.lastFs = px;
-    EDITOR.fsVal.value = px;
+  // Apply a size to the active text (box or live range). No clamping here.
+  function edApplyFontSize(px) {
     var el = edFind(ED.selectedId);
     if (!DOC.root && (!el || el.type !== "text")) return;
+    ED.lastFs = px;
     if (edContext() === "range") {
-      edStyleSelection({ fontSize: px + "px" });
+      edLiveStyle({ fontSize: px + "px" });
     } else {
       el.styles.fontSize = px + "px";
       var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
       if (content) edApplyContentStyles(content, el);
     }
   }
+  // Clamp + show + apply (buttons, committed values).
+  function edSetFontSize(px) {
+    px = Math.max(FS_MIN, Math.min(FS_MAX, px));
+    EDITOR.fsVal.value = px;
+    edApplyFontSize(px);
+  }
   EDITOR.fsDec.addEventListener("click", function () { edSetFontSize(edCurrentFontSize() - 1); });
   EDITOR.fsInc.addEventListener("click", function () { edSetFontSize(edCurrentFontSize() + 1); });
-  EDITOR.fsVal.addEventListener("focus", function () { ED.lastFs = parseInt(EDITOR.fsVal.value, 10) || ED.lastFs; });
+  EDITOR.fsVal.addEventListener("focus", function () {
+    ED.lastFs = parseInt(EDITOR.fsVal.value, 10) || ED.lastFs;
+    EDITOR.fsVal.select();
+  });
+  // input: every keystroke / spinner step / arrow key -> canvas updates now.
+  // Partial values ("1" on the way to "18") are below the minimum and skipped.
+  EDITOR.fsVal.addEventListener("input", function () {
+    var v = parseInt(EDITOR.fsVal.value, 10);
+    if (v >= FS_MIN && v <= FS_MAX) edApplyFontSize(v);
+  });
+  // change (fires on blur too): clamp out-of-range values and apply them.
   EDITOR.fsVal.addEventListener("change", function () {
     var v = parseInt(EDITOR.fsVal.value, 10);
-    if (!v) return;
-    edSetFontSize(v);
+    if (v) edSetFontSize(v);
   });
+  // blur = clicked anywhere else: keep (commit) the value; an emptied box
+  // reverts to the last applied size instead of discarding the state.
   EDITOR.fsVal.addEventListener("blur", function () {
-    // cleared and focused out -> revert to the pre-cleared value
-    if (!EDITOR.fsVal.value.trim() || !parseInt(EDITOR.fsVal.value, 10)) {
-      EDITOR.fsVal.value = ED.lastFs;
-    }
+    if (!parseInt(EDITOR.fsVal.value, 10)) EDITOR.fsVal.value = ED.lastFs;
+    edCommitLive();
+  });
+  // Enter is optional now: it just commits and hands the caret back to the text.
+  EDITOR.fsVal.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    var v = parseInt(EDITOR.fsVal.value, 10);
+    if (v) edSetFontSize(v);
+    edCommitLive();
+    edRestoreRange();
   });
 
   /* ---------- toolbar: color picker (bi-directional sync) ---------- */
@@ -1704,32 +1870,41 @@
     ED.currentColor = hex;
     ED.colorSyncing = false;
   }
-  function edApplyColorToText() {
+  // Apply ED.currentColor to the active text right away (box or live range).
+  // Also works in the Home/About document mode (no selected canvas element).
+  function edApplyColorLive() {
     var el = edFind(ED.selectedId);
-    if (!el || el.type !== "text") return;
+    if (!DOC.root && (!el || el.type !== "text")) return;
     if (edContext() === "range") {
-      edStyleSelection({ color: ED.currentColor });
+      edLiveStyle({ color: ED.currentColor });
     } else {
       el.styles.color = ED.currentColor;
       var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
       if (content) edApplyContentStyles(content, el);
     }
-    edUpdateToolbar();
   }
   function edOpenColorPanel() {
     // initialise from the current text/box color
     var rgb = hexToRgb(ED.currentColor) || { r: 0, g: 0, b: 0 };
     var el = edFind(ED.selectedId);
-    if (el) {
-      var c = (edContext() === "range")
-        ? rgbStringToHex(window.getComputedStyle(edSelectionAnchorEl() || el).color)
-        : el.styles.color;
-      var parsed = hexToRgb(c); if (parsed) rgb = parsed;
+    var c = null;
+    if (edContext() === "range") {
+      var n = edRangeAnchorEl();
+      if (n && n.nodeType === 1) c = rgbStringToHex(window.getComputedStyle(n).color);
+    } else if (el) {
+      c = el.styles.color;
     }
+    var parsed = hexToRgb(c); if (parsed) rgb = parsed;
     edSyncColor(rgb.r, rgb.g, rgb.b);
     EDITOR.colorPanel.hidden = false;
   }
-  function edCloseColorPanel() { if (EDITOR.colorPanel) EDITOR.colorPanel.hidden = true; }
+  // Closing the panel (button, click-away, tools hidden) commits the colour.
+  function edCloseColorPanel() {
+    if (!EDITOR.colorPanel || EDITOR.colorPanel.hidden) return;
+    EDITOR.colorPanel.hidden = true;
+    edCommitLive();
+    edUpdateToolbar();
+  }
   function rgbStringToHex(rgbStr) {
     var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgbStr || "");
     if (!m) return ED.currentColor;
@@ -1744,37 +1919,46 @@
     if (EDITOR.overlay.hidden || EDITOR.colorPanel.hidden) return;
     if (!EDITOR.colorPanel.contains(e.target) && e.target !== EDITOR.colorBtn) edCloseColorPanel();
   });
-  // control listeners — sync live on input, apply to text on change
-  function colorFromRgbInputs() {
-    edSyncColor(EDITOR.rRange.value, EDITOR.gRange.value, EDITOR.bRange.value);
+  // Control listeners: every `input` (slider drag, number typing, native
+  // picker browsing, valid HEX) syncs all controls AND recolours the text
+  // immediately. No `change`/Enter step is needed to see or keep it.
+  function edColorInput(r, g, b) {
+    if (ED.colorSyncing) return;
+    edSyncColor(r, g, b);
+    edApplyColorLive();
   }
   ["rRange", "gRange", "bRange"].forEach(function (k) {
     EDITOR[k].addEventListener("input", function () {
-      if (ED.colorSyncing) return;
-      // mirror the matching number live
-      edSyncColor(EDITOR.rRange.value, EDITOR.gRange.value, EDITOR.bRange.value);
+      edColorInput(EDITOR.rRange.value, EDITOR.gRange.value, EDITOR.bRange.value);
     });
-    EDITOR[k].addEventListener("change", edApplyColorToText);
   });
-  [["rNum", "rRange"], ["gNum", "gRange"], ["bNum", "bRange"]].forEach(function (pair) {
-    EDITOR[pair[0]].addEventListener("input", function () {
-      if (ED.colorSyncing) return;
-      edSyncColor(EDITOR.rNum.value, EDITOR.gNum.value, EDITOR.bNum.value);
+  ["rNum", "gNum", "bNum"].forEach(function (k) {
+    EDITOR[k].addEventListener("input", function () {
+      if (EDITOR[k].value === "") return;          // mid-edit, wait for a digit
+      edColorInput(EDITOR.rNum.value, EDITOR.gNum.value, EDITOR.bNum.value);
     });
-    EDITOR[pair[0]].addEventListener("change", edApplyColorToText);
+    // blur: normalise an emptied/out-of-range number back to the live colour
+    EDITOR[k].addEventListener("blur", function () {
+      var rgb = hexToRgb(ED.currentColor); if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
+    });
   });
   EDITOR.colorNative.addEventListener("input", function () {
-    if (ED.colorSyncing) return;
-    var rgb = hexToRgb(EDITOR.colorNative.value); if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
+    var rgb = hexToRgb(EDITOR.colorNative.value); if (rgb) edColorInput(rgb.r, rgb.g, rgb.b);
   });
-  EDITOR.colorNative.addEventListener("change", edApplyColorToText);
   EDITOR.hex.addEventListener("input", function () {
-    if (ED.colorSyncing) return;
-    var rgb = hexToRgb(EDITOR.hex.value); if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
+    var rgb = hexToRgb(EDITOR.hex.value); if (rgb) edColorInput(rgb.r, rgb.g, rgb.b);
   });
-  EDITOR.hex.addEventListener("change", function () {
-    var rgb = hexToRgb(EDITOR.hex.value);
-    if (rgb) { edSyncColor(rgb.r, rgb.g, rgb.b); edApplyColorToText(); }
+  // blur: an incomplete HEX snaps back to the last valid (already applied) colour.
+  EDITOR.hex.addEventListener("blur", function () {
+    var rgb = hexToRgb(EDITOR.hex.value) || hexToRgb(ED.currentColor);
+    if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
+  });
+  // Enter inside the panel: commit + close + caret back to the text.
+  EDITOR.colorPanel.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    edCloseColorPanel();
+    edRestoreRange();
   });
 
   /* ---------- toolbar visibility + active state ---------- */
@@ -1793,8 +1977,8 @@
       bActive = edRangeIsActive("bold");
       iActive = edRangeIsActive("italic");
       uActive = edRangeIsActive("underline");
-      var n = edSelectionAnchorEl();
-      color = n ? rgbStringToHex(window.getComputedStyle(n).color)
+      var n = edRangeAnchorEl();
+      color = (n && n.nodeType === 1) ? rgbStringToHex(window.getComputedStyle(n).color)
                 : (el ? el.styles.color : ED.currentColor);
     } else {
       bActive = !!el.styles.bold;
@@ -1879,26 +2063,20 @@
     }
   });
 
-  // launch the editor from the article form (opens in preview state)
+  // launch the editor from the (hidden) article form
   var openEditorBtn = document.querySelector("#open-editor-btn");
   if (openEditorBtn) openEditorBtn.addEventListener("click", edOpen);
-  // sidebar button -> enter full-screen visual editor mode
-  var enterVisualBtn = document.querySelector("#ed-enter-visual");
-  if (enterVisualBtn) enterVisualBtn.addEventListener("click", edEnterVisual);
 
-  // sidebar "Vydat" -> commit layout + metadata to the form and save via the API
-  var publishBtn = document.querySelector("#ed-publish");
-  if (publishBtn) publishBtn.addEventListener("click", function () {
+  // Bar 1 "Vydat" / "Naplánovat" -> commit layout + metadata and save via the API.
+  // The submit handler decides live vs. scheduled from the chosen date/time.
+  EDITOR.publish.addEventListener("click", function () {
+    if (uploadsBusy()) return;
+    edCommitLive();
     edExitEdit();
     edCommitToForm();
     edClose();
     if (form.requestSubmit) form.requestSubmit();
     else form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-  });
-  // sidebar "Smazat" -> confirm + delete
-  var sideDeleteBtn = document.querySelector("#ed-side-delete");
-  if (sideDeleteBtn) sideDeleteBtn.addEventListener("click", function () {
-    edOpenConfirm("delete", "Smazat příspěvek", "Tento příspěvek bude trvale smazán. Pokračovat?");
   });
 
   /* ============================================================
@@ -2051,7 +2229,7 @@
     var top = pinned.map(articleById).filter(Boolean);
     var rest = ADMIN_ARTICLES.filter(function (a) { return pinned.indexOf(a.id) === -1; })
       .slice().sort(function (x, y) {
-        return String(y.date || "").localeCompare(String(x.date || ""));
+        return articlePublishTime(y) - articlePublishTime(x);
       });
     return top.concat(rest);
   }
@@ -2269,7 +2447,7 @@
   /* ============================================================
      Boot
      ============================================================ */
-  fDate.value = today();
+  fDate.value = nowLocalInput();
 
   // Probe session state — if cookie is missing, show login immediately.
   api("/api/login")

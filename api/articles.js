@@ -7,7 +7,8 @@
  *   DELETE ?id=<id>     -> delete article (admin only)
  * ============================================================ */
 import {
-  loadArticles, saveArticles, requireAdmin, isAdmin, readJsonBody, shapeArticle, uid
+  loadArticles, saveArticles, requireAdmin, isAdmin, readJsonBody, shapeArticle, uid,
+  isLive, compareNewest
 } from "./_lib.js";
 
 export default async function handler(req, res) {
@@ -19,11 +20,11 @@ export default async function handler(req, res) {
       // Response varies by auth (admins see scheduled articles) — never cache it.
       res.setHeader("Cache-Control", "no-store, max-age=0");
       const items = await loadArticles();
-      // Scheduling: articles with a future publish date are hidden from the
-      // public until that calendar day; admins (signed-in) always see them.
-      const today = new Date().toISOString().slice(0, 10);
+      // Scheduling: an article with a future publish time is hidden from the
+      // public until that moment; admins (signed-in) always see them.
       const admin = isAdmin(req);
-      const isPublished = (a) => admin || !a.date || a.date <= today;
+      const now = Date.now();
+      const isPublished = (a) => admin || isLive(a, now);
 
       if (id) {
         const found = items.find((a) => a.id === id);
@@ -32,7 +33,7 @@ export default async function handler(req, res) {
       }
       // Newest first, filtered for scheduling
       const visible = items.filter(isPublished);
-      visible.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      visible.sort(compareNewest);
       return res.status(200).json(visible);
     }
 

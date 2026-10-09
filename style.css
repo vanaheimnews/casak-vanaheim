@@ -1267,30 +1267,57 @@ a.ac-file:hover, a.doc-file:hover { background: #eee; }
   max-width: 100%; height: auto; display: block; margin: 20px 0; object-fit: contain;
 }
 
-/* State 2: full-screen Canva workspace */
-body.visual-editor-active #metadata-sidebar,
-body.visual-editor-active .ed-side { display: none; }
+/* Full-screen visual editor (the only editor state since the
+   preview step was removed — edOpen() sets the body class). */
 body.visual-editor-active .ed-bar1,
 body.visual-editor-active .ed-bar2 { position: sticky; z-index: 210; }
 body.visual-editor-active .ed-bar1 { top: 0; }
 body.visual-editor-active .ed-canvas { width: 100%; max-width: 1100px; }
 
-/* Two states: toolbars appear ONLY in full-screen visual-editor mode;
-   otherwise the editor is a quiet metadata + preview view. */
+/* Toolbars only exist inside the open editor (the docked doc toolbar
+   re-asserts its own display further below). */
 .ed-bar1, .ed-bar2 { display: none; }
 body.visual-editor-active .ed-bar1,
 body.visual-editor-active .ed-bar2 { display: flex; }
-/* preview state: center the white "paper" and give it room */
-.ed-body { transition: none; }
-.ed-side .ed-add-btn.ed-enter-visual {
-  width: 100%; margin-bottom: 8px; text-align: center;
+
+/* ---- Bar 1 action buttons ---- */
+.ed-btn--meta { display: inline-flex; align-items: center; gap: 6px; }
+.ed-btn--meta[aria-expanded="true"] { border-color: var(--brand); color: var(--brand); }
+.ed-btn--publish { background: #15a34a; border-color: #15a34a; color: #fff; font-weight: 600; }
+.ed-btn--publish:hover { background: #138a3f; border-color: #138a3f; color: #fff; }
+.ed-btn--publish.is-scheduled { background: purple; border-color: purple; }
+.ed-btn--publish.is-scheduled:hover { background: #5c005c; border-color: #5c005c; }
+.ed-btn--danger { color: #b00020; border-color: #b00020; }
+.ed-btn--danger:hover { background: #b00020; color: #fff; }
+
+/* ---- Collapsible metadata drawer ----
+   The drawer animates its flex-basis to 0; inner content keeps a fixed
+   min-width so it slides out instead of re-wrapping mid-animation.
+   `visibility` is delayed so hidden fields leave the tab order only
+   after the slide finishes. */
+.ed-side {
+  transition: flex-basis 240ms ease, padding 240ms ease, opacity 180ms ease,
+              border-width 240ms ease, visibility 0s linear 0s;
 }
-.ed-side-actions { margin-top: 4px; display: flex; flex-direction: column; gap: 8px; }
-.ed-side-actions .btn { width: 100%; }
-.ed-side-actions .btn--publish { background: #15a34a; border-color: #15a34a; color: #fff; }
-.ed-side-actions .btn--publish:hover { background: #138a3f; border-color: #138a3f; color: #fff; }
-.ed-side-actions .btn--del { color: #b00020; border-color: #b00020; }
-.ed-side-actions .btn--del:hover { background: #b00020; color: #fff; }
+.ed-side > * { min-width: 214px; }
+.ed-body.is-meta-collapsed .ed-side {
+  flex-basis: 0;
+  padding-left: 0; padding-right: 0;
+  border-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition: flex-basis 240ms ease, padding 240ms ease, opacity 180ms ease,
+              border-width 240ms ease, visibility 0s linear 240ms;
+}
+.ed-body.is-meta-collapsed { gap: 0; }
+@media (max-width: 720px) {
+  .ed-side { max-height: 60vh; transition: max-height 240ms ease, padding 240ms ease, opacity 180ms ease; }
+  .ed-body.is-meta-collapsed .ed-side { max-height: 0; padding-top: 0; padding-bottom: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ed-side, .ed-body.is-meta-collapsed .ed-side { transition: none; }
+}
 
 /* ============================================================
    PUBLIC render of the visual-editor element layout

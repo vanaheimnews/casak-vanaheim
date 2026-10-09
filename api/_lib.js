@@ -247,6 +247,40 @@ export function uid() {
   return "a-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 }
 
+/* ---------------- scheduling ----------------
+ * An article is public once its publish moment has passed:
+ *   - publishAt (exact ISO timestamp) when present,
+ *   - otherwise the legacy `date` (YYYY-MM-DD) compared with today's date
+ *     in Prague — the server runs in UTC, which hid same-day articles
+ *     until 01:00/02:00 local time.
+ * Evaluated on every request, so no cron job is needed: a scheduled
+ * article simply starts appearing at its time.
+ * ------------------------------------------- */
+const SITE_TZ = "Europe/Prague";
+export function pragueToday() {
+  // en-CA formats as YYYY-MM-DD
+  return new Intl.DateTimeFormat("en-CA", { timeZone: SITE_TZ }).format(new Date());
+}
+function normalizeIso(v) {
+  if (!v) return "";
+  const t = Date.parse(v);
+  return isNaN(t) ? "" : new Date(t).toISOString();
+}
+export function publishTime(a) {
+  const t = a.publishAt ? Date.parse(a.publishAt) : NaN;
+  return isNaN(t) ? null : t;
+}
+export function isLive(a, now = Date.now()) {
+  const t = publishTime(a);
+  if (t !== null) return t <= now;
+  return !a.date || a.date <= pragueToday();
+}
+// Newest first; publishAt wins over the date-only fallback.
+const sortKey = (a) => publishTime(a) ?? (Date.parse(a.date) || 0);
+export function compareNewest(a, b) {
+  return sortKey(b) - sortKey(a);
+}
+
 export function shapeArticle(data) {
   return {
     id:       data.id || uid(),
@@ -265,7 +299,9 @@ export function shapeArticle(data) {
                     .split(",")
                     .map((a) => a.trim())
                     .filter(Boolean),
-    date:     data.date || new Date().toISOString().slice(0, 10),
+    date:     data.date || pragueToday(),
+    // Exact publish moment (ISO, UTC). Empty for legacy date-only records.
+    publishAt: normalizeIso(data.publishAt),
     kind:     data.kind === "comic" ? "comic" : "article",
     // Visual-editor layout: array of positioned element objects (optional).
     // Each element may carry a `z` layer index; the page background sits
