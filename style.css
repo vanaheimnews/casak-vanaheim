@@ -1319,6 +1319,49 @@ body.visual-editor-active .ed-bar2 { display: flex; }
   .ed-side, .ed-body.is-meta-collapsed .ed-side { transition: none; }
 }
 
+/* ---- Thumbnail (Náhledový obrázek) in the metadata drawer ---- */
+.ed-thumb-field { margin-bottom: 14px; }
+.ed-thumb-label {
+  display: block; margin-bottom: 6px;
+  font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+}
+.ed-thumb-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  width: 100%; aspect-ratio: 16 / 10;
+  border: 2px dashed var(--content-rule); border-radius: 8px;
+  background: var(--content-bg); color: var(--muted);
+  font: inherit; font-size: 0.85rem; cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+.ed-thumb-drop small { font-size: 0.7rem; opacity: 0.8; }
+.ed-thumb-drop:hover,
+.ed-thumb-drop:focus-visible,
+.ed-thumb-drop.is-dragover {
+  border-color: #15a34a; color: #15a34a; background: rgba(21, 163, 74, 0.06); outline: none;
+}
+.ed-thumb-drop[hidden], .ed-thumb-preview[hidden], .ed-thumb-status[hidden] { display: none; }
+.ed-thumb-preview {
+  position: relative; width: 100%; aspect-ratio: 16 / 10;
+  border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--content-rule); background: #2b2f33;
+}
+.ed-thumb-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ed-thumb-preview.is-uploading img { opacity: 0.5; }
+.ed-thumb-status {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 0.8rem; font-weight: 600; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.ed-thumb-remove, .ed-thumb-change {
+  position: absolute; top: 6px;
+  padding: 4px 9px; border: 0; border-radius: 4px;
+  font: inherit; font-size: 0.72rem; font-weight: 600; cursor: pointer; color: #fff;
+  opacity: 0.92; transition: opacity 120ms ease, background-color 120ms ease;
+}
+.ed-thumb-remove { right: 6px; background: rgba(176, 0, 32, 0.9); }
+.ed-thumb-remove:hover { background: #b00020; opacity: 1; }
+.ed-thumb-change { left: 6px; background: rgba(43, 47, 51, 0.85); }
+.ed-thumb-change:hover { background: #15a34a; opacity: 1; }
+
 /* ============================================================
    PUBLIC render of the visual-editor element layout
    (matches the editor canvas 1:1, scaled to fit the column)

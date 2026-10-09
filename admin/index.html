@@ -563,6 +563,26 @@
             <span class="ed-date-field" id="ed-date-field"><input type="datetime-local" id="ed-date"></span>
             <span class="ed-sched-hint" id="ed-sched-hint" hidden></span>
           </label>
+
+          <!-- Thumbnail (Náhledový obrázek) — the card image in the article feed -->
+          <div class="ed-thumb-field">
+            <span class="ed-thumb-label" id="ed-thumb-label">Náhledový obrázek</span>
+            <input type="file" id="ed-thumb-file" hidden
+                   accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
+            <!-- Empty state: click or drop a file -->
+            <button class="ed-thumb-drop" type="button" id="ed-thumb-drop" aria-describedby="ed-thumb-label">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+              <span>Nahrát nebo přetáhnout</span>
+              <small>JPG, PNG, WEBP</small>
+            </button>
+            <!-- Filled state: live preview + remove -->
+            <div class="ed-thumb-preview" id="ed-thumb-preview" hidden>
+              <img id="ed-thumb-img" alt="Náhled článku">
+              <span class="ed-thumb-status" id="ed-thumb-status" hidden>Nahrávám…</span>
+              <button class="ed-thumb-remove" type="button" id="ed-thumb-remove" title="Odstranit náhled">Odstranit</button>
+              <button class="ed-thumb-change" type="button" id="ed-thumb-change" title="Vybrat jiný obrázek">Změnit</button>
+            </div>
+          </div>
         </aside>
 
         <!-- Canvas (white paper, mimics the public reader view) -->

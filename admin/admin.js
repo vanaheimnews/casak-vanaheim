@@ -979,6 +979,7 @@
     EDITOR.kind.value = fKind.value || "article";
     EDITOR.date.value = fDate.value || nowLocalInput();
     edUpdateSchedule();
+    edThumbLoad(pendingImageUrl || fImageUrl.value.trim());
 
     ED.snapshot = JSON.stringify(ED.elements);
     ED.selectedId = null;
@@ -1022,13 +1023,110 @@
   }
   EDITOR.date.addEventListener("input", edUpdateSchedule);
   EDITOR.date.addEventListener("change", edUpdateSchedule);
+  /* ---------- thumbnail (Náhledový obrázek) in the metadata drawer ----------
+     Flow: pick/drop file -> instant preview from a blob: URL -> upload
+     through uploadImageFile() (validation + compression + Blob storage)
+     -> the server URL replaces the preview. Only that URL goes into the
+     article (`image`), never Base64, so articles.json stays small.
+     State lives in ED.thumbUrl until Vydat/"Zpět se změnami" commits it
+     (edCommitToForm), so "Zpět bez změn" really discards a new thumbnail.
+     Every blob: URL is revoked as soon as it is replaced, removed, or the
+     editor closes. A token drops results of uploads that were superseded. */
+  var THUMB = {
+    file:    document.querySelector("#ed-thumb-file"),
+    drop:    document.querySelector("#ed-thumb-drop"),
+    preview: document.querySelector("#ed-thumb-preview"),
+    img:     document.querySelector("#ed-thumb-img"),
+    status:  document.querySelector("#ed-thumb-status"),
+    remove:  document.querySelector("#ed-thumb-remove"),
+    change:  document.querySelector("#ed-thumb-change")
+  };
+  var THUMB_TYPES = { "image/jpeg": 1, "image/png": 1, "image/webp": 1 };
+  ED.thumbUrl = "";        // committed server URL ("" = no thumbnail)
+  ED.thumbLocal = "";      // current blob: preview URL, if any
+  ED.thumbToken = 0;       // bumps on every pick/remove; stale uploads are ignored
+
+  function edThumbRevoke() {
+    if (ED.thumbLocal) { URL.revokeObjectURL(ED.thumbLocal); ED.thumbLocal = ""; }
+  }
+  function edThumbRender(src, uploading) {
+    var has = !!src;
+    THUMB.drop.hidden = has;
+    THUMB.preview.hidden = !has;
+    THUMB.preview.classList.toggle("is-uploading", !!uploading);
+    THUMB.status.hidden = !uploading;
+    if (has) THUMB.img.src = src; else THUMB.img.removeAttribute("src");
+  }
+  // Called from edOpen(): show the article's existing thumbnail.
+  function edThumbLoad(url) {
+    ED.thumbToken++;
+    edThumbRevoke();
+    ED.thumbUrl = url || "";
+    THUMB.file.value = "";
+    edThumbRender(ED.thumbUrl, false);
+  }
+  function edThumbPick(file) {
+    if (!file) return;
+    if (!THUMB_TYPES[fileMime(file)]) { toast("Náhled musí být JPG, PNG nebo WEBP."); return; }
+    var token = ++ED.thumbToken;
+    var previousUrl = ED.thumbUrl;
+    edThumbRevoke();                              // drop the preview being replaced
+    ED.thumbLocal = URL.createObjectURL(file);
+    edThumbRender(ED.thumbLocal, true);           // instant local preview
+    uploadImageFile(file)
+      .then(function (url) {
+        if (token !== ED.thumbToken) return;      // user picked/removed meanwhile
+        ED.thumbUrl = url;
+        edThumbRender(url, false);
+        edThumbRevoke();
+        toast("Náhled nahrán.");
+      })
+      .catch(function (err) {
+        if (token !== ED.thumbToken) return;
+        edThumbRevoke();
+        ED.thumbUrl = previousUrl;                // keep the previous thumbnail
+        edThumbRender(previousUrl, false);
+        toast("Nahrání náhledu selhalo: " + err.message);
+      })
+      .finally(function () { THUMB.file.value = ""; });  // same file can be re-picked
+  }
+  function edThumbClear() {
+    ED.thumbToken++;                              // an in-flight upload is ignored
+    edThumbRevoke();
+    ED.thumbUrl = "";
+    THUMB.file.value = "";
+    edThumbRender("", false);
+  }
+  THUMB.drop.addEventListener("click", function () { THUMB.file.click(); });
+  THUMB.change.addEventListener("click", function () { THUMB.file.click(); });
+  THUMB.remove.addEventListener("click", edThumbClear);
+  THUMB.file.addEventListener("change", function () {
+    edThumbPick(THUMB.file.files && THUMB.file.files[0]);
+  });
+  // drag & drop onto the empty zone
+  ["dragenter", "dragover"].forEach(function (t) {
+    THUMB.drop.addEventListener(t, function (e) { e.preventDefault(); THUMB.drop.classList.add("is-dragover"); });
+  });
+  ["dragleave", "drop"].forEach(function (t) {
+    THUMB.drop.addEventListener(t, function () { THUMB.drop.classList.remove("is-dragover"); });
+  });
+  THUMB.drop.addEventListener("drop", function (e) {
+    e.preventDefault();
+    edThumbPick(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
+
   function edClose() {
+    edThumbRevoke();
     edCloseColorPanel();
     document.body.classList.remove("visual-editor-active");
     EDITOR.overlay.hidden = true;
   }
   // Commit the layout back into the article form (title + plain-text body + JSON)
   function edCommitToForm() {
+    // thumbnail -> the form state the submit payload reads (`image`)
+    pendingImageUrl = ED.thumbUrl;
+    fImageUrl.value = "";
+    updatePreview(pendingImageUrl);
     fElements.value = JSON.stringify(ED.elements);
     fBackground.value = JSON.stringify(ED.background || { color: "", image: "" });
     var titleEl = ED.elements.filter(function (el) { return el.isTitle; })[0];
