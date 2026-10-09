@@ -225,25 +225,26 @@
   fImageFile.addEventListener("change", function () {
     var file = fImageFile.files && fImageFile.files[0];
     if (!file) return;
+    // Instant local preview while the upload runs.
+    var localUrl = URL.createObjectURL(file);
+    var previous = pendingImageUrl;
+    updatePreview(localUrl);
     submitBtn.disabled = true;
     submitBtn.textContent = "Nahrávám…";
-    readAsDataUrl(file)
-      .then(function (dataUrl) {
-        return api("/api/upload", {
-          method: "POST",
-          body: { filename: file.name, dataUrl: dataUrl }
-        });
-      })
-      .then(function (result) {
-        pendingImageUrl = result.url;
+    uploadImageFile(file)
+      .then(function (url) {
+        pendingImageUrl = url;
         fImageUrl.value = "";
         updatePreview(pendingImageUrl);
         toast("Obrázek nahrán.");
       })
       .catch(function (err) {
+        updatePreview(previous);
+        fImageFile.value = "";
         toast("Nahrání selhalo: " + err.message);
       })
       .finally(function () {
+        URL.revokeObjectURL(localUrl);
         submitBtn.disabled = false;
         submitBtn.textContent = fId.value ? "Uložit změny" : "Vytvořit";
       });
@@ -285,6 +286,7 @@
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
+    if (uploadsBusy()) return;
     if (!fTitle.value.trim()) { toast("Název je povinný."); fTitle.focus(); return; }
     var elements = [];
     if (fElements.value) { try { elements = JSON.parse(fElements.value); } catch (e) { elements = []; } }
@@ -435,12 +437,103 @@
   });
 
   /* ============================================================
-     Generic image upload (reused by team photos)
+     File upload (images + PDF)
+     Vercel rejects request bodies over 4.5 MB *before* our function
+     runs (HTTP 413, non-JSON) — that was the "sometimes fails" bug.
+     Base64 adds ~33 %, so: big JPG/PNG/WEBP are downscaled in the
+     browser; GIF (animation) and PDF can't be, so they get a hard cap.
      ============================================================ */
+  var UPLOAD_MAX_BYTES = 3.2 * 1024 * 1024;
+  var UPLOAD_TYPES = {
+    "image/jpeg": "image", "image/jpg": "image", "image/png": "image",
+    "image/webp": "image", "image/gif": "image", "application/pdf": "pdf"
+  };
+  var UPLOAD_EXT = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+                     webp: "image/webp", gif: "image/gif", pdf: "application/pdf" };
+  var pendingUploads = 0;   // saves are blocked while > 0 (no blob: URLs get persisted)
+
+  // Some browsers/OSes leave file.type empty — fall back to the extension.
+  function fileMime(file) {
+    var t = (file.type || "").toLowerCase();
+    if (UPLOAD_TYPES[t]) return t;
+    var ext = (file.name.split(".").pop() || "").toLowerCase();
+    return UPLOAD_EXT[ext] || t;
+  }
+  function fileKind(file) { return UPLOAD_TYPES[fileMime(file)] || null; }
+
+  // Downscale a raster image to fit 2400 px and the size cap. Resolves a Blob.
+  function compressImage(file, mime) {
+    return new Promise(function (resolve, reject) {
+      var src = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        URL.revokeObjectURL(src);
+        var scale = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight));
+        var c = document.createElement("canvas");
+        c.width = Math.round(img.naturalWidth * scale);
+        c.height = Math.round(img.naturalHeight * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        // PNG keeps transparency but compresses badly -> WEBP; JPG stays JPG.
+        var outType = mime === "image/jpeg" ? "image/jpeg" : "image/webp";
+        (function tryQuality(q) {
+          c.toBlob(function (blob) {
+            if (!blob) { reject(new Error("Obrázek nelze zpracovat.")); return; }
+            if (blob.size <= UPLOAD_MAX_BYTES || q <= 0.5) resolve(blob);
+            else tryQuality(q - 0.1);
+          }, outType, q);
+        })(0.88);
+      };
+      img.onerror = function () { URL.revokeObjectURL(src); reject(new Error("Soubor není platný obrázek.")); };
+      img.src = src;
+    });
+  }
+
+  // Validates, compresses if needed, uploads. Resolves { url, kind, name }.
+  // opts.allowPdf: whether PDF is acceptable for this input.
+  function uploadFile(file, opts) {
+    opts = opts || {};
+    var mime = fileMime(file);
+    var kind = UPLOAD_TYPES[mime];
+    if (!kind || (kind === "pdf" && !opts.allowPdf)) {
+      return Promise.reject(new Error(opts.allowPdf
+        ? "Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF."
+        : "Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF."));
+    }
+    var needsCompress = kind === "image" && mime !== "image/gif" && file.size > 1.5 * 1024 * 1024;
+    var prepared = needsCompress ? compressImage(file, mime) : Promise.resolve(file);
+
+    var outMime = mime;
+    pendingUploads++;
+    return prepared
+      .then(function (blob) {
+        if (blob.size > UPLOAD_MAX_BYTES) {
+          throw new Error("Soubor je příliš velký (" + (blob.size / 1048576).toFixed(1) + " MB, max 3 MB).");
+        }
+        if (needsCompress && blob.type) outMime = blob.type;
+        return readAsDataUrl(blob);
+      })
+      .then(function (dataUrl) {
+        // Force the real MIME (an empty file.type yields "application/octet-stream").
+        dataUrl = dataUrl.replace(/^data:[^;,]*/, "data:" + outMime);
+        return api("/api/upload", { method: "POST", body: { filename: file.name, dataUrl: dataUrl } });
+      })
+      .then(function (r) {
+        if (!r || !r.url) throw new Error("Server nevrátil adresu souboru.");
+        return { url: r.url, kind: kind, name: file.name };
+      })
+      .catch(function (err) {
+        if (err.status === 413) err = new Error("Soubor je na server příliš velký.");
+        throw err;
+      })
+      .finally(function () { pendingUploads--; });
+  }
+  // Image-only inputs (cover, team photo, page background).
   function uploadImageFile(file) {
-    return readAsDataUrl(file).then(function (dataUrl) {
-      return api("/api/upload", { method: "POST", body: { filename: file.name, dataUrl: dataUrl } });
-    }).then(function (r) { return r.url; });
+    return uploadFile(file, { allowPdf: false }).then(function (r) { return r.url; });
+  }
+  function uploadsBusy() {
+    if (pendingUploads > 0) { toast("Počkejte, až se dokončí nahrávání souborů."); return true; }
+    return false;
   }
 
   /* ============================================================
@@ -919,6 +1012,7 @@
     node.style.zIndex = el.z || 1;   // page background stays behind (z:0 on the canvas)
     if (ED.selectedId === el.id) node.classList.add("is-selected");
     if (ED.editingId === el.id) node.classList.add("is-editing");
+    if (el.uploading) node.classList.add("is-uploading");
 
     var content = document.createElement("div");
     content.className = "ed-el-content";
@@ -927,6 +1021,11 @@
       img.src = el.content;
       img.alt = "";
       content.appendChild(img);
+    } else if (el.type === "file") {
+      var fileLink = document.createElement("span");   // not a live link inside the editor
+      fileLink.className = "ed-file";
+      fileLink.textContent = "📄 " + (el.name || "Dokument PDF");
+      content.appendChild(fileLink);
     } else {
       content.innerHTML = el.content || "";
       edApplyContentStyles(content, el);
@@ -1135,24 +1234,91 @@
   EDITOR.addImage.addEventListener("click", function () { EDITOR.imageFile.click(); });
   EDITOR.imageFile.addEventListener("change", function () {
     var file = EDITOR.imageFile.files && EDITOR.imageFile.files[0];
+    EDITOR.imageFile.value = "";
     if (!file) return;
-    toast("Nahrávám obrázek…");
-    uploadImageFile(file)
-      .then(function (url) {
-        var w = 360;
-        var el = {
-          id: edUid(), type: "image", isTitle: false,
-          content: url,
-          x: edCanvasCenterX(w), y: edVisibleTop(), width: w, height: 220,
-          styles: defaultStyles()
-        };
-        ED.elements.push(el);
-        edSelect(el.id);
-        toast("Obrázek přidán.");
-      })
-      .catch(function (err) { toast("Nahrání selhalo: " + err.message); })
-      .finally(function () { EDITOR.imageFile.value = ""; });
+    var kind = fileKind(file);
+    if (!kind) { toast("Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF."); return; }
+    if (DOC.root) edInsertIntoDoc(file, kind);
+    else edInsertIntoCanvas(file, kind);
   });
+
+  // Article canvas: the block appears immediately with a local blob: URL,
+  // then its content is swapped for the server URL (or removed on failure).
+  function edInsertIntoCanvas(file, kind) {
+    var localUrl = URL.createObjectURL(file);
+    var w = kind === "pdf" ? 300 : 360;
+    var el = {
+      id: edUid(), type: kind === "pdf" ? "file" : "image", isTitle: false,
+      content: localUrl, name: file.name, uploading: true,
+      x: edCanvasCenterX(w), y: edVisibleTop(), width: w, height: kind === "pdf" ? "auto" : 220,
+      styles: defaultStyles()
+    };
+    ED.elements.push(el);
+    edSelect(el.id);
+    uploadFile(file, { allowPdf: true })
+      .then(function (r) {
+        el.content = r.url;
+        delete el.uploading;
+        toast(kind === "pdf" ? "PDF přidáno." : "Obrázek přidán.");
+      })
+      .catch(function (err) {
+        ED.elements = ED.elements.filter(function (x) { return x !== el; });
+        if (ED.selectedId === el.id) ED.selectedId = null;
+        toast("Nahrání selhalo: " + err.message);
+      })
+      .finally(function () {
+        URL.revokeObjectURL(localUrl);
+        edRenderCanvas();
+      });
+  }
+
+  // Home/About document mode: insert at the caret inside the document
+  // itself (previously it went to the hidden article canvas instead).
+  function edInsertIntoDoc(file, kind) {
+    var root = DOC.root;
+    var localUrl = URL.createObjectURL(file);
+    var node;
+    if (kind === "pdf") {
+      node = document.createElement("a");
+      node.className = "doc-file";
+      node.target = "_blank";
+      node.rel = "noopener";
+      node.textContent = "📄 " + file.name;
+    } else {
+      node = document.createElement("img");
+      node.alt = "";
+      node.style.maxWidth = "100%";
+    }
+    node.setAttribute(kind === "pdf" ? "href" : "src", localUrl);
+    node.classList.add("is-uploading");
+
+    var range = (edRestoreRange() && ED.savedRange) || null;
+    if (range && root.contains(range.commonAncestorContainer)) {
+      range.deleteContents();
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+    } else {
+      var p = document.createElement("p");
+      p.appendChild(node);
+      root.appendChild(p);
+    }
+    DOC.dirty = true;
+
+    uploadFile(file, { allowPdf: true })
+      .then(function (r) {
+        node.setAttribute(kind === "pdf" ? "href" : "src", r.url);
+        node.classList.remove("is-uploading");
+        if (!node.classList.length) node.removeAttribute("class");
+        DOC.dirty = true;
+        toast(kind === "pdf" ? "PDF vloženo." : "Obrázek vložen.");
+      })
+      .catch(function (err) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+        toast("Nahrání selhalo: " + err.message);
+      })
+      .finally(function () { URL.revokeObjectURL(localUrl); });
+  }
 
   // deselect when clicking empty canvas
   EDITOR.canvas.addEventListener("pointerdown", function (ev) {
@@ -1675,6 +1841,7 @@
     edOpenConfirm("discard", "Zpět bez změn", "Změny provedené v editoru nebudou uloženy. Pokračovat?");
   });
   EDITOR.backChange.addEventListener("click", function () {
+    if (uploadsBusy()) return;
     edOpenConfirm("save", "Zpět se změnami", "Rozvržení se převezme do formuláře článku. Pokračovat?");
   });
   EDITOR.deleteBtn.addEventListener("click", function () {
@@ -1846,7 +2013,7 @@
 
   /* ---------- save ---------- */
   function docSave(key, btn, okMsg) {
-    if (!CONTENT) return;
+    if (!CONTENT || uploadsBusy()) return;
     docFlush();
     if (btn) btn.disabled = true;
     saveContent()

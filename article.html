@@ -135,6 +135,12 @@
             var img = document.createElement("img");
             img.src = el.content; img.alt = ""; img.loading = "lazy";
             node.appendChild(img);
+          } else if (el.type === "file") {
+            var link = document.createElement("a");
+            link.className = "ac-file";
+            link.href = el.content; link.target = "_blank"; link.rel = "noopener";
+            link.textContent = "📄 " + (el.name || "Dokument PDF");
+            node.appendChild(link);
           } else {
             node.innerHTML = el.content || "";
             var s = el.styles || {};

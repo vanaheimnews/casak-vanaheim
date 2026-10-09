@@ -235,7 +235,7 @@
           <textarea id="f-body"></textarea>
           <button class="btn" type="button" id="open-editor-btn">Otevřít vizuální editor</button>
           <input type="url" id="f-image-url">
-          <input type="file" id="f-image-file" accept="image/*">
+          <input type="file" id="f-image-file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif">
           <span class="image-preview" id="image-preview" hidden></span>
           <input type="text" id="f-authors">
           <input type="date" id="f-date">
@@ -335,7 +335,7 @@
                 <input type="url" id="tm-image-url" placeholder="https://...">
               </label>
               <label>Nahrát soubor
-                <input type="file" id="tm-image-file" accept="image/*">
+                <input type="file" id="tm-image-file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif">
               </label>
               <span class="help">Nahraný soubor má přednost před odkazem.</span>
             </aside>
@@ -444,9 +444,9 @@
       <!-- Bar 2 — tools & formatting -->
       <div class="ed-bar2">
         <div class="ed-bar2-left">
-          <button class="ed-add-btn" type="button" id="ed-add-image">Přidat obrázek</button>
+          <button class="ed-add-btn" type="button" id="ed-add-image">Přidat obrázek / PDF</button>
           <button class="ed-add-btn" type="button" id="ed-add-text">Přidat text</button>
-          <input type="file" id="ed-image-file" accept="image/*" hidden>
+          <input type="file" id="ed-image-file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,.jpg,.jpeg,.png,.webp,.gif,.pdf" hidden>
 
           <!-- Page background (color wheel OR image). Always available:
                it styles the page, not a selected element. -->
@@ -461,7 +461,7 @@
               </label>
               <div class="ed-color-row"><label for="ed-bg-hex">HEX</label><input type="text" id="ed-bg-hex" maxlength="7" value="#ffffff"></div>
               <label>Obrázek na pozadí
-                <input type="file" id="ed-bg-file" accept="image/*">
+                <input type="file" id="ed-bg-file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif">
               </label>
               <div class="ed-pop-actions">
                 <button class="btn btn-ghost" type="button" id="ed-bg-clear">Odstranit pozadí</button>
