@@ -111,8 +111,15 @@ export function safeEqual(a, b) {
   return diff === 0;
 }
 
+/* ADMIN_PASSWORD from the Vercel settings, minus surrounding whitespace: the
+ * Vercel value box is multi-line, so a stray Enter would add an invisible
+ * newline and make the password impossible to type at /admin. */
+export function adminPassword() {
+  return String(process.env.ADMIN_PASSWORD || "").trim();
+}
+
 async function sessionKey() {
-  const password = process.env.ADMIN_PASSWORD;
+  const password = adminPassword();
   if (!password) return null;
   const material = enc.encode("vn-session-v1\u0000" + password + "\u0000" + (process.env.SESSION_SECRET || ""));
   return webcrypto.subtle.importKey("raw", material, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);

@@ -3,7 +3,7 @@
  *              GET                 -> { loggedIn } (validates the cookie)
  * ============================================================ */
 import {
-  setAdminCookie, clearAdminCookie, readJsonBody, isAdmin, safeEqual, createSessionToken
+  setAdminCookie, clearAdminCookie, readJsonBody, isAdmin, safeEqual, createSessionToken, adminPassword
 } from "./_lib.js";
 
 /* Best-effort brute-force brake: after MAX_FAILS wrong passwords from one IP
@@ -46,7 +46,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const expected = process.env.ADMIN_PASSWORD;
+    const expected = adminPassword();
     if (!expected) {
       return res.status(500).json({ error: "ADMIN_PASSWORD env var not set" });
     }
@@ -55,7 +55,8 @@ export default async function handler(req, res) {
       return res.status(429).json({ error: "Příliš mnoho pokusů. Zkuste to znovu za několik minut." });
     }
     const body = await readJsonBody(req);
-    if (!body || !safeEqual(body.password, expected)) {
+    const typed = String((body && body.password) == null ? "" : body.password).trim();
+    if (!safeEqual(typed, expected)) {
       noteFail(ip);
       await new Promise((r) => setTimeout(r, 600));   // slow down guessing
       clearAdminCookie(res);
