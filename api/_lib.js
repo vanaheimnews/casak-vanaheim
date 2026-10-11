@@ -70,6 +70,7 @@ async function loadJson(baseName, fallback) {
   throw new Error("Blob read of " + baseName + " failed: version disappeared while reading");
 }
 const COOKIE_NAME = "vn_admin";
+const ACCESS_COOKIE = "vn_access";   // must match the "missing" rules in vercel.json
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 14; // 14 days
 
 /* ---------------- cookies ---------------- */
@@ -118,51 +119,102 @@ export function adminPassword() {
   return String(process.env.ADMIN_PASSWORD || "").trim();
 }
 
-async function sessionKey() {
-  const password = adminPassword();
-  if (!password) return null;
-  const material = enc.encode("vn-session-v1\u0000" + password + "\u0000" + (process.env.SESSION_SECRET || ""));
+/* ADMIN_SECRET_KEY: the secret part of the admin entry link
+ * (https://www.vanaheim-news.cz/#access=<key>). Same whitespace rule. */
+export function accessSecret() {
+  return String(process.env.ADMIN_SECRET_KEY || "").trim();
+}
+
+// One HMAC key per purpose, derived from that purpose's secret: changing the
+// secret invalidates every token signed with it.
+async function hmacKey(purpose, secret) {
+  if (!secret) return null;
+  const material = enc.encode(purpose + "\u0000" + secret + "\u0000" + (process.env.SESSION_SECRET || ""));
   return webcrypto.subtle.importKey("raw", material, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 }
 async function hmac(key, data) {
   return b64url(new Uint8Array(await webcrypto.subtle.sign("HMAC", key, enc.encode(data))));
 }
+const sessionKey = () => hmacKey("vn-session-v1", adminPassword());
+const accessKey = () => hmacKey("vn-access-v1", accessSecret());
 
-export async function createSessionToken() {
-  const key = await sessionKey();
-  if (!key) throw new Error("ADMIN_PASSWORD env var not set");
+async function createSignedToken(key) {
   const exp = Math.floor(Date.now() / 1000) + COOKIE_MAX_AGE;
   const nonce = b64url(webcrypto.getRandomValues(new Uint8Array(12)));
   const payload = "v1." + exp + "." + nonce;
   return payload + "." + (await hmac(key, payload));
 }
-
-export async function verifySessionToken(token) {
+async function verifySignedToken(token, key) {
   const parts = String(token || "").split(".");
   if (parts.length !== 4 || parts[0] !== "v1") return false;
   const exp = Number(parts[1]);
   if (!Number.isFinite(exp) || exp * 1000 <= Date.now()) return false;
-  const key = await sessionKey();
   if (!key) return false;
   return safeEqual(parts[3], await hmac(key, parts.slice(0, 3).join(".")));
 }
 
+export async function createSessionToken() {
+  const key = await sessionKey();
+  if (!key) throw new Error("ADMIN_PASSWORD env var not set");
+  return createSignedToken(key);
+}
+export async function verifySessionToken(token) {
+  return verifySignedToken(token, await sessionKey());
+}
 export async function isAdmin(req) {
   return verifySessionToken(parseCookies(req)[COOKIE_NAME]);
 }
 
-export function setAdminCookie(res, value) {
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE_NAME}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}`
-  );
+/* "This browser opened the secret admin link" — a signed cookie set by
+ * /api/verify-admin. Needed to log in; without ADMIN_SECRET_KEY nobody gets it. */
+export async function createAccessToken() {
+  const key = await accessKey();
+  if (!key) throw new Error("ADMIN_SECRET_KEY env var not set");
+  return createSignedToken(key);
+}
+export async function hasAdminAccess(req) {
+  return verifySignedToken(parseCookies(req)[ACCESS_COOKIE], await accessKey());
 }
 
-export function clearAdminCookie(res) {
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`
-  );
+// Several cookies can be set in one response (e.g. logout clears two).
+function appendCookie(res, cookie) {
+  const prev = res.getHeader("Set-Cookie");
+  res.setHeader("Set-Cookie", prev ? [].concat(prev, cookie) : cookie);
+}
+function cookieString(name, value, maxAge) {
+  return `${name}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+export function setAdminCookie(res, value) { appendCookie(res, cookieString(COOKIE_NAME, value, COOKIE_MAX_AGE)); }
+export function clearAdminCookie(res) { appendCookie(res, cookieString(COOKIE_NAME, "", 0)); }
+export function setAccessCookie(res, value) { appendCookie(res, cookieString(ACCESS_COOKIE, value, COOKIE_MAX_AGE)); }
+export function clearAccessCookie(res) { appendCookie(res, cookieString(ACCESS_COOKIE, "", 0)); }
+
+/* Best-effort brute-force brake: after `max` failures from one IP within
+ * `windowMs`, further attempts are refused (429). Serverless instances don't
+ * share memory, so this only slows an attacker hitting a warm instance —
+ * a hard limit needs shared storage (see SETUP-ADMIN.md). */
+export function clientIp(req) {
+  const fwd = String(req.headers["x-forwarded-for"] || req.headers["x-real-ip"] || "");
+  return fwd.split(",")[0].trim() || "unknown";
+}
+export function attemptLimiter(max, windowMs) {
+  const fails = new Map();          // ip -> { count, resetAt }
+  return {
+    locked(ip) {
+      const f = fails.get(ip);
+      if (!f) return false;
+      if (Date.now() > f.resetAt) { fails.delete(ip); return false; }
+      return f.count >= max;
+    },
+    fail(ip) {
+      const now = Date.now();
+      const f = fails.get(ip);
+      if (!f || now > f.resetAt) fails.set(ip, { count: 1, resetAt: now + windowMs });
+      else f.count++;
+      if (fails.size > 5000) fails.clear();   // keep memory bounded
+    },
+    reset(ip) { fails.delete(ip); }
+  };
 }
 
 export async function requireAdmin(req, res) {

@@ -230,14 +230,21 @@
         showShell();
       })
       .catch(function (err) {
+        if (err.status === 403) {   // the secret-link access expired
+          if (document.querySelector("#editor-overlay").hidden) { location.replace("/"); return; }
+          // unsaved editor work underneath: don't navigate away
+          loginError.textContent = "Přístup vypršel. Otevřete tajný odkaz v nové kartě a pak se zde přihlaste.";
+          return;
+        }
         loginError.textContent = err.status === 401 ? "Nesprávné heslo." : "Chyba: " + err.message;
         loginPass.select();
       });
   });
 
   logoutBtn.addEventListener("click", function () {
+    // Logout also forgets the secret-link access -> back to the public site.
     api("/api/logout", { method: "POST" })
-      .finally(function () { showLogin(); });
+      .finally(function () { location.replace("/"); });
   });
 
   /* ============================================================
@@ -2780,11 +2787,17 @@
      ============================================================ */
   fDate.value = nowLocalInput();
 
-  // Probe session state — if cookie is missing, show login immediately.
-  api("/api/login")
-    .then(function (info) {
-      if (info && info.loggedIn) showShell();
-      else showLogin();
+  // 1) This page is only for browsers that opened the secret admin link. The
+  //    server already redirects visitors WITHOUT the access cookie; a forged
+  //    or expired cookie is caught here (and the server refuses its login).
+  // 2) Probe session state — if the session cookie is missing, show login.
+  api("/api/verify-admin")
+    .then(function (a) {
+      if (!a || !a.access) { location.replace("/"); return; }
+      return api("/api/login").then(function (info) {
+        if (info && info.loggedIn) showShell();
+        else showLogin();
+      });
     })
     .catch(function () { showLogin(); });
 })();
