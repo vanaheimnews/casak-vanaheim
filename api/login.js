@@ -1,16 +1,36 @@
 /* ============================================================
  * /api/login   POST  { password }  -> sets a signed session cookie
  *              GET                 -> { loggedIn } (validates the cookie)
- * Logging in also requires the access cookie from the secret admin link
- * (/api/verify-admin), so the password can't be guessed by anyone who
- * doesn't know ADMIN_SECRET_KEY.
  * ============================================================ */
 import {
-  setAdminCookie, clearAdminCookie, readJsonBody, isAdmin, safeEqual, createSessionToken,
-  adminPassword, hasAdminAccess, clientIp, attemptLimiter
+  setAdminCookie, clearAdminCookie, readJsonBody, isAdmin, safeEqual, createSessionToken, adminPassword
 } from "./_lib.js";
 
-const limiter = attemptLimiter(8, 10 * 60 * 1000);   // 8 wrong passwords / 10 min / IP
+/* Best-effort brute-force brake: after MAX_FAILS wrong passwords from one IP
+ * within WINDOW_MS, further attempts get 429. Serverless instances don't
+ * share memory, so this only slows an attacker hitting a warm instance —
+ * a hard limit needs shared storage (see SETUP-ADMIN.md). */
+const FAILS = new Map();            // ip -> { count, resetAt }
+const MAX_FAILS = 8;
+const WINDOW_MS = 10 * 60 * 1000;
+
+function clientIp(req) {
+  const fwd = String(req.headers["x-forwarded-for"] || req.headers["x-real-ip"] || "");
+  return fwd.split(",")[0].trim() || "unknown";
+}
+function isLocked(ip) {
+  const f = FAILS.get(ip);
+  if (!f) return false;
+  if (Date.now() > f.resetAt) { FAILS.delete(ip); return false; }
+  return f.count >= MAX_FAILS;
+}
+function noteFail(ip) {
+  const now = Date.now();
+  const f = FAILS.get(ip);
+  if (!f || now > f.resetAt) FAILS.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+  else f.count++;
+  if (FAILS.size > 5000) FAILS.clear();   // keep memory bounded
+}
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -30,22 +50,19 @@ export default async function handler(req, res) {
     if (!expected) {
       return res.status(500).json({ error: "ADMIN_PASSWORD env var not set" });
     }
-    if (!(await hasAdminAccess(req))) {
-      return res.status(403).json({ error: "Přístup odepřen — otevřete administraci přes tajný odkaz." });
-    }
     const ip = clientIp(req);
-    if (limiter.locked(ip)) {
+    if (isLocked(ip)) {
       return res.status(429).json({ error: "Příliš mnoho pokusů. Zkuste to znovu za několik minut." });
     }
     const body = await readJsonBody(req);
     const typed = String((body && body.password) == null ? "" : body.password).trim();
     if (!safeEqual(typed, expected)) {
-      limiter.fail(ip);
+      noteFail(ip);
       await new Promise((r) => setTimeout(r, 600));   // slow down guessing
       clearAdminCookie(res);
       return res.status(401).json({ error: "Wrong password" });
     }
-    limiter.reset(ip);
+    FAILS.delete(ip);
     setAdminCookie(res, await createSessionToken());
     return res.status(200).json({ ok: true });
   } catch (err) {

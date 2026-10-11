@@ -70,17 +70,3 @@ goes wrong, the previous version can be restored by deleting the newest file.
 - Logging out removes the cookie from that browser; a copied cookie stays
   valid until it expires or the password changes (true server-side logout
   would need a session store).
-
-## Secret admin link (`ADMIN_SECRET_KEY`)
-
-`/admin` is not reachable by typing the address. Set **`ADMIN_SECRET_KEY`**
-(Vercel → Settings → Environment Variables, type *Secret*, Production and
-Preview; letters, digits, `-` and `_` only, 32+ characters), then **Redeploy**.
-
-Enter the admin through: `https://www.vanaheim-news.cz/#access=<ADMIN_SECRET_KEY>`
-
-- The key is checked only on the server (`/api/verify-admin`); it sets a signed
-  14-day `vn_access` cookie. Without it `/admin` redirects to the homepage and
-  `/api/login` refuses even the right password.
-- „Odhlásit" removes the access too — next time use the link again.
-- Changing `ADMIN_SECRET_KEY` (+ redeploy) disables the old link everywhere.

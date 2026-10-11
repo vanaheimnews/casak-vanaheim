@@ -96,7 +96,6 @@
       });
     });
     window.addEventListener("hashchange", function () {
-      if (handleAdminAccess()) return;   // secret link pasted while on the site
       var name = (location.hash || "#home").slice(1);
       // Only real pages switch tabs; other anchors (e.g. the „Přejít k obsahu"
       // skip link -> #main) keep their normal in-page jump.
@@ -471,30 +470,7 @@
   /* ============================================================
      BOOT
      ============================================================ */
-  /* Secret admin entry: /#access=<key> (also ?access=<key>). The key is
-     checked ONLY on the server (/api/verify-admin) — this file holds no secret.
-     The key is wiped from the address bar at once; on success the server sets
-     an access cookie and we open /admin, otherwise the visitor stays home. */
-  function handleAdminAccess() {
-    var m = /^#access=([^&]+)/.exec(location.hash) || /[?&]access=([^&]+)/.exec(location.search);
-    if (!m) return false;
-    var token;
-    try { token = decodeURIComponent(m[1]); } catch (e) { token = m[1]; }
-    history.replaceState(null, "", location.pathname + "#home");
-    showPage("home");
-    fetch("/api/verify-admin", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: token })
-    })
-      .then(function (r) { if (r.ok) location.replace("/admin"); })
-      .catch(function () { /* stay on the homepage */ });
-    return true;
-  }
-
   function boot() {
-    handleAdminAccess();   // before the initial tab is read from the URL
     var yearEl = $("#year");
     if (yearEl) yearEl.textContent = new Date().getFullYear();
 

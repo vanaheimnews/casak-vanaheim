@@ -14,18 +14,6 @@
       "has": [{ "type": "host", "value": "casak-vanaheim.vercel.app" }],
       "destination": "https://www.vanaheim-news.cz/:path*",
       "permanent": true
-    },
-    {
-      "source": "/admin",
-      "missing": [{ "type": "cookie", "key": "vn_access" }],
-      "destination": "/",
-      "permanent": false
-    },
-    {
-      "source": "/admin/:path*",
-      "missing": [{ "type": "cookie", "key": "vn_access" }],
-      "destination": "/",
-      "permanent": false
     }
   ],
   "rewrites": [
