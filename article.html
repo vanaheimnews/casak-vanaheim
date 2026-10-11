@@ -2,8 +2,17 @@
 <html lang="cs">
 <head>
   <meta charset="UTF-8">
-  <title>Školní magazín — článek</title>
+  <title>Článek — Vanaheim News</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- SEO tags below are filled per article by the loader script -->
+  <meta name="description" content="Článek ze školního magazínu Vanaheim News.">
+  <link rel="canonical" href="https://casak-vanaheim.vercel.app/">
+  <link rel="icon" href="/logo.png">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Vanaheim News">
+  <meta property="og:title" content="Vanaheim News">
+  <meta property="og:description" content="Článek ze školního magazínu Vanaheim News.">
+  <meta property="og:image" content="https://casak-vanaheim.vercel.app/logo.png">
   <link rel="stylesheet" href="./style.css">
   <style>
     /* Page-specific overrides — keeps the design system from style.css. */
@@ -227,6 +236,50 @@
         if (/^#[0-9a-f]{3,8}$/i.test(bg.color || "")) node.style.backgroundColor = bg.color;
       }
 
+      /* SEO for this article: description, canonical URL, link-preview tags and
+         schema.org data. Google runs this script when it indexes the page. */
+      function setMeta(selector, attr, value) {
+        var el = document.head.querySelector(selector);
+        if (el && value) el.setAttribute(attr, value);
+      }
+      function setSeo(a) {
+        var url = location.origin + "/article?id=" + encodeURIComponent(a.id);
+        var tmp = document.createElement("template");
+        tmp.innerHTML = (a.elements || []).filter(function (el) { return el.type === "text" && !el.isTitle; })
+          .map(function (el) { return VNSafe.html(el.content); }).join(" ");
+        var text = ((a.body || "") + " " + tmp.content.textContent).replace(/\s+/g, " ").trim();
+        var desc = text ? (text.length > 155 ? text.slice(0, 152).replace(/\s+\S*$/, "") + "…" : text)
+                        : "Článek ze školního magazínu Vanaheim News.";
+        var firstImg = (a.elements || []).filter(function (el) { return el.type === "image"; })[0];
+        var image = VNSafe.url(a.image || (firstImg && firstImg.content), { image: true });
+        if (!/^https?:/i.test(image)) image = "";
+        setMeta('meta[name="description"]', "content", desc);
+        setMeta('link[rel="canonical"]', "href", url);
+        setMeta('meta[property="og:title"]', "content", a.title);
+        setMeta('meta[property="og:description"]', "content", desc);
+        setMeta('meta[property="og:image"]', "content", image);
+        var og = document.createElement("meta");
+        og.setAttribute("property", "og:url"); og.setAttribute("content", url);
+        document.head.appendChild(og);
+        var ld = document.createElement("script");
+        ld.type = "application/ld+json";
+        ld.textContent = JSON.stringify({
+          "@context": "https://schema.org", "@type": "Article",
+          headline: a.title, description: desc, url: url, inLanguage: "cs",
+          datePublished: a.publishAt || a.date, dateModified: a.updatedAt || a.publishAt || a.date,
+          image: image || undefined,
+          author: (a.authors || []).map(function (n) { return { "@type": "Person", name: n }; }),
+          publisher: { "@type": "Organization", name: "Vanaheim News" }
+        });
+        document.head.appendChild(ld);
+      }
+      // Missing / unpublished article: tell search engines not to index the error page.
+      function noIndex() {
+        var m = document.createElement("meta");
+        m.name = "robots"; m.content = "noindex";
+        document.head.appendChild(m);
+      }
+
       var params = new URLSearchParams(location.search);
       var id = params.get("id");
       var root = document.querySelector("#article-root");
@@ -234,6 +287,7 @@
       if (!id) {
         root.innerHTML = '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
                          '<p class="error-state">Chybí ID článku.</p>';
+        noIndex();
         return;
       }
 
@@ -243,7 +297,8 @@
           return r.json();
         })
         .then(function (a) {
-          document.title = (a.title || "Článek") + " — Školní magazín";
+          document.title = (a.title || "Článek") + " — Vanaheim News";
+          setSeo(a);
           var tagsHtml = (a.tags || []).map(function (t) {
             return '<span class="card-tag">' + escapeHtml(t) + "</span>";
           }).join("");
@@ -277,6 +332,7 @@
           }
         })
         .catch(function (err) {
+          noIndex();
           root.innerHTML = '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
                            '<p class="error-state">' + escapeHtml(err.message || "Chyba při načítání.") + "</p>";
         });
