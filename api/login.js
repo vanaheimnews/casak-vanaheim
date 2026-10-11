@@ -1,9 +1,11 @@
 /* ============================================================
  * /api/login   POST  { password }  -> sets a signed session cookie
  *              GET                 -> { loggedIn } (validates the cookie)
+ * Works only on the Vercel-protected admin host (isAdminHost in _lib.js).
  * ============================================================ */
 import {
-  setAdminCookie, clearAdminCookie, readJsonBody, isAdmin, safeEqual, createSessionToken, adminPassword
+  setAdminCookie, clearAdminCookie, readJsonBody, isAdmin, safeEqual, createSessionToken, adminPassword,
+  isAdminHost
 } from "./_lib.js";
 
 /* Best-effort brute-force brake: after MAX_FAILS wrong passwords from one IP
@@ -46,6 +48,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Only on the Vercel-Authentication-protected admin URL (see _lib.js).
+    if (!isAdminHost(req)) {
+      return res.status(403).json({ error: "Administrace je dostupná jen přes chráněnou adresu Vercelu." });
+    }
     const expected = adminPassword();
     if (!expected) {
       return res.status(500).json({ error: "ADMIN_PASSWORD env var not set" });

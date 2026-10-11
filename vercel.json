@@ -14,6 +14,18 @@
       "has": [{ "type": "host", "value": "casak-vanaheim.vercel.app" }],
       "destination": "https://www.vanaheim-news.cz/:path*",
       "permanent": true
+    },
+    {
+      "source": "/admin",
+      "missing": [{ "type": "host", "value": "casak-vanaheim-git-main-vanaheim-news-projects.vercel.app" }],
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/admin/:path*",
+      "missing": [{ "type": "host", "value": "casak-vanaheim-git-main-vanaheim-news-projects.vercel.app" }],
+      "destination": "/",
+      "permanent": false
     }
   ],
   "rewrites": [

@@ -147,7 +147,28 @@ export async function verifySessionToken(token) {
   return safeEqual(parts[3], await hmac(key, parts.slice(0, 3).join(".")));
 }
 
+/* ---------------- admin host (Vercel Authentication) ----------------
+ * The admin works ONLY on the Vercel branch URL of `main`. That URL is
+ * guarded by Vercel Authentication (Settings -> Deployment Protection), so a
+ * request can only reach a function under this host after the visitor
+ * signed in to the Vercel account. On the public domains every admin action
+ * is refused, even with a valid password or session cookie.
+ * ADMIN_HOST env var can override it (e.g. after renaming the project/team).
+ * ------------------------------------------------------------------ */
+const DEFAULT_ADMIN_HOST = "casak-vanaheim-git-main-vanaheim-news-projects.vercel.app";
+export function adminHost() {
+  return String(process.env.ADMIN_HOST || DEFAULT_ADMIN_HOST).trim().toLowerCase();
+}
+export function requestHost(req) {
+  return String(req.headers["x-forwarded-host"] || req.headers.host || "")
+    .split(",")[0].trim().toLowerCase().replace(/:\d+$/, "");
+}
+export function isAdminHost(req) {
+  return requestHost(req) === adminHost();
+}
+
 export async function isAdmin(req) {
+  if (!isAdminHost(req)) return false;
   return verifySessionToken(parseCookies(req)[COOKIE_NAME]);
 }
 
