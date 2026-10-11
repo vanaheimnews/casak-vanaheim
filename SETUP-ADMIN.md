@@ -33,7 +33,11 @@ serverless functions.
 ## How to use
 
 - Public site: `https://www.vanaheim-news.cz/`
-- Admin: `https://www.vanaheim-news.cz/admin` (not linked anywhere)
+- Admin: `https://casak-vanaheim-git-main-vanaheim-news-projects.vercel.app` (opens `/admin`).
+  Guarded by Vercel Authentication (Settings → Deployment Protection →
+  Standard Protection): only people signed in to the Vercel account get in,
+  then they enter `ADMIN_PASSWORD`. On every other address `/admin` redirects
+  to the homepage and admin API calls are refused (`isAdminHost` in `api/_lib.js`).
 - Article detail: `/article.html?id=<id>` (cards on the public site link here)
 
 ## Endpoints (for reference)

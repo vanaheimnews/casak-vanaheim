@@ -16,6 +16,12 @@
       "permanent": true
     },
     {
+      "source": "/",
+      "has": [{ "type": "host", "value": "casak-vanaheim-git-main-vanaheim-news-projects.vercel.app" }],
+      "destination": "/admin",
+      "permanent": false
+    },
+    {
       "source": "/admin",
       "missing": [{ "type": "host", "value": "casak-vanaheim-git-main-vanaheim-news-projects.vercel.app" }],
       "destination": "/",
