@@ -32,8 +32,8 @@ serverless functions.
 
 ## How to use
 
-- Public site: `https://casak-vanaheim.vercel.app/`
-- Admin: `https://casak-vanaheim.vercel.app/admin` (not linked anywhere)
+- Public site: `https://www.vanaheim-news.cz/`
+- Admin: `https://www.vanaheim-news.cz/admin` (not linked anywhere)
 - Article detail: `/article.html?id=<id>` (cards on the public site link here)
 
 ## Endpoints (for reference)

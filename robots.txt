@@ -3,4 +3,4 @@ Allow: /
 Disallow: /admin
 Disallow: /api/
 
-Sitemap: https://casak-vanaheim.vercel.app/sitemap.xml
+Sitemap: https://www.vanaheim-news.cz/sitemap.xml
