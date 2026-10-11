@@ -406,6 +406,11 @@
       for (var i = 0; i < a.elements.length; i++) {
         if (a.elements[i].type === "image" && a.elements[i].content) return a.elements[i].content;
       }
+      // no picture: a YouTube block's thumbnail
+      for (var j = 0; j < a.elements.length; j++) {
+        var info = a.elements[j].type === "embed" && VNSafe.embed(a.elements[j].content);
+        if (info && info.thumb) return info.thumb;
+      }
     }
     return "";
   }
@@ -929,6 +934,13 @@
     canvas:    document.querySelector("#ed-canvas"),
     addImage:  document.querySelector("#ed-add-image"),
     addText:   document.querySelector("#ed-add-text"),
+    addEmbed:  document.querySelector("#ed-add-embed"),
+    embedDialog: document.querySelector("#ed-embed-dialog"),
+    embedForm:   document.querySelector("#ed-embed-form"),
+    embedUrl:    document.querySelector("#ed-embed-url"),
+    embedStatus: document.querySelector("#ed-embed-status"),
+    embedOk:     document.querySelector("#ed-embed-ok"),
+    embedCancel: document.querySelector("#ed-embed-cancel"),
     imageFile: document.querySelector("#ed-image-file"),
     tools:     document.querySelector("#ed-format-tools"),
     fsVal:     document.querySelector("#ed-fs-val"),
@@ -983,6 +995,7 @@
     pendingAction: null,   // 'discard' | 'save' | 'delete'
     savedRange: null,      // last text selection inside the editing content
     liveSpan: null,        // span being restyled live by the size box / colour panel
+    playingId: null,       // video/post block currently showing its live player preview
     lastFs: 16,            // last valid font size (for revert)
     colorSyncing: false,
     currentColor: "#000000"
@@ -1061,12 +1074,14 @@
     ED.selectedId = null;
     ED.editingId = null;
     ED.liveSpan = null;
+    ED.playingId = null;
     // Straight into the visual editor — there is no separate preview step.
     document.body.classList.add("visual-editor-active");
     edSetMetaOpen(edMetaPref());
     edApplyBackground(EDITOR.canvas, ED.background);
     edRenderCanvas();
     edSetToolsVisible(false);
+    edSetLayerVisible(false);
     EDITOR.overlay.hidden = false;
     ED.snapshot = edStateSnapshot();     // compared by the leave-page warning
   }
@@ -1206,6 +1221,8 @@
     ED.selectedId = null;
     ED.savedRange = null;
     ED.liveSpan = null;
+    ED.playingId = null;     // stops a playing video preview
+    edCloseEmbedDialog();
     document.body.classList.remove("visual-editor-active");
     EDITOR.overlay.hidden = true;
   }
@@ -1279,6 +1296,8 @@
       fileLink.className = "ed-file";
       fileLink.textContent = "📄 " + (el.name || "Dokument PDF");
       content.appendChild(fileLink);
+    } else if (el.type === "embed") {
+      edBuildEmbedContent(content, el);
     } else {
       content.innerHTML = el.content || "";
       edApplyContentStyles(content, el);
@@ -1321,6 +1340,7 @@
     content.addEventListener("pointerdown", function (ev) { edPointerDownOnElement(ev, el, node, content); });
     content.addEventListener("dblclick", function (ev) {
       if (el.type === "text") { ev.preventDefault(); edEnterEdit(el.id); }
+      else if (el.type === "embed") { ev.preventDefault(); edPlayEmbed(el.id); }
     });
     // keep state in sync while editing
     if (el.type === "text") {
@@ -1361,6 +1381,8 @@
       try { content.releasePointerCapture(ev.pointerId); } catch (e) {}
       if (moved) {
         if (!wasSelected) edSelect(el.id); else edUpdateToolbar();
+      } else if (wasSelected && el.type === "embed") {
+        edPlayEmbed(el.id);          // click on already-selected video -> live preview
       } else if (wasSelected && el.type === "text") {
         edEnterEdit(el.id);          // click on already-selected text -> edit
       } else {
@@ -1411,17 +1433,21 @@
 
   function edSelect(id) {
     if (ED.editingId && ED.editingId !== id) edExitEdit();
+    if (ED.playingId !== id) ED.playingId = null;   // another block -> stop the live preview
     ED.selectedId = id;
     edRenderCanvas();
     var el = edFind(id);
     edSetToolsVisible(!!el && el.type === "text");
+    edSetLayerVisible(!!el);       // layers work for every block type
     edUpdateToolbar();
   }
   function edDeselect() {
     if (ED.editingId) edExitEdit();
+    ED.playingId = null;
     ED.selectedId = null;
     edRenderCanvas();
     edSetToolsVisible(false);
+    edSetLayerVisible(false);
     edCloseColorPanel();
   }
   function edFind(id) {
@@ -1436,6 +1462,7 @@
     if (ED.editingId === id) ED.editingId = null;
     edRenderCanvas();
     edSetToolsVisible(false);
+    edSetLayerVisible(false);
   }
 
   /* ---------- inline editing ---------- */
@@ -1488,6 +1515,91 @@
     edSelect(el.id);
   });
   EDITOR.addImage.addEventListener("click", function () { EDITOR.imageFile.click(); });
+
+  /* ---------- video / social post blocks ("Vložit video / příspěvek") ----------
+     Stored as { type: "embed", content: <embed URL from VNSafe.embed>, provider }.
+     In the editor the block shows a still preview (YouTube thumbnail or a
+     provider card) so it selects, drags, resizes and layers like any block —
+     a live <iframe> would swallow the mouse and reload on every re-render.
+     Clicking an already-selected block (or double-click) plays a live
+     preview until another block is selected. */
+  function edBuildEmbedContent(content, el) {
+    var info = VNSafe.embed(el.content);
+    if (!info) { content.textContent = "Neplatný odkaz na video"; return; }
+    if (ED.playingId === el.id) {
+      content.appendChild(VNSafe.embedFrame(info, "Náhled — " + info.label));
+      return;
+    }
+    var prev = document.createElement("div");
+    prev.className = "ed-embed ed-embed--" + info.provider;
+    if (info.thumb) {
+      var img = document.createElement("img");
+      img.src = info.thumb;
+      img.alt = "";
+      prev.appendChild(img);
+    }
+    var badge = document.createElement("span");
+    badge.className = "ed-embed-badge";
+    badge.textContent = "▶ " + info.label;
+    var hint = document.createElement("span");
+    hint.className = "ed-embed-hint";
+    hint.textContent = ED.selectedId === el.id ? "Klikněte znovu pro přehrání náhledu" : "Video / příspěvek";
+    prev.appendChild(badge);
+    prev.appendChild(hint);
+    content.appendChild(prev);
+  }
+  function edPlayEmbed(id) {
+    ED.playingId = id;
+    ED.selectedId = id;
+    edRenderCanvas();
+  }
+  function edInsertEmbed(info) {
+    var w = Math.min(info.w, ED_CANVAS_W), h = info.h;
+    var el = {
+      id: edUid(), type: "embed", isTitle: false,
+      content: info.src, provider: info.provider,
+      x: edCanvasCenterX(w), y: edVisibleTop(), width: w, height: h,
+      styles: defaultStyles()
+    };
+    ED.elements.push(el);
+    edSelect(el.id);
+  }
+
+  // dialog: paste a link -> live check -> insert
+  var embedPending = null;
+  function edEmbedCheck() {
+    var v = EDITOR.embedUrl.value.trim();
+    embedPending = v ? VNSafe.embed(v) : null;
+    EDITOR.embedOk.disabled = !embedPending;
+    var msg = "";
+    if (embedPending) msg = "✓ " + embedPending.label + " — připraveno k vložení";
+    else if (/^(https?:\/\/)?(vm|vt)\.tiktok\.com\//i.test(v)) msg = "Zkrácený odkaz TikToku nejde vložit — otevřete video a zkopírujte celou adresu z prohlížeče.";
+    else if (v) msg = "Tento odkaz neumím vložit. Podporováno: YouTube, Vimeo, Instagram, TikTok, Spotify.";
+    EDITOR.embedStatus.textContent = msg;
+    EDITOR.embedStatus.classList.toggle("is-error", !!v && !embedPending);
+  }
+  function edOpenEmbedDialog() {
+    EDITOR.embedUrl.value = "";
+    edEmbedCheck();
+    EDITOR.embedDialog.hidden = false;
+    setTimeout(function () { EDITOR.embedUrl.focus(); }, 0);
+  }
+  function edCloseEmbedDialog() {
+    if (EDITOR.embedDialog) EDITOR.embedDialog.hidden = true;
+  }
+  EDITOR.addEmbed.addEventListener("click", edOpenEmbedDialog);
+  EDITOR.embedUrl.addEventListener("input", edEmbedCheck);
+  EDITOR.embedForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (!embedPending) return;
+    var info = embedPending;
+    edCloseEmbedDialog();
+    edInsertEmbed(info);
+    toast(info.label + " vloženo — přesuňte a zvětšete ho jako ostatní bloky.");
+  });
+  EDITOR.embedCancel.addEventListener("click", edCloseEmbedDialog);
+  EDITOR.embedDialog.addEventListener("click", function (e) { if (e.target === EDITOR.embedDialog) edCloseEmbedDialog(); });
+  EDITOR.embedDialog.addEventListener("keydown", function (e) { if (e.key === "Escape") edCloseEmbedDialog(); });
   EDITOR.imageFile.addEventListener("change", function () {
     var file = EDITOR.imageFile.files && EDITOR.imageFile.files[0];
     EDITOR.imageFile.value = "";
@@ -2220,6 +2332,13 @@
     EDITOR.tools.classList.toggle("is-visible", !!on);
     EDITOR.tools.setAttribute("aria-hidden", on ? "false" : "true");
     if (!on) edCloseColorPanel();
+  }
+  // "Zarovnat vrstvy" is shown whenever ANY block is selected (not only text).
+  function edSetLayerVisible(on) {
+    var wrap = document.querySelector("#ed-layer-wrap");
+    if (wrap) wrap.hidden = !on;
+    var menu = document.querySelector("#ed-layer-menu");
+    if (menu && !on) menu.hidden = true;
   }
   function edUpdateToolbar() {
     var el = edFind(ED.selectedId);

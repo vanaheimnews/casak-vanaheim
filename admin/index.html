@@ -453,6 +453,7 @@
         <div class="ed-bar2-left">
           <button class="ed-add-btn" type="button" id="ed-add-image">Přidat obrázek / PDF</button>
           <button class="ed-add-btn" type="button" id="ed-add-text">Přidat text</button>
+          <button class="ed-add-btn" type="button" id="ed-add-embed">Vložit video / příspěvek</button>
           <input type="file" id="ed-image-file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,.jpg,.jpeg,.png,.webp,.gif,.pdf" hidden>
 
           <!-- Page background (color wheel OR image). Always available:
@@ -473,6 +474,20 @@
               <div class="ed-pop-actions">
                 <button class="btn btn-ghost" type="button" id="ed-bg-clear">Odstranit pozadí</button>
               </div>
+            </div>
+          </div>
+
+          <!-- Layers ("Zarovnat vrstvy") — for ANY selected block (text, image,
+               PDF, video), so it lives outside the text-only format tools. -->
+          <div class="ed-pop-wrap" id="ed-layer-wrap" hidden>
+            <button class="ed-tool ed-tool-svg" type="button" id="ed-layer" title="Zarovnat vrstvy" aria-label="Zarovnat vrstvy">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+            </button>
+            <div class="ed-pop ed-layer-menu" id="ed-layer-menu" hidden role="menu">
+              <button type="button" role="menuitem" data-layer="front">Dát dopředu</button>
+              <button type="button" role="menuitem" data-layer="forward">Posunout vpřed</button>
+              <button type="button" role="menuitem" data-layer="backward">Posunout vzad</button>
+              <button type="button" role="menuitem" data-layer="back">Dát dozadu</button>
             </div>
           </div>
         </div>
@@ -527,19 +542,6 @@
           <button class="ed-tool ed-tool-svg" type="button" id="ed-indent-inc" title="Zvětšit odsazení" aria-label="Zvětšit odsazení">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M11 12h10M11 18h10M3 9l3 3-3 3"/></svg>
           </button>
-
-          <!-- Layers ("Zarovnat vrstvy") -->
-          <div class="ed-pop-wrap">
-            <button class="ed-tool ed-tool-svg" type="button" id="ed-layer" title="Zarovnat vrstvy" aria-label="Zarovnat vrstvy">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>
-            </button>
-            <div class="ed-pop ed-layer-menu" id="ed-layer-menu" hidden role="menu">
-              <button type="button" role="menuitem" data-layer="front">Dát dopředu</button>
-              <button type="button" role="menuitem" data-layer="forward">Posunout vpřed</button>
-              <button type="button" role="menuitem" data-layer="backward">Posunout vzad</button>
-              <button type="button" role="menuitem" data-layer="back">Dát dozadu</button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -595,6 +597,20 @@
   </div>
 
   <!-- Confirm modal (shared by Bar 1 actions) -->
+  <!-- "Vložit video / příspěvek" dialog: paste a link, see what it is, insert -->
+  <div class="ed-confirm" id="ed-embed-dialog" hidden>
+    <form class="ed-confirm-box ed-embed-box" id="ed-embed-form" autocomplete="off">
+      <h3>Vložit video nebo příspěvek</h3>
+      <p>Vložte odkaz (nebo kód pro vložení) z YouTube, Vimeo, Instagramu, TikToku nebo Spotify.</p>
+      <input type="text" id="ed-embed-url" placeholder="https://www.youtube.com/watch?v=…" aria-label="Odkaz na video nebo příspěvek">
+      <p class="ed-embed-status" id="ed-embed-status" aria-live="polite"></p>
+      <div class="ed-confirm-actions">
+        <button class="ed-confirm-ok" type="submit" id="ed-embed-ok" disabled>Vložit</button>
+        <button class="ed-confirm-cancel" type="button" id="ed-embed-cancel">Zrušit</button>
+      </div>
+    </form>
+  </div>
+
   <div class="ed-confirm" id="ed-confirm" hidden>
     <div class="ed-confirm-box">
       <h3 id="ed-confirm-title">Potvrdit akci</h3>

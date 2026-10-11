@@ -176,6 +176,15 @@
             img.src = src; img.loading = "lazy";
             img.alt = (a.title ? a.title + " — " : "") + "obrázek " + imgNo;
             node.appendChild(img);
+          } else if (el.type === "embed") {
+            // video / social post: the stored link is re-validated and the
+            // player URL rebuilt by VNSafe.embed — plays inline in the article
+            var info = VNSafe.embed(el.content);
+            if (!info) return;
+            node.appendChild(VNSafe.embedFrame(info, (a.title ? a.title + " — " : "") + info.label));
+            // keeps the block's shape in the one-column phone layout
+            var w = +el.width || info.w, h = +el.height || info.h;
+            node.style.aspectRatio = w + " / " + h;
           } else if (el.type === "file") {
             var href = VNSafe.url(el.content);
             if (!href) return;

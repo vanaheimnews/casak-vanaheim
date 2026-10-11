@@ -1428,7 +1428,9 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 }
 /* "Přidat text" (a positioned text box) belongs to the article canvas only;
    "Přidat obrázek / PDF" inserts into the document at the caret. */
-.ed-bar2.is-docked #ed-add-text { display: none; }
+.ed-bar2.is-docked #ed-add-text,
+.ed-bar2.is-docked #ed-add-embed,
+.ed-bar2.is-docked #ed-layer-wrap { display: none; }   /* canvas-only blocks */
 
 .doc-canvas {
   min-height: 420px; padding: 48px 56px; margin-bottom: 24px;
@@ -1484,6 +1486,7 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 
 /* ---- Toolbar popovers (background + layers) ---- */
 .ed-pop-wrap { position: relative; display: inline-flex; }
+.ed-pop-wrap[hidden] { display: none; }
 .ed-pop {
   position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
   min-width: 210px; padding: 12px; display: grid; gap: 10px;
@@ -1515,3 +1518,50 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 .page-doc .home-theme-block p { opacity: 0.85; }
 /* Admin-set page backgrounds need breathing room around the content */
 .page[style*="background"] { padding: 18px; border-radius: 12px; }
+
+/* ============================================================
+   VIDEO / SOCIAL POST BLOCKS ("Vložit video / příspěvek")
+   ============================================================ */
+/* Public article: the player fills the block (any shape the editor gave it). */
+.ac-el--embed { overflow: hidden; border-radius: 6px; }
+/* phones: shape via aspect-ratio; relative only as the iframe's anchor, so the
+   canvas left/top offsets must not shift it */
+.article-canvas--flow .ac-el.ac-el--embed { position: relative; left: auto !important; top: auto !important; }
+.vn-embed-frame { display: block; width: 100%; height: 100%; border: 0; }
+.ac-el--embed .vn-embed-frame { position: absolute; inset: 0; }
+
+/* Editor: still preview card (selectable/draggable), live player on demand. */
+.ed-el--embed .ed-el-content { padding: 0; width: 100%; height: 100%; overflow: hidden; border-radius: 6px; }
+.ed-embed {
+  position: relative; width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: #1f2328; color: #fff; text-align: center; overflow: hidden;
+}
+.ed-embed img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.ed-embed--youtube   { background: #282828; }
+.ed-embed--vimeo     { background: #1a6c8c; }
+.ed-embed--instagram { background: linear-gradient(45deg, #f09433, #dc2743 50%, #bc1888); }
+.ed-embed--tiktok    { background: #111; }
+.ed-embed--spotify   { background: #1db954; }
+.ed-embed-badge, .ed-embed-hint { position: relative; z-index: 1; pointer-events: none; }
+.ed-embed-badge {
+  padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.72);
+  font-weight: 700; font-size: 0.9rem;
+}
+.ed-embed-hint {
+  padding: 2px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.55);
+  font-size: 0.72rem; opacity: 0.95;
+}
+
+/* Insert dialog */
+.ed-embed-box { text-align: left; }
+.ed-embed-box h3, .ed-embed-box > p { text-align: left; }
+.ed-embed-box input {
+  width: 100%; min-height: 42px; margin: 0 0 8px; padding: 8px 12px; box-sizing: border-box;
+  border: 1px solid var(--content-rule); border-radius: 6px; font: inherit; font-size: 0.92rem;
+}
+.ed-embed-box input:focus { outline: 2px solid #15a34a; outline-offset: 1px; border-color: #15a34a; }
+.ed-embed-box .ed-embed-status { min-height: 1.3em; margin: 0 0 16px; font-size: 0.84rem; color: #15a34a; text-align: left; }
+.ed-embed-box .ed-embed-status.is-error { color: #b00020; }
+.ed-embed-box .ed-confirm-actions { justify-content: flex-end; }
+.ed-confirm-ok:disabled { opacity: 0.45; cursor: not-allowed; }

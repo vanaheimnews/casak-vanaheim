@@ -7,6 +7,8 @@
  *   VNSafe.url(str, {image})    -> safe URL or "" (http/https/mailto/tel/relative;
  *                                  with image: also data:image/* and blob:)
  *   VNSafe.cssUrl(str)          -> 'url("…")' for style.backgroundImage, or ""
+ *   VNSafe.embed(link)          -> safe video/post embed info (YouTube, Vimeo,
+ *                                  Instagram, TikTok, Spotify) or null
  * ============================================================ */
 (function () {
   "use strict";
@@ -113,5 +115,129 @@
     return box.innerHTML;
   }
 
-  window.VNSafe = { html: html, url: url, cssUrl: cssUrl };
+  /* ---------- media embeds (YouTube, Vimeo, Instagram, TikTok, Spotify) ----------
+   * embed(linkOrIframeCode) -> { provider, label, src, thumb, w, h } or null.
+   * The iframe src is REBUILT from a strictly validated ID — the pasted URL
+   * itself never reaches an <iframe>. Idempotent: embed(result.src) works,
+   * so the public page re-validates what the editor stored. */
+  function ytSeconds(t) {
+    if (!t) return 0;
+    if (/^\d+$/.test(t)) return +t;
+    var m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(t);
+    return m ? (+(m[1] || 0)) * 3600 + (+(m[2] || 0)) * 60 + (+(m[3] || 0)) : 0;
+  }
+  function embed(input) {
+    var s = String(input == null ? "" : input).trim();
+    var tag = /<iframe[^>]*\ssrc\s*=\s*["']([^"']+)["']/i.exec(s);   // pasted <iframe> embed code
+    if (tag) s = tag[1].replace(/&amp;/g, "&");
+    else if (s.indexOf("<") !== -1) {
+      // Instagram / TikTok embed code is <blockquote …> + <script>: take the post URL
+      var q = /\b(?:data-instgrm-permalink|cite)\s*=\s*["']([^"']+)["']/i.exec(s) || /https?:\/\/[^\s"'<>]+/i.exec(s);
+      if (!q) return null;
+      s = (q[1] || q[0]).replace(/&amp;/g, "&");
+    }
+    if (/^\/\//.test(s)) s = "https:" + s;
+    if (!/^[a-z][a-z0-9+.\-]*:/i.test(s)) s = "https://" + s;
+    var u;
+    try { u = new URL(s); } catch (e) { return null; }
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    var host = u.hostname.toLowerCase().replace(/^(?:www|m|music)\./, "");
+    var path = u.pathname, m, id;
+
+    // YouTube: watch?v=, youtu.be/, /shorts/, /embed/, /live/, nocookie
+    if (host === "youtu.be") id = path.split("/")[1];
+    else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+      if (path === "/watch") id = u.searchParams.get("v");
+      else if (path === "/playlist") id = "videoseries";
+      else if ((m = /^\/(?:embed|shorts|live|v)\/([^/]+)/.exec(path))) id = m[1];
+    }
+    if (id === "videoseries") {           // playlist (Share -> Embed on a playlist)
+      var list = u.searchParams.get("list");
+      if (!list || !/^[A-Za-z0-9_-]{10,64}$/.test(list)) return null;
+      return {
+        provider: "youtube", label: "YouTube",
+        src: "https://www.youtube-nocookie.com/embed/videoseries?list=" + list,
+        thumb: "", w: 480, h: 270
+      };
+    }
+    if (id != null) {
+      if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+      var start = ytSeconds(u.searchParams.get("t") || u.searchParams.get("start"));
+      var tall = /^\/shorts\//.test(path);
+      return {
+        provider: "youtube", label: "YouTube",
+        src: "https://www.youtube-nocookie.com/embed/" + id + (start ? "?start=" + start : ""),
+        thumb: "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg",
+        w: tall ? 270 : 480, h: tall ? 480 : 270
+      };
+    }
+    // Vimeo: vimeo.com/ID[/hash], /channels/x/ID, player.vimeo.com/video/ID?h=hash
+    if (host === "vimeo.com" || host === "player.vimeo.com") {
+      m = host === "player.vimeo.com"
+        ? /^\/video\/(\d+)\/?$/.exec(path)
+        : /^\/(?:[\w-]+\/)*?(\d{5,})(?:\/([0-9a-f]{6,}))?\/?$/.exec(path);
+      if (!m) return null;
+      // a showcase / album / event / channel / group page itself is not a video
+      if (host === "vimeo.com" && /\/(?:showcase|album|event|channels|groups)\/\d+\/?$/.test(path)) return null;
+      var hash = m[2] || u.searchParams.get("h") || "";
+      if (hash && !/^[0-9a-f]{6,}$/.test(hash)) hash = "";
+      return {
+        provider: "vimeo", label: "Vimeo",
+        src: "https://player.vimeo.com/video/" + m[1] + (hash ? "?h=" + hash : ""),
+        thumb: "", w: 480, h: 270
+      };
+    }
+    // Instagram: /p/CODE, /reel/CODE, /tv/CODE (optionally /user/ in front)
+    if (host === "instagram.com") {
+      m = /^\/(?:[\w.]+\/)?(p|reels?|tv)\/([A-Za-z0-9_-]{5,})/.exec(path);
+      if (!m) return null;
+      var kind = m[1] === "reels" ? "reel" : m[1];
+      return {
+        provider: "instagram", label: "Instagram",
+        src: "https://www.instagram.com/" + kind + "/" + m[2] + "/embed/",
+        thumb: "", w: 400, h: 560
+      };
+    }
+    // TikTok: /@user/video|photo/ID, /embed/v2/ID, /player/v1/ID -> the official
+    // inline player (fits any box; embed/v2 is a taller card that needs embed.js).
+    // Short vm.tiktok.com links can't be resolved here.
+    if (host === "tiktok.com") {
+      m = /^\/(?:@[\w.\-]+\/(?:video|photo)|embed(?:\/v2)?|player\/v1)\/(\d{8,})/.exec(path);
+      if (!m) return null;
+      return {
+        provider: "tiktok", label: "TikTok",
+        src: "https://www.tiktok.com/player/v1/" + m[1],
+        thumb: "", w: 325, h: 578
+      };
+    }
+    // Spotify: open.spotify.com/[embed/][intl-xx/]track|album|playlist|episode|show|artist/ID
+    if (host === "open.spotify.com") {
+      m = /^\/(?:embed\/)?(?:intl-[a-z\-]+\/)?(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]{22})/.exec(path);
+      if (!m) return null;
+      var small = m[1] === "track" || m[1] === "episode";
+      return {
+        provider: "spotify", label: "Spotify",
+        src: "https://open.spotify.com/embed/" + m[1] + "/" + m[2],
+        thumb: "", w: 400, h: small ? 152 : 352
+      };
+    }
+    return null;
+  }
+
+  // The player <iframe> for an embed() result — same attributes in the editor
+  // preview and on the public page. Plays inline; no new window/tab.
+  function embedFrame(info, title) {
+    var f = document.createElement("iframe");
+    f.src = info.src;
+    f.title = title || info.label;
+    f.loading = "lazy";
+    f.allowFullscreen = true;
+    f.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture; web-share");
+    // YouTube refuses to play (error 153) when the embedding page sends no referrer
+    f.referrerPolicy = "strict-origin-when-cross-origin";
+    f.className = "vn-embed-frame";
+    return f;
+  }
+
+  window.VNSafe = { html: html, url: url, cssUrl: cssUrl, embed: embed, embedFrame: embedFrame };
 })();
