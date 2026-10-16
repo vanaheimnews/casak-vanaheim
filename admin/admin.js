@@ -464,7 +464,7 @@
         articlesLoaded = true;
         renderArticleFilter();
         renderArticleCards();
-        if (CONTENT) renderPins();   // pin dropdown depends on the article list
+        homeArticlesChanged();       // homepage cards depend on the article list
       })
       .catch(function (err) {
         if (err.status === 401) { showLogin(); return; }
@@ -612,6 +612,11 @@
   var currentTab = "articles";
   function showTab(name) {
     if (!sections[name]) name = "articles";
+    // leaving the homepage editor would drop an image still uploading into it
+    if (DOC.key === "home" && name !== "home" && pendingUploads > 0) {
+      toast("Počkejte, až se dokončí nahrávání obrázku.");
+      return;
+    }
     currentTab = name;
     Object.keys(sections).forEach(function (key) {
       if (sections[key]) sections[key].hidden = key !== name;
@@ -647,7 +652,7 @@
       renderAbout();
       renderTeamTable();
       renderContactTable();
-      if (articlesLoaded) renderPins();
+      homeArticlesChanged();
       return c;
     }).catch(function (err) {
       if (err.status === 401) { showLogin(); return; }
@@ -1607,6 +1612,7 @@
     var kind = fileKind(file);
     if (!kind) { toast("Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF."); return; }
     if (DOC.root) edInsertIntoDoc(file, kind);
+    else if (DOC.key) toast("Nejdřív klikněte do textového bloku, kam má obrázek přijít.");   // homepage, no text in focus
     else edInsertIntoCanvas(file, kind);
   });
 
@@ -1966,8 +1972,7 @@
   function edToggleList(tag) {
     var content = edActiveContentEl();
     if (!content) return;
-    // the mandatory „Téma" heading on the homepage must stay a heading
-    var blocks = edSelectedBlocks().filter(function (b) { return !b.closest(".home-theme-block"); });
+    var blocks = edSelectedBlocks();   // („Téma" is an ordinary text block now)
     if (!blocks.length) return;
     var TAG = tag.toUpperCase();
 
@@ -2456,6 +2461,10 @@
     if (!file) return;
     var onCanvas = !EDITOR.overlay.hidden && EDITOR.canvas.contains(e.target);
     var onDoc = DOC.root && DOC.root.contains(e.target);
+    if (!onDoc && DOC.key === "home") {           // homepage: any text block accepts the drop
+      var hb = e.target.closest && e.target.closest(".hl-text-body");
+      if (hb) { DOC.root = hb; onDoc = true; }
+    }
     if (!onCanvas && !onDoc) return;
     var kind = fileKind(file);
     if (!kind) { toast("Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF."); return; }
@@ -2502,7 +2511,9 @@
   }
 
   var DOC_TARGETS = {
-    home:  { root: document.querySelector("#home-doc"),  slot: document.querySelector("#home-toolbar-slot") },
+    // home: a block layout — DOC.root follows the text block being edited
+    home:  { root: document.querySelector("#home-canvas-editor"), slot: document.querySelector("#home-toolbar-slot"),
+             frame: document.querySelector("#home-frame"), layout: true },
     about: { root: document.querySelector("#about-doc"), slot: document.querySelector("#about-toolbar-slot") }
   };
   var bar2El     = document.querySelector(".ed-bar2");
@@ -2521,27 +2532,6 @@
     bar2Parent.insertBefore(bar2El, bar2Anchor);
   }
 
-  /* ---------- mandatory „Téma" component (homepage) ---------- */
-  function docEnsureTheme(root) {
-    if (!root || root.querySelector("[data-theme-title]")) return;
-    var t = (CONTENT && CONTENT.home && CONTENT.home.theme) || {};
-    var block = document.createElement("div");
-    block.className = "home-theme-block";
-    block.innerHTML =
-      '<h2 data-theme-title>Téma <span data-theme-period>' +
-        escapeHtml(t.period || "měsíce") + "</span></h2>" +
-      "<p data-theme-desc>" + escapeHtml(t.desc || "dané téma písmem") + "</p>";
-    root.insertBefore(block, root.firstChild);
-  }
-  function docReadTheme(root) {
-    var p = root.querySelector("[data-theme-period]");
-    var d = root.querySelector("[data-theme-desc]");
-    return {
-      period: p ? (p.textContent || "").trim() : "měsíce",
-      desc:   d ? (d.textContent || "").trim() : "dané téma písmem"
-    };
-  }
-
   function docLoad(key) {
     var root = DOC_TARGETS[key] && DOC_TARGETS[key].root;
     if (!root || !CONTENT) return;
@@ -2555,7 +2545,6 @@
         .join("");
     }
     root.innerHTML = VNSafe.html(html);
-    if (key === "home") docEnsureTheme(root);
     if (!root.querySelector("div,p,h1,h2,h3,h4,h5,h6,ul,ol")) {
       var d = document.createElement("div");
       d.innerHTML = "<br>";
@@ -2567,25 +2556,30 @@
       .map(function (b) { return (b.textContent || "").trim(); })
       .filter(Boolean).join("\n\n");
   }
+  // Serialized copy without images/PDFs still uploading (their blob: URL is
+  // only valid in this tab); the finished upload lands on the next flush.
+  function docCleanCopy(node) {
+    var copy = node.cloneNode(true);
+    Array.prototype.forEach.call(copy.querySelectorAll(".is-uploading"), function (n) { n.remove(); });
+    return copy;
+  }
   // Write the live document back into CONTENT (no network call).
   function docFlush() {
-    if (!DOC.root || !DOC.key || !CONTENT) return;
+    if (!DOC.key || !CONTENT) return;
     var key = DOC.key;
     if (!CONTENT[key]) CONTENT[key] = {};
     if (key === "home") {
-      docEnsureTheme(DOC.root);                    // mandatory — never let it vanish
-      CONTENT.home.theme = docReadTheme(DOC.root);
-    }
-    // Serialize a copy without images/PDFs still uploading (their blob: URL
-    // is only valid in this tab); the finished upload lands on the next flush.
-    var copy = DOC.root.cloneNode(true);
-    Array.prototype.forEach.call(copy.querySelectorAll(".is-uploading"), function (n) { n.remove(); });
-    var hasContent = (copy.textContent || "").replace(/[\s​]/g, "") !== "" || !!copy.querySelector("img,a");
-    CONTENT[key].doc = hasContent ? copy.innerHTML : "";
-    if (key === "about") {
-      // keep the plain-text mirror the public page's existing renderer reads
-      CONTENT.about.text = docPlainText(copy);
-      if (aboutInput) aboutInput.value = CONTENT.about.text;
+      homeFlush();
+    } else {
+      if (!DOC.root) return;
+      var copy = docCleanCopy(DOC.root);
+      var hasContent = (copy.textContent || "").replace(/[\s​]/g, "") !== "" || !!copy.querySelector("img,a");
+      CONTENT[key].doc = hasContent ? copy.innerHTML : "";
+      if (key === "about") {
+        // keep the plain-text mirror the public page's existing renderer reads
+        CONTENT.about.text = docPlainText(copy);
+        if (aboutInput) aboutInput.value = CONTENT.about.text;
+      }
     }
     if (DOC.dirty) contentDirty = true;   // in CONTENT now, not yet on the server
     DOC.dirty = false;
@@ -2596,18 +2590,22 @@
     if (!target || !target.root || !CONTENT) { docUnmount(); return; }
     // Same document already mounted (e.g. its tab clicked again): keep the
     // live, possibly unsaved edits — reloading from CONTENT discarded them.
-    if (DOC.root && DOC.key === tab) { docDock(target.slot); return; }
-    if (DOC.root) docUnmount();
+    if (DOC.key === tab) { docDock(target.slot); return; }
+    if (DOC.key) docUnmount();
     DOC.key = tab;
-    DOC.root = target.root;
     DOC.dirty = false;
-    docLoad(tab);
+    if (target.layout) {
+      DOC.root = null;                 // set when a text block gets focus
+      homeLoad();
+    } else {
+      DOC.root = target.root;
+      docLoad(tab);
+    }
     docDock(target.slot);
-    edApplyBackground(target.root, (CONTENT[tab] && CONTENT[tab].background) || {});
-    if (tab === "home") renderPins();
+    edApplyBackground(target.frame || target.root, (CONTENT[tab] && CONTENT[tab].background) || {});
   }
   function docUnmount() {
-    if (DOC.root) docFlush();
+    if (DOC.key) docFlush();
     DOC.root = null;
     DOC.key = null;
     docUndock();
@@ -2632,88 +2630,525 @@
   }
   var saveHomeBtn = document.querySelector("#save-home-btn");
   if (saveHomeBtn) saveHomeBtn.addEventListener("click", function () {
+    HOME.touched = true;   // an explicit save adopts even an unedited default layout
     docSave("home", saveHomeBtn, "Domovská stránka byla uložena.");
   });
 
   /* ============================================================
-     Latest-articles feed — pinning
+     HOMEPAGE LAYOUT EDITOR (Google-Sites-like block grid)
+     The canvas is drawn by VNHome.render() — the same renderer and CSS the
+     public page uses — so what the admin sees is 1:1 what readers get.
+     Editor chrome (toolbars, outlines, drop lines) is absolutely positioned
+     on top and never changes the layout. Text blocks are contenteditable and
+     use the docked formatting toolbar: DOC.root = the text block in focus.
      ============================================================ */
-  var pinSelect = document.querySelector("#home-pin-select");
-  var pinBtn    = document.querySelector("#home-pin-btn");
-  var pinList   = document.querySelector("#home-pinned-list");
-  var pinEmpty  = document.querySelector("#home-pinned-empty");
-  var feedPrev  = document.querySelector("#home-feed-preview");
+  var HOME = {
+    layout: null,            // working copy of CONTENT.home.layout
+    host: DOC_TARGETS.home.root,
+    frameHost: document.querySelector("#home-frame-host"),
+    selectedId: null,
+    pickerFor: null,         // post block id the article picker is open for
+    drag: null
+  };
+  var hlPicker = {
+    box: document.querySelector("#hl-picker"),
+    search: document.querySelector("#hl-picker-search"),
+    list: document.querySelector("#hl-picker-list"),
+    clear: document.querySelector("#hl-picker-clear"),
+    cancel: document.querySelector("#hl-picker-cancel")
+  };
+  var HL_SIZE_LABEL = { 1: "¼", 2: "½", 3: "¾", 4: "1" };
+  var HL_POST_BY_WIDTH = { 1: "A", 2: "B", 3: "C", 4: "D" };
 
-  function homePinned() {
-    if (!CONTENT.home) CONTENT.home = {};
-    if (!Array.isArray(CONTENT.home.pinned)) CONTENT.home.pinned = [];
-    return CONTENT.home.pinned;
+  function homeLiveArticles() {
+    return ADMIN_ARTICLES.filter(function (a) { return !isScheduled(a); });
   }
-  function articleById(id) {
-    return ADMIN_ARTICLES.filter(function (a) { return a.id === id; })[0] || null;
-  }
-  // Feed order = pinned first (in pin order), then the rest newest-first.
-  function feedOrder(pinned) {
-    var top = pinned.map(articleById).filter(Boolean);
-    var rest = ADMIN_ARTICLES.filter(function (a) { return pinned.indexOf(a.id) === -1; })
-      .slice().sort(function (x, y) {
-        return articlePublishTime(y) - articlePublishTime(x);
-      });
-    return top.concat(rest);
-  }
-  function renderPins() {
-    if (!pinSelect || !CONTENT) return;
-    // Drop pins whose article no longer exists — but only once the article
-    // list has really loaded; before that every pin would look "dead" and the
-    // next content save would erase them all.
-    if (!articlesLoaded) {
-      pinList.innerHTML = "";
-      pinEmpty.hidden = true;
+  // Load the layout into the editor (the saved one, or the default the public
+  // page shows until a layout is saved — that one needs the article list).
+  function homeLoad() {
+    if (!CONTENT) return;
+    var saved = VNHome.normalize(CONTENT.home && CONTENT.home.layout);
+    // An untouched default must stay unsaved (it follows the newest articles);
+    // only an edited or already-saved layout is written back into CONTENT.
+    HOME.touched = !!saved;
+    if (saved) HOME.layout = saved;
+    else if (articlesLoaded) HOME.layout = VNHome.defaultLayout(CONTENT, homeLiveArticles());
+    else {
+      HOME.layout = null;
+      HOME.host.innerHTML = '<p class="empty-state">Načítám příspěvky…</p>';
       return;
     }
-    var alive = homePinned().filter(function (id) { return !!articleById(id); });
-    CONTENT.home.pinned = alive;
+    homeRender();
+  }
+  // Article list changed (loaded, saved, deleted) -> refresh the cards.
+  function homeArticlesChanged() {
+    if (DOC.key !== "home") return;
+    if (pendingUploads > 0) { setTimeout(homeArticlesChanged, 500); return; }   // see homeBusy
+    if (HOME.layout) { homeSyncText(); homeRender(); } else homeLoad();
+  }
+  // A redraw rebuilds every text block, which would orphan an image still
+  // uploading into one (its blob: node is not saved). Refuse layout changes
+  // until the upload is done.
+  function homeBusy() {
+    if (pendingUploads > 0) { toast("Počkejte, až se dokončí nahrávání obrázku."); return true; }
+    return false;
+  }
+  // The renderer's own nodes only (:scope paths) — pasted text may contain
+  // markup that looks like layout blocks.
+  function homeBlockNodes() {
+    return HOME.host.querySelectorAll(":scope > .hl-canvas > .hl-row > .hl-block");
+  }
+  function homeBlockNode(id) {
+    return Array.prototype.filter.call(homeBlockNodes(), function (n) { return n.dataset.blockId === id; })[0] || null;
+  }
+  function homeOwnBlock(target) {
+    var n = target.closest && target.closest(".hl-block");
+    while (n && !(n.parentNode && n.parentNode.classList.contains("hl-row") &&
+                  n.parentNode.parentNode && n.parentNode.parentNode.parentNode === HOME.host)) {
+      n = n.parentNode && n.parentNode.closest ? n.parentNode.closest(".hl-block") : null;
+    }
+    return n;
+  }
+  // Pull the live text of every text block back into the layout state.
+  function homeSyncText() {
+    if (!HOME.layout) return;
+    Array.prototype.forEach.call(homeBlockNodes(), function (node) {
+      if (!node.classList.contains("hl-text")) return;
+      var f = homeFind(node.dataset.blockId);
+      var body = node.querySelector(":scope > .hl-text-body");
+      if (!f || !body) return;
+      var copy = docCleanCopy(body);
+      // drop layout markers that came in with pasted page markup
+      Array.prototype.forEach.call(copy.querySelectorAll("[data-block-id],[data-row-id],[class*='hl-']"), function (n) {
+        n.removeAttribute("data-block-id");
+        n.removeAttribute("data-row-id");
+        n.removeAttribute("contenteditable");
+        if (n.className && typeof n.className === "string") {
+          var keep = n.className.split(/\s+/).filter(function (c) { return c && c.indexOf("hl-") !== 0; }).join(" ");
+          if (keep) n.className = keep; else n.removeAttribute("class");
+        }
+      });
+      f.block.html = copy.innerHTML;
+    });
+  }
+  // force: the explicit „Uložit stránku" on this tab (adopts even an unedited default)
+  function homeFlush(force) {
+    if (!HOME.layout) return;
+    if (DOC.dirty || force) HOME.touched = true;
+    if (!HOME.touched) return;
+    homeSyncText();
+    CONTENT.home.layout = VNHome.normalize(HOME.layout);
+  }
+  function homeFind(id) {
+    var rows = HOME.layout ? HOME.layout.rows : [];
+    for (var ri = 0; ri < rows.length; ri++) {
+      for (var bi = 0; bi < rows[ri].blocks.length; bi++) {
+        if (rows[ri].blocks[bi].id === id) return { row: rows[ri], ri: ri, bi: bi, block: rows[ri].blocks[bi] };
+      }
+    }
+    return null;
+  }
+  function homeNewRow(block) { return { id: VNHome.uid("r"), align: "start", blocks: [block] }; }
+  function homeCleanRows() {
+    HOME.layout.rows = HOME.layout.rows.filter(function (r) { return r.blocks.length; });
+  }
+  // A structural change: mark unsaved, redraw.
+  function homeChanged() {
+    homeCleanRows();
+    DOC.dirty = true;
+    homeRender();
+  }
 
-    var options = ADMIN_ARTICLES.filter(function (a) { return alive.indexOf(a.id) === -1; });
-    pinSelect.innerHTML = options.length
-      ? options.map(function (a) {
-          return '<option value="' + escapeHtml(a.id) + '">' + escapeHtml(a.title || "(bez názvu)") + "</option>";
-        }).join("")
-      : '<option value="">Žádné další příspěvky</option>';
-    if (pinBtn) pinBtn.disabled = options.length === 0;
+  function homeRender() {
+    if (!HOME.layout) return;
+    // the old text nodes are about to be replaced: stop formatting into them
+    DOC.root = null; ED.savedRange = null; ED.liveSpan = null;
+    VNHome.render(HOME.host, HOME.layout, ADMIN_ARTICLES, {
+      editing: true, decorate: homeDecorate, decorateRow: homeDecorateRow
+    });
+  }
+  function hlButton(label, title, act, arg, on) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.dataset.act = act;
+    if (arg != null) b.dataset.arg = arg;
+    if (on) b.classList.add("is-on");
+    return b;
+  }
+  function hlSep() { var s = document.createElement("span"); s.className = "hl-sep"; return s; }
+  // Per-block toolbar: drag, move, size, (article), delete.
+  function homeDecorate(node, b, row) {
+    if (b.id === HOME.selectedId) node.classList.add("is-selected");
+    var bar = document.createElement("div");
+    bar.className = "hl-chrome";
+    bar.appendChild(hlButton("⠿", "Přetáhnout blok", "drag"));
+    bar.appendChild(hlButton("←", "Posunout doleva", "left"));
+    bar.appendChild(hlButton("→", "Posunout doprava", "right"));
+    bar.appendChild(hlButton("↑", "Posunout o řádek výš", "up"));
+    bar.appendChild(hlButton("↓", "Posunout o řádek níž", "down"));
+    bar.appendChild(hlSep());
+    var w = VNHome.blockWidth(b);
+    [1, 2, 3, 4].forEach(function (n) {
+      var title = b.kind === "post"
+        ? "Velikost " + HL_POST_BY_WIDTH[n] + " (" + HL_SIZE_LABEL[n] + " řádku)"
+        : "Šířka " + HL_SIZE_LABEL[n] + " řádku";
+      bar.appendChild(hlButton(HL_SIZE_LABEL[n], title, "size", n, n === w));
+    });
+    bar.appendChild(hlSep());
+    if (b.kind === "post") bar.appendChild(hlButton("↻", b.articleId ? "Změnit příspěvek" : "Vybrat příspěvek", "pick"));
+    bar.appendChild(hlButton("✕", "Smazat blok", "delete"));
+    // row tools, shown here only on screens without a left margin for the row toolbar
+    var rt = document.createElement("span");
+    rt.className = "hl-rowtools";
+    rt.appendChild(hlSep());
+    rt.appendChild(hlButton("⇡", "Řádek výš", "row-up"));
+    rt.appendChild(hlButton("⇣", "Řádek níž", "row-down"));
+    rt.appendChild(hlButton("⇤", "Zarovnat řádek doleva", "align", "start", row.align === "start"));
+    rt.appendChild(hlButton("↔", "Zarovnat řádek na střed", "align", "center", row.align === "center"));
+    rt.appendChild(hlButton("⇥", "Zarovnat řádek doprava", "align", "end", row.align === "end"));
+    bar.appendChild(rt);
+    node.appendChild(bar);
+    // scheduled article: visible here, blank on the public page until it's out
+    var a = b.kind === "post" && b.articleId && ADMIN_ARTICLES.filter(function (x) { return x.id === b.articleId; })[0];
+    if (a && isScheduled(a)) {
+      var badge = document.createElement("span");
+      badge.className = "hl-badge";
+      badge.textContent = "Naplánováno — čtenáři ho zatím nevidí";
+      node.appendChild(badge);
+    }
+  }
+  // Per-row toolbar: move the row, align its blocks.
+  function homeDecorateRow(rowEl, row) {
+    var bar = document.createElement("div");
+    bar.className = "hl-row-chrome";
+    bar.dataset.rowId = row.id;
+    bar.appendChild(hlButton("⇡", "Řádek výš", "row-up"));
+    bar.appendChild(hlButton("⇣", "Řádek níž", "row-down"));
+    bar.appendChild(hlSep());
+    bar.appendChild(hlButton("⇤", "Zarovnat řádek doleva", "align", "start", row.align === "start"));
+    bar.appendChild(hlButton("↔", "Zarovnat řádek na střed", "align", "center", row.align === "center"));
+    bar.appendChild(hlButton("⇥", "Zarovnat řádek doprava", "align", "end", row.align === "end"));
+    rowEl.appendChild(bar);
+  }
+  function homeSelect(id) {
+    HOME.selectedId = id;
+    Array.prototype.forEach.call(homeBlockNodes(), function (n) {
+      n.classList.toggle("is-selected", n.dataset.blockId === id);
+    });
+  }
 
-    pinList.innerHTML = alive.map(function (id, i) {
-      var a = articleById(id);
-      return '<li data-id="' + escapeHtml(id) + '">' +
-               '<span class="pin-num">' + (i + 1) + ".</span>" +
-               "<strong>" + escapeHtml(a.title || "(bez názvu)") + "</strong>" +
-               '<button class="btn btn-ghost" type="button" data-action="unpin">Odepnout</button>' +
-             "</li>";
-    }).join("");
-    pinEmpty.hidden = alive.length > 0;
+  /* ---------- block / row actions ---------- */
+  function homeMoveVertical(f, dir) {
+    var rows = HOME.layout.rows;
+    if (f.row.blocks.length === 1) {               // alone in its row: move the whole row
+      var j = f.ri + dir;
+      if (j < 0 || j >= rows.length) return;
+      rows[f.ri] = rows[j]; rows[j] = f.row;
+      return;
+    }
+    var w = VNHome.blockWidth(f.block), target = rows[f.ri + dir];
+    f.row.blocks.splice(f.bi, 1);
+    if (target && VNHome.rowUsed(target) + w <= 4) {
+      if (dir < 0) target.blocks.push(f.block); else target.blocks.unshift(f.block);
+    } else {
+      rows.splice(dir < 0 ? f.ri : f.ri + 1, 0, homeNewRow(f.block));
+    }
+  }
+  function homeResize(f, width) {
+    width = Math.max(1, Math.min(4, width | 0));
+    if (f.block.kind === "post") f.block.size = HL_POST_BY_WIDTH[width];
+    else f.block.span = width;
+    if (VNHome.rowUsed(f.row) > 4) {               // doesn't fit any more: own row below
+      f.row.blocks.splice(f.bi, 1);
+      HOME.layout.rows.splice(f.ri + 1, 0, homeNewRow(f.block));
+      toast("Blok se do řádku nevešel — přesunut na nový řádek.");
+    }
+  }
+  function homeAction(id, act, arg) {
+    var f = homeFind(id);
+    if (!f) return;
+    if (act === "pick") { homeOpenPicker(id); return; }
+    if (homeBusy()) return;
+    homeSyncText();
+    var blocks = f.row.blocks, t;
+    if (act === "left" && f.bi > 0) { t = blocks[f.bi - 1]; blocks[f.bi - 1] = f.block; blocks[f.bi] = t; }
+    else if (act === "right" && f.bi < blocks.length - 1) { t = blocks[f.bi + 1]; blocks[f.bi + 1] = f.block; blocks[f.bi] = t; }
+    else if (act === "up") homeMoveVertical(f, -1);
+    else if (act === "down") homeMoveVertical(f, 1);
+    else if (act === "size") homeResize(f, +arg);
+    else if (act === "delete") { blocks.splice(f.bi, 1); if (HOME.selectedId === id) HOME.selectedId = null; }
+    else return;
+    homeChanged();
+  }
+  function homeRowAction(rowId, act, arg) {
+    if (homeBusy()) return;
+    var rows = HOME.layout.rows, i = -1;
+    rows.forEach(function (r, k) { if (r.id === rowId) i = k; });
+    if (i < 0) return;
+    homeSyncText();
+    var j = act === "row-up" ? i - 1 : act === "row-down" ? i + 1 : -1;
+    if (j >= 0 && j < rows.length) { var t = rows[i]; rows[i] = rows[j]; rows[j] = t; }
+    else if (act === "align") rows[i].align = arg;
+    else return;
+    homeChanged();
+  }
+  // Palette: a new block goes right after the selected one (same row if it
+  // fits, else a new row below it), otherwise at the end of the page.
+  function homeAdd(kind) {
+    if (homeBusy()) return;
+    if (!HOME.layout) return;
+    homeSyncText();
+    var b = kind === "text"
+      ? { id: VNHome.uid("b"), kind: "text", span: 4, html: "<p>Nový textový blok</p>" }
+      : { id: VNHome.uid("b"), kind: "post", size: kind, articleId: "" };
+    var w = VNHome.blockWidth(b), rows = HOME.layout.rows;
+    var sel = HOME.selectedId && homeFind(HOME.selectedId);
+    var last = rows[rows.length - 1];
+    if (sel && VNHome.rowUsed(sel.row) + w <= 4) sel.row.blocks.splice(sel.bi + 1, 0, b);
+    else if (sel) rows.splice(sel.ri + 1, 0, homeNewRow(b));
+    else if (last && VNHome.rowUsed(last) + w <= 4) last.blocks.push(b);
+    else rows.push(homeNewRow(b));
+    HOME.selectedId = b.id;
+    homeChanged();
+    var node = homeBlockNode(b.id);
+    if (!node) return;
+    node.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    var body = node.querySelector(".hl-text-body");
+    if (body) {                                    // ready to type over the placeholder
+      body.focus();
+      var r = document.createRange(); r.selectNodeContents(body);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    }
+  }
 
-    feedPrev.innerHTML = feedOrder(alive).slice(0, 12).map(function (a) {
-      var isPin = alive.indexOf(a.id) > -1;
-      return "<li" + (isPin ? ' class="is-pinned"' : "") + ">" + escapeHtml(a.title || "(bez názvu)") +
-             (isPin ? ' <span class="pin-badge">připnuto</span>' : "") + "</li>";
+  /* ---------- events on the canvas ---------- */
+  HOME.host.addEventListener("mousedown", function (e) {
+    // toolbar buttons must not steal focus from the text being edited
+    if (e.target.closest(".hl-chrome, .hl-row-chrome")) e.preventDefault();
+  });
+  // the toolbar a click belongs to must be the block's/row's OWN one
+  function homeOwnChrome(target, node, cls) {
+    var bar = target.closest && target.closest(cls);
+    return bar && node && bar.parentNode === node ? bar : null;
+  }
+  HOME.host.addEventListener("pointerdown", function (e) {
+    var node = homeOwnBlock(e.target);
+    var bar = homeOwnChrome(e.target, node, ".hl-chrome");
+    if (bar && e.target.closest('[data-act="drag"]')) { homeDragStart(e, node.dataset.blockId); return; }
+    if (node && !bar) {
+      homeSelect(node.dataset.blockId);
+      if (!e.target.closest(".hl-text-body")) DOC.root = null;   // not formatting text now
+    }
+  });
+  HOME.host.addEventListener("click", function (e) {
+    var node = homeOwnBlock(e.target);
+    var plus = e.target.closest(".hl-plus");
+    if (plus && node && plus.parentNode === node) { homeOpenPicker(node.dataset.blockId); return; }
+    var bar = homeOwnChrome(e.target, node, ".hl-chrome");
+    var btn = bar && e.target.closest("button");
+    if (btn && btn.dataset.act !== "drag") {
+      if (/^row-|^align$/.test(btn.dataset.act)) homeRowAction(node.parentNode.dataset.rowId, btn.dataset.act, btn.dataset.arg);
+      else homeAction(node.dataset.blockId, btn.dataset.act, btn.dataset.arg);
+      return;
+    }
+    var rbar = e.target.closest(".hl-row-chrome");
+    var rbtn = rbar && rbar.parentNode && rbar.parentNode.parentNode && rbar.parentNode.parentNode.parentNode === HOME.host
+      && e.target.closest("button");
+    if (rbtn) homeRowAction(rbar.dataset.rowId, rbtn.dataset.act, rbtn.dataset.arg);
+  });
+  // a text block in focus becomes the formatting target of the docked toolbar
+  HOME.host.addEventListener("focusin", function (e) {
+    var body = e.target.closest && e.target.closest(".hl-text-body");
+    if (!body || DOC.key !== "home") return;
+    if (DOC.root !== body) { edCommitLive(); DOC.root = body; ED.savedRange = null; }
+    var node = body.closest(".hl-block");
+    if (node) homeSelect(node.dataset.blockId);
+  });
+
+  /* ---------- drag & drop (pointer based, works with touch too) ---------- */
+  function homeDragStart(e, id) {
+    if (homeBusy()) return;
+    e.preventDefault();
+    homeSyncText();
+    var node = homeBlockNode(id);
+    if (!node) return;
+    var r = node.getBoundingClientRect();
+    var ghost = node.cloneNode(true);
+    ghost.classList.add("hl-ghost");
+    ghost.style.width = r.width + "px";
+    ghost.style.height = r.height + "px";
+    ghost.style.left = r.left + "px";
+    ghost.style.top = r.top + "px";
+    document.body.appendChild(ghost);
+    var line = document.createElement("div");
+    line.className = "hl-drop";
+    line.hidden = true;
+    HOME.frameHost.appendChild(line);
+    node.classList.add("is-dragging");
+    HOME.drag = { id: id, node: node, ghost: ghost, line: line, dx: e.clientX - r.left, dy: e.clientY - r.top,
+                  x0: e.clientX, y0: e.clientY, moved: false, target: null };
+    document.addEventListener("pointermove", homeDragMove);
+    document.addEventListener("pointerup", homeDragEnd);
+    document.addEventListener("pointercancel", homeDragCancel);
+    document.addEventListener("keydown", homeDragKey);
+  }
+  function homeDragMove(e) {
+    var d = HOME.drag;
+    if (!d) return;
+    if (!d.moved && Math.abs(e.clientX - d.x0) + Math.abs(e.clientY - d.y0) > 4) d.moved = true;
+    d.ghost.style.left = (e.clientX - d.dx) + "px";
+    d.ghost.style.top = (e.clientY - d.dy) + "px";
+    d.target = d.moved ? homeDropTarget(e.clientX, e.clientY) : null;
+    var host = HOME.frameHost.getBoundingClientRect(), L = d.line, t = d.target;
+    if (!t) { L.hidden = true; return; }
+    L.hidden = false;
+    if (t.type === "row") {            // vertical line between blocks of a row
+      L.style.left = (t.x - host.left - 2) + "px"; L.style.top = (t.top - host.top) + "px";
+      L.style.width = "4px"; L.style.height = Math.max(24, t.height) + "px";
+    } else {                           // horizontal line = a new row there
+      L.style.left = (t.left - host.left) + "px"; L.style.top = (t.y - host.top - 2) + "px";
+      L.style.width = t.width + "px"; L.style.height = "4px";
+    }
+  }
+  // Where would the block land? In a row (if it fits there) or as a new row.
+  function homeDropTarget(x, y) {
+    var f = homeFind(HOME.drag.id);
+    if (!f) return null;
+    var w = VNHome.blockWidth(f.block);
+    var rowEls = Array.prototype.slice.call(HOME.host.querySelectorAll(":scope > .hl-canvas > .hl-row"));
+    if (!rowEls.length) return null;
+    var canvas = HOME.host.querySelector(".hl-canvas").getBoundingClientRect();
+    var GAP = 24;
+    function newRowAt(i, yLine) { return { type: "new", index: i, y: yLine, left: canvas.left, width: canvas.width }; }
+    for (var i = 0; i < rowEls.length; i++) {
+      var rr = rowEls[i].getBoundingClientRect();
+      if (y < rr.top) return newRowAt(i, rr.top - GAP / 2);
+      if (y > rr.bottom) continue;
+      var row = HOME.layout.rows[i];
+      var fits = row === f.row || VNHome.rowUsed(row) + w <= 4;
+      var rel = (y - rr.top) / Math.max(1, rr.height);
+      if (!fits || rel < 0.15 || rel > 0.85) {
+        return rel < 0.5 ? newRowAt(i, rr.top - GAP / 2) : newRowAt(i + 1, rr.bottom + GAP / 2);
+      }
+      // position among the other blocks of the row; on phones a row wraps onto
+      // several lines, so only blocks on the pointer's visual line count by x
+      var others = Array.prototype.filter.call(rowEls[i].querySelectorAll(":scope > .hl-block"), function (n) {
+        return n.dataset.blockId !== HOME.drag.id;
+      });
+      var rects = others.map(function (n) { return n.getBoundingClientRect(); });
+      var lineTop = -Infinity;
+      rects.forEach(function (b) { if (b.top <= y && b.top > lineTop) lineTop = b.top; });
+      if (lineTop === -Infinity && rects.length) lineTop = rects[0].top;
+      var idx = 0, lineH = 0, onLine = [];
+      rects.forEach(function (b, k) {
+        var same = Math.abs(b.top - lineTop) < 1;
+        if (same) { lineH = Math.max(lineH, b.height); onLine.push(k); }
+        if (b.top < lineTop - 1 || (same && x > b.left + b.width / 2)) idx++;
+      });
+      var lx;
+      if (!rects.length) lx = rr.left;
+      else {
+        var before = onLine.filter(function (k) { return k < idx; });
+        lx = before.length ? rects[before[before.length - 1]].right + GAP / 2
+                           : rects[onLine.length ? onLine[0] : 0].left - GAP / 2;
+      }
+      return { type: "row", rowIndex: i, index: idx, x: lx,
+               top: rects.length ? lineTop : rr.top, height: lineH || rr.height };
+    }
+    var last = rowEls[rowEls.length - 1].getBoundingClientRect();
+    return newRowAt(rowEls.length, last.bottom + GAP / 2);
+  }
+  function homeDragCleanup() {
+    var d = HOME.drag;
+    document.removeEventListener("pointermove", homeDragMove);
+    document.removeEventListener("pointerup", homeDragEnd);
+    document.removeEventListener("pointercancel", homeDragCancel);
+    document.removeEventListener("keydown", homeDragKey);
+    if (!d) return;
+    d.ghost.remove(); d.line.remove();
+    d.node.classList.remove("is-dragging");
+    HOME.drag = null;
+  }
+  function homeDragCancel() { homeDragCleanup(); }
+  function homeDragKey(e) { if (e.key === "Escape") homeDragCleanup(); }
+  function homeDragEnd() {
+    var d = HOME.drag, t = d && d.target;
+    homeDragCleanup();
+    if (!t) return;
+    var f = homeFind(d.id);
+    if (!f) return;
+    var rows = HOME.layout.rows;
+    var targetRow = t.type === "row" ? rows[t.rowIndex] : null;
+    f.row.blocks.splice(f.bi, 1);                  // empty rows are cleaned after the insert
+    if (targetRow) targetRow.blocks.splice(Math.min(t.index, targetRow.blocks.length), 0, f.block);
+    else rows.splice(t.index, 0, homeNewRow(f.block));
+    HOME.selectedId = f.block.id;
+    homeChanged();
+  }
+
+  /* ---------- article picker for "+" ---------- */
+  function homeOpenPicker(blockId) {
+    HOME.pickerFor = blockId;
+    hlPicker.search.value = "";
+    homeRenderPicker();
+    hlPicker.box.hidden = false;
+    setTimeout(function () { hlPicker.search.focus(); }, 0);
+  }
+  function homeClosePicker() { hlPicker.box.hidden = true; HOME.pickerFor = null; }
+  function homeRenderPicker() {
+    var q = hlPicker.search.value.trim().toLowerCase();
+    var placed = {};
+    (HOME.layout ? HOME.layout.rows : []).forEach(function (r) {
+      r.blocks.forEach(function (b) { if (b.kind === "post" && b.articleId) placed[b.articleId] = true; });
+    });
+    var list = ADMIN_ARTICLES.slice()
+      .sort(function (x, y) { return articlePublishTime(y) - articlePublishTime(x); })
+      .filter(function (a) { return !q || String(a.title || "").toLowerCase().indexOf(q) > -1; });
+    if (!list.length) { hlPicker.list.innerHTML = '<li class="empty-state">Žádné příspěvky.</li>'; return; }
+    hlPicker.list.innerHTML = list.map(function (a) {
+      var img = VNHome.thumb(a);
+      var flags = (isScheduled(a) ? '<span class="hl-pick-flag">Naplánováno</span>' : "") +
+                  (placed[a.id] ? '<span class="hl-pick-flag" style="color:var(--muted)">už na stránce</span>' : "");
+      return '<li><button type="button" data-id="' + escapeHtml(a.id) + '">' +
+        '<span class="hl-pick-img"' + (img ? ' style="background-image:' + escapeHtml(VNSafe.cssUrl(img)) + '"' : "") + "></span>" +
+        "<span><strong>" + escapeHtml(a.title || "(bez názvu)") + "</strong>" +
+        "<small>" + escapeHtml(VNHome.formatDate(a.date)) + flags + "</small></span></button></li>";
     }).join("");
   }
-  if (pinBtn) pinBtn.addEventListener("click", function () {
-    var id = pinSelect.value;
-    if (!id || !CONTENT) return;
-    var pinned = homePinned();
-    if (pinned.indexOf(id) === -1) pinned.push(id);
-    renderPins();
-    docSave("home", pinBtn, "Článek byl připnut.");
+  function homeAssign(articleId) {
+    if (homeBusy()) return;
+    var f = HOME.pickerFor && homeFind(HOME.pickerFor);
+    homeClosePicker();
+    if (!f) return;
+    homeSyncText();
+    f.block.articleId = articleId;
+    HOME.selectedId = f.block.id;
+    homeChanged();
+  }
+  hlPicker.search.addEventListener("input", homeRenderPicker);
+  hlPicker.list.addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-id]");
+    if (b) homeAssign(b.dataset.id);
   });
-  if (pinList) pinList.addEventListener("click", function (e) {
-    var btn = e.target.closest('button[data-action="unpin"]');
-    if (!btn || !CONTENT) return;
-    CONTENT.home.pinned = homePinned().filter(function (p) {
-      return p !== btn.closest("li").dataset.id;
+  hlPicker.clear.addEventListener("click", function () { homeAssign(""); });
+  hlPicker.cancel.addEventListener("click", homeClosePicker);
+  hlPicker.box.addEventListener("click", function (e) { if (e.target === hlPicker.box) homeClosePicker(); });
+  hlPicker.box.addEventListener("keydown", function (e) { if (e.key === "Escape") homeClosePicker(); });
+
+  /* ---------- palette + desktop/mobile preview ---------- */
+  document.querySelector("#hl-palette").addEventListener("click", function (e) {
+    var add = e.target.closest("button[data-add]");
+    if (add) { homeAdd(add.dataset.add); return; }
+    var view = e.target.closest("button[data-view]");
+    if (!view) return;
+    var mobile = view.dataset.view === "mobile";
+    HOME.frameHost.classList.toggle("is-mobile", mobile);
+    Array.prototype.forEach.call(this.querySelectorAll("button[data-view]"), function (b) {
+      b.setAttribute("aria-pressed", String(b === view));
     });
-    renderPins();
-    docSave("home", null, "Článek byl odepnut.");
   });
 
   /* ============================================================
@@ -2791,6 +3226,8 @@
       target.style.backgroundImage = "";
       target.style.backgroundColor = bg.color || "";
     }
+    // the homepage frame gets the same padding as on the public page
+    target.classList.toggle("has-bg", !!(bg.image || bg.color));
   }
   // Which background is the toolbar currently editing?
   function edCurrentBg() {
@@ -2803,6 +3240,7 @@
     return ED.background;
   }
   function edBgTargetEl() {
+    if (DOC.key && DOC_TARGETS[DOC.key].frame) return DOC_TARGETS[DOC.key].frame;   // homepage frame
     return DOC.root ? DOC.root : EDITOR.canvas;
   }
   // The colour input fires continuously while dragging, so the (networked)

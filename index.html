@@ -67,47 +67,11 @@
   <main id="main" class="content">
 
     <!-- ===== A. HOME ===== -->
-    <section class="page is-active" id="page-home" aria-labelledby="home-title">
-      <!-- Thin editorial rule above the page header -->
-      <hr class="editorial-rule">
-      <header class="page-header">
-        <h1 id="home-title" class="page-title">Domovská stránka</h1>
-        <p class="page-lead">Nejnovější příspěvky našeho magazínu.</p>
-      </header>
-
-      <!-- Rich document authored in the admin homepage editor (incl. „Téma"). -->
-      <div class="page-doc" id="home-doc-view"></div>
-
-      <!-- Two-column layout: article feed (left) + sidebar (right) -->
-      <div class="home-layout">
-        <div class="home-main">
-          <p class="grid-eyebrow">Nejnovější příspěvky</p>
-          <div class="card-grid" id="home-grid">
-            <!-- Featured card + cards injected by script.js -->
-          </div>
-          <!-- Static pagination anchor — never shifts with image loading -->
-          <div class="pagination">
-            <button class="btn" type="button" id="older-btn">Starší články</button>
-          </div>
-        </div>
-
-        <aside class="home-sidebar" aria-label="Postranní panel">
-          <!-- Widget: O časopisu -->
-          <section class="widget">
-            <h2 class="widget-title">O časopisu</h2>
-            <div class="widget-photo" aria-hidden="true"></div>
-            <p>Vanaheim News je školní časopis Expediční Střední ScioŠkoly.
-               Píšeme o dění ve škole, kultuře a o všem, co nás baví.</p>
-          </section>
-
-          <!-- Widget: Rychlé štítky -->
-          <section class="widget">
-            <h2 class="widget-title">Rychlé štítky</h2>
-            <div class="quick-tags" id="quick-tags">
-              <!-- Badges injected by script.js (top categories) -->
-            </div>
-          </section>
-        </aside>
+    <section class="page is-active" id="page-home" aria-label="Domovská stránka">
+      <!-- The whole homepage is a block layout built in the admin editor
+           (text blocks + article blocks), rendered by home-layout.js. -->
+      <div class="home-frame" id="home-frame">
+        <div id="home-canvas"></div>
       </div>
     </section>
 
@@ -170,6 +134,7 @@
   </main>
 
   <script src="/sanitize.js"></script>
+  <script src="/home-layout.js"></script>
   <script src="./script.js"></script>
 </body>
 </html>

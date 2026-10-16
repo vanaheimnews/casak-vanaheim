@@ -19,8 +19,8 @@
   var CONTENT = null;            // about/team/contact, loaded from /api/content
   var selectedTags = new Set();
   var PAGES = ["home", "articles", "about", "contact"];
-  var HOME_PAGE_SIZE = 6;
-  var homeVisible = HOME_PAGE_SIZE;   // grows with „Starší články"
+  var articlesReady = false;     // articles came from cache or the API (or it failed)
+  var contentFailed = false;     // /api/content failed and nothing was cached
 
   /* Inline SVG icons for contact cards, keyed by type. */
   var CONTACT_ICONS = {
@@ -161,59 +161,9 @@
     );
   }
 
-  /* Featured card — full width, image left + title/meta/excerpt right. */
-  function buildFeaturedCard(article) {
-    var tagsHtml = (article.tags || []).map(function (t) {
-      return '<span class="card-tag">' + escapeHtml(t) + "</span>";
-    }).join("");
-    var authors = (article.authors || []).join(", ");
-    var kindLabel = article.kind === "comic" ? "Komiks" : "Článek";
-    var href = "./article.html?id=" + encodeURIComponent(article.id);
-    var imgSrc = VNSafe.url(article.image, { image: true });
-    var imgHtml = imgSrc
-      ? '<img src="' + escapeHtml(imgSrc) + '" alt="" loading="lazy" decoding="async">'
-      : "";
-    // Build a short excerpt from the body.
-    var excerpt = String(article.body || "").trim().replace(/\s+/g, " ");
-    if (excerpt.length > 220) excerpt = excerpt.slice(0, 220).replace(/\s+\S*$/, "") + "…";
-
-    return (
-      '<article class="card card--featured" data-id="' + escapeHtml(article.id) + '">' +
-        '<a class="card-media" href="' + href + '" aria-label="' + escapeHtml(article.title) + '">' +
-          imgHtml +
-        "</a>" +
-        '<div class="card-body">' +
-          '<p class="card-eyebrow">Doporučujeme</p>' +
-          '<h2 class="card-title"><a href="' + href + '">' + escapeHtml(article.title) + "</a></h2>" +
-          '<div class="card-meta">' +
-            '<time datetime="' + escapeHtml(article.date) + '">' + escapeHtml(formatDate(article.date)) + "</time>" +
-            (authors ? "<span>" + escapeHtml(authors) + "</span>" : "") +
-            '<span aria-label="Typ příspěvku">' + kindLabel + "</span>" +
-          "</div>" +
-          (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + "</p>" : "") +
-          '<div class="card-tags">' + tagsHtml + "</div>" +
-        "</div>" +
-      "</article>"
-    );
-  }
-
   /* ============================================================
      RENDERERS
      ============================================================ */
-  /* Pinned articles lock to the top of the feed, in pin order. */
-  function feedOrdered() {
-    var pinned = (CONTENT && CONTENT.home && Array.isArray(CONTENT.home.pinned))
-      ? CONTENT.home.pinned : [];
-    var byDate = ARTICLES.slice().sort(byDateDesc);
-    if (!pinned.length) return byDate;
-    var top = [];
-    pinned.forEach(function (id) {
-      var hit = byDate.filter(function (a) { return a.id === id; })[0];
-      if (hit) top.push(hit);
-    });
-    return top.concat(byDate.filter(function (a) { return pinned.indexOf(a.id) === -1; }));
-  }
-
   /* Page background: solid colour or cover image (admin-configured). */
   function applyPageBackground(section, bg) {
     if (!section || !bg) return;
@@ -225,50 +175,28 @@
     } else {
       section.style.backgroundImage = "";
     }
-    section.style.backgroundColor = /^#[0-9a-f]{3,8}$/i.test(bg.color || "") ? bg.color : "";
+    var color = /^#[0-9a-f]{3,8}$/i.test(bg.color || "") ? bg.color : "";
+    section.style.backgroundColor = color;
+    section.classList.toggle("has-bg", !!(img || color));
   }
 
-  /* Homepage rich document (incl. the „Téma" block) from the content store. */
-  function renderHomeDoc() {
-    var box = $("#home-doc-view");
-    if (!box || !CONTENT || !CONTENT.home) return;
-    box.innerHTML = VNSafe.html(CONTENT.home.doc);
-    applyPageBackground($("#page-home"), CONTENT.home.background);
-  }
-
+  /* Homepage = the block layout built in the admin editor (home-layout.js,
+     the same renderer the editor uses). Blocks whose article isn't
+     published (yet) stay as blank space. Sites without a saved layout get
+     VNHome.defaultLayout — exactly what the editor shows until it's saved. */
   function renderHome() {
-    var grid = $("#home-grid");
-    if (!grid) return;
-    var feed = feedOrdered();
-    var newest = feed.slice(0, homeVisible);
-    updateOlderBtn(feed.length);
-    if (newest.length === 0) {
-      grid.innerHTML = '<p class="empty-state" style="grid-column:1/-1;">' +
-        (articlesFailed ? "Články se nepodařilo načíst. Zkuste stránku obnovit." : "Zatím žádné články.") +
-        "</p>";
-      return;
+    var host = $("#home-canvas");
+    // wait for the layout AND the articles, so blocks don't flash empty;
+    // if the content API failed (and nothing is cached) use the default layout
+    if (!host || !articlesReady || (!CONTENT && !contentFailed)) return;
+    var home = (CONTENT && CONTENT.home) || {};
+    var layout = VNHome.normalize(home.layout) || VNHome.defaultLayout(CONTENT || {}, ARTICLES);
+    if (articlesFailed) {
+      layout.rows.unshift({ id: "r-err", align: "start", blocks: [{ id: "b-err", kind: "text", span: 4,
+        html: '<p class="empty-state">Články se nepodařilo načíst. Zkuste stránku obnovit.</p>' }] });
     }
-    // First (newest) article is the featured card; the rest are normal cards.
-    grid.innerHTML = buildFeaturedCard(newest[0]) + newest.slice(1).map(buildCard).join("");
-    renderQuickTags();
-  }
-  // „Starší články" reveals the next HOME_PAGE_SIZE articles; disabled at the end.
-  function updateOlderBtn(total) {
-    var btn = $("#older-btn");
-    if (!btn) return;
-    var more = total > homeVisible;
-    btn.disabled = !more;
-    btn.textContent = more ? "Starší články" : "Žádné starší články";
-  }
-
-  /* Quick-tags widget — top categories as badges. */
-  function renderQuickTags() {
-    var box = $("#quick-tags");
-    if (!box) return;
-    var tags = getAllTags().slice(0, 5);
-    box.innerHTML = tags.map(function (t) {
-      return '<span class="badge">' + escapeHtml(t) + "</span>";
-    }).join("");
+    VNHome.render(host, layout, ARTICLES);
+    applyPageBackground($("#home-frame"), home.background);
   }
 
   function getAllTags() {
@@ -456,14 +384,16 @@
       .then(function (c) {
         CONTENT = c;
         writeCache(CONTENT_CACHE_KEY, c);
-        renderHomeDoc();
         renderAbout();
         renderTeam();
         renderContacts();
-        if (ARTICLES.length) renderHome();   // pin order depends on content
+        renderHome();
       })
       .catch(function () {
-        // Offline / API down — keep whatever was rendered from cache.
+        // Offline / API down — keep whatever was rendered from cache; with no
+        // cache the homepage falls back to the default layout.
+        contentFailed = !CONTENT;
+        renderHome();
       });
   }
 
@@ -473,14 +403,6 @@
   function boot() {
     var yearEl = $("#year");
     if (yearEl) yearEl.textContent = new Date().getFullYear();
-
-    var olderBtn = $("#older-btn");
-    if (olderBtn) {
-      olderBtn.addEventListener("click", function () {
-        homeVisible += HOME_PAGE_SIZE;
-        renderHome();
-      });
-    }
 
     wireNav();
     wireDrawer();
@@ -494,6 +416,7 @@
     var cachedArticles = Array.isArray(rawCached) ? rawCached.filter(function (a) { return a && a.id !== "sample-1"; }) : [];
     if (cachedArticles.length) {
       ARTICLES = cachedArticles;
+      articlesReady = true;
       renderHome();
       renderTagFilter();
       renderArticles();
@@ -501,11 +424,10 @@
     var cachedContent = readCache(CONTENT_CACHE_KEY);
     if (cachedContent) {
       CONTENT = cachedContent;
-      renderHomeDoc();
       renderAbout();
       renderTeam();
       renderContacts();
-      if (ARTICLES.length) renderHome();
+      renderHome();
     }
 
     // 2) Reveal the initial tab (already populated from cache when available).
@@ -514,6 +436,7 @@
 
     // 3) Refresh from the server and re-render (updates cache too).
     loadArticles().then(function () {
+      articlesReady = true;
       renderHome();
       renderTagFilter();
       renderArticles();

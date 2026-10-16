@@ -266,24 +266,27 @@
                   style="background:var(--brand);border-color:var(--brand);color:#fff;">Uložit stránku</button>
         </div>
 
-        <!-- Document canvas: type / Enter / select / format inline, no "add text" step -->
-        <div class="doc-canvas" id="home-doc" contenteditable="true" spellcheck="false"
-             role="textbox" aria-multiline="true" aria-label="Obsah domovské stránky"></div>
+        <!-- Block palette (Google-Sites-like). A row = 4 width units. -->
+        <div class="hl-palette" id="hl-palette">
+          <span class="hl-palette-label">Přidat blok</span>
+          <button type="button" data-add="text">Text</button>
+          <button type="button" data-add="A" title="Čtvrtina řádku — obrázek nahoře"><span class="hl-shape"><i class="on"></i><i></i><i></i><i></i></span>Čtvrtina</button>
+          <button type="button" data-add="B" title="Polovina řádku — obrázek vlevo"><span class="hl-shape"><i class="on"></i><i class="on"></i><i></i><i></i></span>Polovina</button>
+          <button type="button" data-add="C" title="Tři čtvrtiny — obrázek vlevo + úryvek"><span class="hl-shape"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>Tři čtvrtiny</button>
+          <button type="button" data-add="D" title="Celá šířka — velký obrázek + úryvek"><span class="hl-shape"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>Celá šířka</button>
+          <span class="hl-palette-spacer"></span>
+          <span class="hl-palette-label">Náhled</span>
+          <button type="button" data-view="desktop" aria-pressed="true">Počítač</button>
+          <button type="button" data-view="mobile" aria-pressed="false">Mobil</button>
+        </div>
+        <p class="hl-help">Bloky přesouvejte za úchyt ⠿ (nebo šipkami v liště bloku). Do textu klikněte a pište; formát nastavíte panelem nahoře. Prázdný blok příspěvku (+) se čtenářům zobrazí jako volné místo.</p>
 
-        <!-- Pinned articles control -->
-        <section class="panel">
-          <h2>Nejnovější příspěvky — připnutí</h2>
-          <p class="help">Připnuté příspěvky se zamknou na úplném začátku výpisu, dokud je neodepnete.</p>
-          <div class="pin-controls">
-            <select id="home-pin-select" aria-label="Vyberte příspěvek k připnutí"></select>
-            <button class="btn" type="button" id="home-pin-btn">Připnout článek</button>
+        <!-- Canvas: rendered by home-layout.js with the same CSS as the public page -->
+        <div class="home-frame-host" id="home-frame-host">
+          <div class="home-frame" id="home-frame">
+            <div id="home-canvas-editor"></div>
           </div>
-          <ul class="pin-list" id="home-pinned-list"></ul>
-          <p class="empty-state" id="home-pinned-empty">Zatím není připnutý žádný příspěvek.</p>
-
-          <h3 class="subhead">Náhled pořadí výpisu</h3>
-          <ol class="feed-preview" id="home-feed-preview"></ol>
-        </section>
+        </div>
       </section>
 
       <!-- ====================================================
@@ -597,6 +600,19 @@
   </div>
 
   <!-- Confirm modal (shared by Bar 1 actions) -->
+  <!-- Homepage editor: pick a published article for a post block (+) -->
+  <div class="ed-confirm" id="hl-picker" hidden>
+    <div class="ed-confirm-box hl-picker-box" role="dialog" aria-modal="true" aria-labelledby="hl-picker-title">
+      <h3 id="hl-picker-title">Vybrat příspěvek do bloku</h3>
+      <input type="search" id="hl-picker-search" placeholder="Hledat podle názvu…" aria-label="Hledat příspěvek" autocomplete="off">
+      <ul class="hl-picker-list" id="hl-picker-list"></ul>
+      <div class="ed-confirm-actions">
+        <button class="btn btn-ghost" type="button" id="hl-picker-clear">Vyprázdnit blok</button>
+        <button class="ed-confirm-cancel" type="button" id="hl-picker-cancel">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
   <!-- "Vložit video / příspěvek" dialog: paste a link, see what it is, insert -->
   <div class="ed-confirm" id="ed-embed-dialog" hidden>
     <form class="ed-confirm-box ed-embed-box" id="ed-embed-form" autocomplete="off">
@@ -623,6 +639,7 @@
   </div>
 
   <script src="/sanitize.js"></script>
+  <script src="/home-layout.js"></script>
   <script src="/admin/admin.js"></script>
 </body>
 </html>

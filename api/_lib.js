@@ -300,6 +300,40 @@ export function shapeBackground(b) {
     image: String(b.image || "").trim()
   };
 }
+/* Homepage block layout (see home-layout.js; same rules as VNHome.normalize):
+ * rows of max 4 width units; text {span 1-4, html} or post {size A-D, articleId}.
+ * null = no layout saved yet (the site then shows VNHome.defaultLayout). */
+const POST_SIZES = { A: 1, B: 2, C: 3, D: 4 };
+const ROW_ALIGNS = ["start", "center", "end"];
+function shapeLayout(l) {
+  if (!l || !Array.isArray(l.rows)) return null;
+  const str = (v, max) => String(v == null ? "" : v).slice(0, max);
+  const rows = [];
+  for (const r of l.rows.slice(0, 200)) {
+    if (!r || !Array.isArray(r.blocks)) continue;
+    const blocks = [];
+    let used = 0;
+    for (const b of r.blocks.slice(0, 4)) {
+      if (!b) continue;
+      let blk, w;
+      if (b.kind === "post") {
+        const size = POST_SIZES[b.size] ? b.size : "A";
+        blk = { id: str(b.id, 64) || uid(), kind: "post", size, articleId: str(b.articleId, 100) };
+        w = POST_SIZES[size];
+      } else if (b.kind === "text") {
+        const span = Math.max(1, Math.min(4, parseInt(b.span, 10) || 4));
+        blk = { id: str(b.id, 64) || uid(), kind: "text", span, html: String(b.html == null ? "" : b.html) };   // no cut: the request size limit applies
+        w = span;
+      } else continue;
+      if (used + w > 4) continue;           // a row never exceeds 4 units
+      used += w;
+      blocks.push(blk);
+    }
+    if (blocks.length) rows.push({ id: str(r.id, 64) || uid(), align: ROW_ALIGNS.includes(r.align) ? r.align : "start", blocks });
+  }
+  return { rows };
+}
+
 /* Normalise an arbitrary object into the full content shape. */
 export function shapeContent(d) {
   d = d || {};
@@ -320,7 +354,9 @@ export function shapeContent(d) {
       pinned: Array.isArray(home.pinned)
                 ? home.pinned.map((id) => String(id).trim()).filter(Boolean)
                 : DH.pinned,
-      background: shapeBackground(home.background)
+      background: shapeBackground(home.background),
+      // Block layout from the homepage editor (null until first saved)
+      layout: shapeLayout(home.layout)
     },
     about: {
       text: typeof about.text === "string" ? about.text : DEFAULT_CONTENT.about.text,
