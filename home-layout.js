@@ -4,20 +4,20 @@
  * the same data and the same CSS (style.css "HOMEPAGE LAYOUT GRID"), so the
  * editor shows the page 1:1 as readers see it.
  *
- * Data: content.home.layout = { rows: [ { id, align, blocks: [ ... ] } ] }
- *   text block: { id, kind: "text", span: 1..4, html }
- *   post block: { id, kind: "post", size: "A"|"B"|"C"|"D", articleId }
- * One row = 4 width units. A=1x1, B=2x1, C=3x1.5, D=4x2 (height in units;
- * a unit is a bit taller than wide). Text blocks are span units wide, auto
- * height. An empty post block (or one whose article isn't published) is
- * blank space for readers and a "+" placeholder in the editor.
+ * Data: content.home.layout = { rows: [ { id, blocks: [ ... ] } ] }
+ *   text block: { id, kind: "text", col: 0..3, span: 1..4, html }
+ *   post block: { id, kind: "post", col: 0..3, size: "A"|"B"|"C"|"D", articleId }
+ * An invisible grid 4 boxes wide; each block starts at grid column `col`.
+ * A=1x1, B=2x1, C=3x1, D=4x2 boxes (a box is a bit taller than wide). Text
+ * blocks are span boxes wide, auto height. Free boxes stay blank. An empty
+ * post block (or one whose article isn't published) is blank space for
+ * readers and a "+" placeholder in the editor.
  * Requires sanitize.js (VNSafe) to be loaded first.
  * ============================================================ */
 (function () {
   "use strict";
 
   var POST_SIZES = { A: 1, B: 2, C: 3, D: 4 };
-  var ALIGNS = { start: 1, center: 1, end: 1 };
   var MONTHS = ["ledna", "února", "března", "dubna", "května", "června",
                 "července", "srpna", "září", "října", "listopadu", "prosince"];
 
@@ -30,15 +30,41 @@
   function rowUsed(row, exceptId) {
     return row.blocks.reduce(function (sum, b) { return b.id === exceptId ? sum : sum + blockWidth(b); }, 0);
   }
+  // Grid columns (0-3) of a row taken by blocks other than exceptId.
+  function rowCells(row, exceptId) {
+    var cells = [false, false, false, false];
+    row.blocks.forEach(function (b) {
+      if (b.id === exceptId) return;
+      for (var c = b.col; c < b.col + blockWidth(b); c++) cells[c] = true;
+    });
+    return cells;
+  }
+  function spanFree(cells, col, w) {
+    if (col < 0 || col + w > 4) return false;
+    for (var c = col; c < col + w; c++) if (cells[c]) return false;
+    return true;
+  }
+  // The free start column nearest to `want` for a block of width w (or -1).
+  function nearestFreeCol(row, w, want, exceptId) {
+    var cells = rowCells(row, exceptId), best = -1;
+    for (var c = 0; c + w <= 4; c++) {
+      if (spanFree(cells, c, w) && (best < 0 || Math.abs(c - want) < Math.abs(best - want))) best = c;
+    }
+    return best;
+  }
 
-  /* Same rules as shapeLayout() in api/_lib.js: max 4 units per row, known
-     kinds/sizes only. Returns a fresh, safe copy (or null for no layout). */
+  /* Same rules as shapeLayout() in api/_lib.js. Every block sits at grid
+     column `col` (0-3) of its row; blocks never overlap and never pass the
+     4th column. Layouts saved before columns existed (blocks without col,
+     row.align) are packed in order with their old alignment. A block that
+     doesn't fit moves to a new row right below. Returns a fresh, safe copy
+     (or null for no layout). */
   function normalize(layout) {
     if (!layout || !Array.isArray(layout.rows)) return null;
     var rows = [];
     layout.rows.slice(0, 200).forEach(function (r) {
       if (!r || !Array.isArray(r.blocks)) return;
-      var blocks = [], used = 0;
+      var list = [];
       r.blocks.slice(0, 4).forEach(function (b) {
         if (!b) return;
         var blk;
@@ -49,12 +75,26 @@
           var span = Math.max(1, Math.min(4, parseInt(b.span, 10) || 4));
           blk = { id: String(b.id || uid("b")), kind: "text", span: span, html: String(b.html || "") };
         } else return;
-        var w = blockWidth(blk);
-        if (used + w > 4) return;
-        used += w;
-        blocks.push(blk);
+        var col = parseInt(b.col, 10);
+        blk.col = col >= 0 && col <= 3 ? col : null;
+        list.push(blk);
       });
-      if (blocks.length) rows.push({ id: String(r.id || uid("r")), align: ALIGNS[r.align] ? r.align : "start", blocks: blocks });
+      if (list.every(function (b) { return b.col === null; })) {          // old format
+        var used = list.reduce(function (s, b) { return s + blockWidth(b); }, 0);
+        var start = r.align === "center" ? Math.floor(Math.max(0, 4 - used) / 2) : r.align === "end" ? Math.max(0, 4 - used) : 0;
+        list.forEach(function (b) { b.col = start; start += blockWidth(b); });
+      }
+      var row = { id: String(r.id || uid("r")), blocks: [] }, overflow = [];
+      list.forEach(function (b) {
+        var w = blockWidth(b), cells = rowCells(row);
+        if (b.col === null || !spanFree(cells, b.col, w)) b.col = nearestFreeCol(row, w, b.col || 0);
+        if (b.col < 0) { b.col = 0; overflow.push(b); } else row.blocks.push(b);
+      });
+      if (row.blocks.length) {
+        row.blocks.sort(function (x, y) { return x.col - y.col; });   // reading order = left to right
+        rows.push(row);
+      }
+      overflow.forEach(function (b) { rows.push({ id: uid("r"), blocks: [b] }); });
     });
     return { rows: rows };
   }
@@ -66,12 +106,12 @@
   function defaultLayout(content, liveArticles) {
     var home = (content && content.home) || {};
     var rows = [{
-      id: uid("r"), align: "start",
-      blocks: [{ id: uid("b"), kind: "text", span: 4,
+      id: uid("r"),
+      blocks: [{ id: uid("b"), kind: "text", span: 4, col: 0,
                  html: "<h1>Domovská stránka</h1><p style=\"color: #5b6770;\">Nejnovější příspěvky našeho magazínu.</p>" }]
     }];
     if (home.doc && docHasText(home.doc)) {
-      rows.push({ id: uid("r"), align: "start", blocks: [{ id: uid("b"), kind: "text", span: 4, html: home.doc }] });
+      rows.push({ id: uid("r"), blocks: [{ id: uid("b"), kind: "text", span: 4, col: 0, html: home.doc }] });
     }
     var pinned = Array.isArray(home.pinned) ? home.pinned : [];
     var list = (liveArticles || []).slice().sort(function (a, b) {
@@ -82,12 +122,12 @@
       .concat(list.filter(function (a) { return pinned.indexOf(a.id) === -1; }))
       .slice(0, 9);
     if (ordered.length) {
-      rows.push({ id: uid("r"), align: "start",
-                  blocks: [{ id: uid("b"), kind: "post", size: "D", articleId: ordered[0].id }] });
+      rows.push({ id: uid("r"),
+                  blocks: [{ id: uid("b"), kind: "post", size: "D", col: 0, articleId: ordered[0].id }] });
       for (var i = 1; i < ordered.length; i += 4) {
-        rows.push({ id: uid("r"), align: "start",
-                    blocks: ordered.slice(i, i + 4).map(function (a) {
-                      return { id: uid("b"), kind: "post", size: "A", articleId: a.id };
+        rows.push({ id: uid("r"),
+                    blocks: ordered.slice(i, i + 4).map(function (a, k) {
+                      return { id: uid("b"), kind: "post", size: "A", col: k, articleId: a.id };
                     }) });
       }
     }
@@ -176,12 +216,14 @@
     (articles || []).forEach(function (a) { byId[a.id] = a; });
     var canvas = el("div", "hl-canvas" + (opts.editing ? " is-editing" : ""));
     ((layout && layout.rows) || []).forEach(function (row) {
-      var rowEl = el("div", "hl-row hl-row--" + row.align);
+      var rowEl = el("div", "hl-row");
       rowEl.dataset.rowId = row.id;
       row.blocks.forEach(function (b) {
         var node = el("div", "hl-block");
         node.dataset.blockId = b.id;
         node.style.setProperty("--span", blockWidth(b));
+        var col = b.col >= 0 && b.col <= 3 ? b.col : 0;
+        node.style.gridColumn = (col + 1) + " / span " + blockWidth(b);   // its grid boxes
         if (b.kind === "text") {
           node.classList.add("hl-text");
           var bodyEl = el("div", "hl-text-body");
@@ -225,6 +267,9 @@
     render: render,
     blockWidth: blockWidth,
     rowUsed: rowUsed,
+    rowCells: rowCells,
+    spanFree: spanFree,
+    nearestFreeCol: nearestFreeCol,
     uid: uid,
     thumb: thumb,
     formatDate: formatDate

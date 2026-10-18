@@ -301,35 +301,54 @@ export function shapeBackground(b) {
   };
 }
 /* Homepage block layout (see home-layout.js; same rules as VNHome.normalize):
- * rows of max 4 width units; text {span 1-4, html} or post {size A-D, articleId}.
+ * a grid 4 boxes wide; every block starts at grid column col (0-3), blocks
+ * never overlap or pass column 4; text {span 1-4, html} or post {size A-D,
+ * articleId}. Old layouts without col (row.align) are packed in order.
  * null = no layout saved yet (the site then shows VNHome.defaultLayout). */
 const POST_SIZES = { A: 1, B: 2, C: 3, D: 4 };
-const ROW_ALIGNS = ["start", "center", "end"];
 function shapeLayout(l) {
   if (!l || !Array.isArray(l.rows)) return null;
   const str = (v, max) => String(v == null ? "" : v).slice(0, max);
+  const width = (b) => (b.kind === "post" ? POST_SIZES[b.size] : b.span);
   const rows = [];
   for (const r of l.rows.slice(0, 200)) {
     if (!r || !Array.isArray(r.blocks)) continue;
-    const blocks = [];
-    let used = 0;
+    const list = [];
     for (const b of r.blocks.slice(0, 4)) {
       if (!b) continue;
-      let blk, w;
+      let blk;
       if (b.kind === "post") {
         const size = POST_SIZES[b.size] ? b.size : "A";
         blk = { id: str(b.id, 64) || uid(), kind: "post", size, articleId: str(b.articleId, 100) };
-        w = POST_SIZES[size];
       } else if (b.kind === "text") {
         const span = Math.max(1, Math.min(4, parseInt(b.span, 10) || 4));
         blk = { id: str(b.id, 64) || uid(), kind: "text", span, html: String(b.html == null ? "" : b.html) };   // no cut: the request size limit applies
-        w = span;
       } else continue;
-      if (used + w > 4) continue;           // a row never exceeds 4 units
-      used += w;
-      blocks.push(blk);
+      const col = parseInt(b.col, 10);
+      blk.col = col >= 0 && col <= 3 ? col : null;
+      list.push(blk);
     }
-    if (blocks.length) rows.push({ id: str(r.id, 64) || uid(), align: ROW_ALIGNS.includes(r.align) ? r.align : "start", blocks });
+    if (list.every((b) => b.col === null)) {             // old format: pack with its alignment
+      const used = list.reduce((s, b) => s + width(b), 0);
+      let start = r.align === "center" ? Math.floor(Math.max(0, 4 - used) / 2) : r.align === "end" ? Math.max(0, 4 - used) : 0;
+      for (const b of list) { b.col = start; start += width(b); }
+    }
+    const cells = [false, false, false, false];
+    const free = (c, w) => c >= 0 && c + w <= 4 && cells.slice(c, c + w).every((x) => !x);
+    const blocks = [], overflow = [];
+    for (const b of list) {
+      const w = width(b);
+      if (b.col === null || !free(b.col, w)) {          // nearest free columns, else a new row
+        let best = -1;
+        for (let c = 0; c + w <= 4; c++) if (free(c, w) && (best < 0 || Math.abs(c - (b.col || 0)) < Math.abs(best - (b.col || 0)))) best = c;
+        b.col = best;
+      }
+      if (b.col < 0) { b.col = 0; overflow.push(b); continue; }
+      for (let c = b.col; c < b.col + w; c++) cells[c] = true;
+      blocks.push(b);
+    }
+    if (blocks.length) rows.push({ id: str(r.id, 64) || uid(), blocks: blocks.sort((x, y) => x.col - y.col) });
+    for (const b of overflow) rows.push({ id: uid(), blocks: [b] });
   }
   return { rows };
 }

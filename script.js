@@ -192,7 +192,7 @@
     var home = (CONTENT && CONTENT.home) || {};
     var layout = VNHome.normalize(home.layout) || VNHome.defaultLayout(CONTENT || {}, ARTICLES);
     if (articlesFailed) {
-      layout.rows.unshift({ id: "r-err", align: "start", blocks: [{ id: "b-err", kind: "text", span: 4,
+      layout.rows.unshift({ id: "r-err", blocks: [{ id: "b-err", kind: "text", span: 4, col: 0,
         html: '<p class="empty-state">Články se nepodařilo načíst. Zkuste stránku obnovit.</p>' }] });
     }
     VNHome.render(host, layout, ARTICLES);

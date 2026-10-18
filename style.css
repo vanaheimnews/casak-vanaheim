@@ -1569,8 +1569,9 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 /* ============================================================
    HOMEPAGE LAYOUT GRID — shared by index.html and the admin editor
    (home-layout.js renders both), so the editor is 1:1 with the site.
-   A row is 4 width units; post blocks A=1x1, B=2x1, C=3x1.5, D=4x2 units,
-   one height unit = 1.25 x width unit (a bit taller than wide).
+   An invisible grid 4 boxes wide (24px gaps); each block is placed on its
+   boxes (grid-column set by home-layout.js). A=1x1, B=2x1, C=3x1, D=4x2
+   boxes; one box is 1.25x taller than wide. Free boxes stay blank.
    ============================================================ */
 .home-frame { display: block; }
 .home-frame.has-bg { padding: 18px; border-radius: 12px; background-size: cover; background-position: center; }
@@ -1578,21 +1579,18 @@ body.visual-editor-active .ed-bar2 { display: flex; }
   container-type: inline-size;     /* units below are fractions of the canvas width */
   display: flex; flex-direction: column; gap: 24px;
 }
-.hl-row { display: flex; gap: 24px; align-items: flex-start; }
-.hl-row--center { justify-content: center; }
-.hl-row--end { justify-content: flex-end; }
+.hl-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 24px; align-items: start; }
 .hl-block {
-  --hl-col: calc((100cqw - 72px) / 4);          /* one width unit (3 gaps of 24px) */
-  --hl-unit: calc(var(--hl-col) * 1.25);        /* one height unit */
-  position: relative; box-sizing: border-box; flex: 0 0 auto; min-width: 0;
-  width: calc(var(--span) * var(--hl-col) + (var(--span) - 1) * 24px);
+  --hl-col: calc((100cqw - 72px) / 4);          /* one box width (3 gaps of 24px) */
+  --hl-unit: calc(var(--hl-col) * 1.25);        /* one box height */
+  position: relative; box-sizing: border-box; min-width: 0;
 }
 /* Equal sizes get exactly equal empty margin around the card. */
 .hl-post { padding: var(--hl-pad); }
 .hl-post--A { --hl-pad: 8px;  height: var(--hl-unit); }
 .hl-post--B { --hl-pad: 8px;  height: var(--hl-unit); }
-.hl-post--C { --hl-pad: 10px; height: calc(var(--hl-unit) * 1.5); }
-.hl-post--D { --hl-pad: 12px; height: calc(var(--hl-unit) * 2); }
+.hl-post--C { --hl-pad: 10px; height: var(--hl-unit); }
+.hl-post--D { --hl-pad: 12px; height: calc(var(--hl-unit) * 2 + 24px); }   /* 2 boxes + the gap between them */
 
 .hl-card {
   display: flex; box-sizing: border-box; height: 100%; overflow: hidden;
@@ -1617,7 +1615,7 @@ a.hl-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; 
 .hl-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; min-height: 0; overflow: hidden; color: var(--muted); font-size: 0.8rem; }
 /* Excerpt fills whatever height is left, fading out at the bottom. */
 .hl-excerpt {
-  margin: 4px 0 0; flex: 1 1 auto; min-height: 0; overflow: hidden;
+  margin: 4px 0 0; flex: 1 1 0; min-height: 0; overflow: hidden;   /* only the space left after title + meta */
   color: #3a4248; font-size: 0.95rem; line-height: 1.55;
   -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
           mask-image: linear-gradient(to bottom, #000 72%, transparent);
@@ -1631,11 +1629,13 @@ a.hl-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; 
 .hl-card--A .hl-meta > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .hl-card--A .hl-meta > :first-child { flex-shrink: 0; }
 /* B, C, D: picture left, title + meta (+ excerpt) right */
-.hl-card--B .hl-media, .hl-card--C .hl-media { width: 45%; }
+.hl-card--B .hl-media { width: 45%; }
+.hl-card--C .hl-media { width: 40%; }            /* 3x1 is wide and low: narrower picture, more text */
 .hl-card--D .hl-media { width: 55%; }
 .hl-card--B .hl-title { font-size: 1.1rem; }
-.hl-card--C .hl-body, .hl-card--D .hl-body { padding: 18px 22px; gap: 10px; }
-.hl-card--C .hl-title { font-size: 1.35rem; }
+.hl-card--C .hl-body { padding: 16px 20px; gap: 8px; }
+.hl-card--D .hl-body { padding: 18px 22px; gap: 10px; }
+.hl-card--C .hl-title { font-size: 1.3rem; -webkit-line-clamp: 2; }
 .hl-card--D .hl-title { font-size: 1.75rem; -webkit-line-clamp: 4; }
 .hl-card--D .hl-excerpt { font-size: 1.02rem; }
 .hl-card--D .hl-meta { font-size: 0.86rem; }
@@ -1653,7 +1653,7 @@ a.hl-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; 
 /* Phones (by canvas width, so the editor's mobile preview matches): two
    units per row, quarter blocks side by side, others full width. */
 @container (max-width: 640px) {
-  .hl-row, .hl-row--center, .hl-row--end { flex-wrap: wrap; gap: 16px; justify-content: flex-start; }
+  .hl-row { display: flex; flex-wrap: wrap; gap: 16px; }   /* blocks flow in reading order */
   .hl-block { --hl-col: calc((100cqw - 16px) / 2); --hl-unit: calc(var(--hl-col) * 1.25); width: 100%; }
   .hl-post--A { width: var(--hl-col); }
   .hl-post--C:not(.is-empty), .hl-post--D:not(.is-empty) { height: auto; }   /* empty = blank space keeps its size */
@@ -1683,6 +1683,10 @@ a.hl-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; 
 .hl-shape i { display: block; width: 7px; height: 12px; border-radius: 1px; background: #c9d1d8; }
 .hl-shape i.on { background: currentColor; }
 .hl-help { margin: 0 0 14px; color: var(--muted); font-size: 0.84rem; }
+.hl-unsaved {
+  margin: 0 12px 0 auto; padding: 5px 12px; border-radius: 999px;
+  background: #fff4e5; color: #8a4b00; font-size: 0.8rem; font-weight: 700;
+}
 .home-frame-host { position: relative; }
 .home-frame-host.is-mobile { padding: 16px 0; border-radius: 10px;
   background: repeating-linear-gradient(45deg, #e3e8ec, #e3e8ec 10px, #edf1f4 10px, #edf1f4 20px); }
@@ -1690,10 +1694,15 @@ a.hl-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; 
 .home-frame-host.is-mobile .home-frame { width: 358px; max-width: 100%; margin: 0 auto; box-sizing: border-box; }
 
 .hl-canvas.is-editing .hl-row { position: relative; }
-.hl-canvas.is-editing .hl-block { outline: 1px dashed transparent; outline-offset: 3px; }
+.hl-canvas.is-editing .hl-block { outline: 1px dashed transparent; outline-offset: 3px; cursor: grab; }
+/* touch: a swipe scrolls; only a selected block (not being edited) is dragged */
+.hl-canvas.is-editing .hl-block.is-selected:not(:focus-within) { touch-action: none; }
 .hl-canvas.is-editing .hl-block:hover { outline-color: #9fb3c1; }
 .hl-canvas.is-editing .hl-block.is-selected { outline: 2px solid var(--brand); }
-.hl-canvas.is-editing .hl-text-body { cursor: text; }
+/* a text block being edited behaves like text (select, type); any other block drags */
+.hl-canvas.is-editing .hl-text:focus-within { cursor: auto; }
+.hl-canvas.is-editing .hl-text:focus-within .hl-text-body { cursor: text; }
+body.hl-dragging, body.hl-dragging * { cursor: grabbing !important; user-select: none; }
 .hl-canvas.is-editing .hl-post.is-empty::before {
   content: ""; position: absolute; inset: var(--hl-pad);
   border: 2px dashed #b9c4cc; border-radius: 8px; background: rgba(255, 255, 255, 0.55);
@@ -1705,40 +1714,38 @@ a.hl-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; 
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 .hl-plus:hover { filter: brightness(1.08); }
-.hl-chrome, .hl-row-chrome {
+/* Context toolbar: only for the SELECTED block (closes on click-away),
+   above the block so it never covers the text being edited. */
+.hl-chrome {
   position: absolute; z-index: 6; display: none; align-items: center; gap: 2px;
+  bottom: calc(100% + 2px); right: 0; max-width: 100%; flex-wrap: wrap; justify-content: flex-end;
   padding: 3px; border-radius: 7px; background: #15191d; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  cursor: default;
 }
-/* block toolbar: sits ABOVE the block (never over the text being edited), within its width */
-.hl-chrome { bottom: calc(100% - 1px); right: 0; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
-/* row toolbar: vertical strip in the left margin, so it never covers a block toolbar */
-.hl-row-chrome { top: 0; right: 100%; flex-direction: column; z-index: 5;
-  border-right: 6px solid transparent; background-clip: padding-box; }   /* transparent bridge keeps :hover */
-/* row tools inside the block toolbar are only for screens without a left margin */
-.hl-chrome .hl-rowtools { display: none; }
-@media (max-width: 1289px) {
-  .hl-row-chrome { display: none !important; }
-  .hl-chrome .hl-rowtools { display: contents; }
-}
-.hl-row-chrome .hl-sep { width: 18px; height: 1px; margin: 3px 0; }
-.hl-block:hover > .hl-chrome, .hl-block.is-selected > .hl-chrome, .hl-block:focus-within > .hl-chrome,
-.hl-row:hover > .hl-row-chrome { display: flex; }
-.hl-chrome button, .hl-row-chrome button {
+.hl-block.is-selected > .hl-chrome { display: flex; }
+.hl-chrome button {
   min-width: 26px; height: 26px; padding: 0 6px; border: 0; border-radius: 5px;
   background: transparent; color: #fff; font: inherit; font-size: 0.8rem; line-height: 1; cursor: pointer;
 }
-.hl-chrome button:hover, .hl-row-chrome button:hover { background: rgba(255, 255, 255, 0.16); }
-.hl-chrome button.is-on, .hl-row-chrome button.is-on { background: var(--brand); }
+.hl-chrome button:hover { background: rgba(255, 255, 255, 0.16); }
+.hl-chrome button.is-on { background: var(--brand); }
 .hl-chrome button[data-act="delete"]:hover { background: #d13438; }
-.hl-chrome .hl-sep, .hl-row-chrome .hl-sep { width: 1px; height: 18px; margin: 0 3px; background: rgba(255, 255, 255, 0.25); }
-.hl-chrome [data-act="drag"] { cursor: grab; font-size: 1rem; touch-action: none; }
+.hl-chrome .hl-sep { width: 1px; height: 18px; margin: 0 3px; background: rgba(255, 255, 255, 0.25); }
 .hl-badge {
   position: absolute; left: calc(var(--hl-pad) + 8px); top: calc(var(--hl-pad) + 8px); z-index: 2;
   padding: 3px 8px; border-radius: 999px; background: purple; color: #fff; font-size: 0.7rem; font-weight: 700;
 }
-.hl-block.is-dragging { opacity: 0.35; }
-.hl-ghost { position: fixed; z-index: 500; pointer-events: none; opacity: 0.85; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25); }
-.hl-drop { position: absolute; z-index: 7; background: var(--brand); border-radius: 3px; pointer-events: none; }
+/* Drag & drop: the block follows the pointer, the grid boxes show up and the
+   target boxes are highlighted where the block will snap. */
+.hl-block.is-dragging { opacity: 0.3; }
+.hl-ghost { position: fixed; z-index: 500; pointer-events: none; opacity: 0.88; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25); }
+.hl-gridlines { position: absolute; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 24px; pointer-events: none; }
+.hl-gridlines i { border-radius: 6px; background: rgba(22, 169, 224, 0.06); outline: 1px dashed rgba(22, 169, 224, 0.35); }
+.hl-drop {
+  position: absolute; z-index: 7; pointer-events: none; box-sizing: border-box;
+  border: 2px dashed var(--brand); border-radius: 8px; background: rgba(22, 169, 224, 0.14);
+}
+.hl-drop.is-newrow { background: rgba(22, 169, 224, 0.22); border-style: solid; }
 
 /* Article picker */
 .hl-picker-box { width: min(560px, calc(100% - 32px)); text-align: left; }

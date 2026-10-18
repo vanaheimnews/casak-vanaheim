@@ -1681,6 +1681,7 @@
       root.appendChild(p);
     }
     DOC.dirty = true;
+    if (DOC.key === "home") homeMarkDirty();   // programmatic insert fires no input event
 
     uploadFile(file, { allowPdf: true })
       .then(function (r) {
@@ -1688,6 +1689,7 @@
         node.classList.remove("is-uploading");
         if (!node.classList.length) node.removeAttribute("class");
         DOC.dirty = true;
+        if (DOC.key === "home") homeMarkDirty();
         toast(kind === "pdf" ? "PDF vloženo." : "Obrázek vložen.");
       })
       .catch(function (err) {
@@ -1741,7 +1743,7 @@
     return true;
   }
   function edCommitEditingContent() {
-    if (DOC.root) { DOC.dirty = true; return; }
+    if (DOC.root) { DOC.dirty = true; if (DOC.key === "home") homeMarkDirty(); return; }
     var content = edEditingContent();
     var el = edFind(ED.editingId);
     if (content && el) el.content = content.innerHTML;
@@ -1852,7 +1854,7 @@
     return node || null;
   }
   function edCommitActiveContent() {
-    if (DOC.root) { DOC.dirty = true; return; }
+    if (DOC.root) { DOC.dirty = true; if (DOC.key === "home") homeMarkDirty(); return; }
     var id = ED.editingId || ED.selectedId;
     var el = edFind(id);
     var content = edActiveContentEl();
@@ -2439,7 +2441,7 @@
   /* Leaving the page (refresh, „Zobrazit web", closing the tab) with unsaved
      work asks first: editor changes, unsaved Home/About edits, uploads. */
   window.addEventListener("beforeunload", function (e) {
-    var unsaved = pendingUploads > 0 || DOC.dirty || contentDirty ||
+    var unsaved = pendingUploads > 0 || DOC.dirty || contentDirty || HOME.dirty ||
       (!EDITOR.overlay.hidden && edStateSnapshot() !== ED.snapshot);
     if (!unsaved) return;
     e.preventDefault();
@@ -2569,7 +2571,12 @@
     var key = DOC.key;
     if (!CONTENT[key]) CONTENT[key] = {};
     if (key === "home") {
-      homeFlush();
+      // the homepage stays a draft (HOME) — CONTENT, which every save sends,
+      // changes only on „Uložit stránku" (homeSave)
+      homeSyncText();
+      if (DOC.dirty) homeMarkDirty();
+      DOC.dirty = false;
+      return;
     } else {
       if (!DOC.root) return;
       var copy = docCleanCopy(DOC.root);
@@ -2602,7 +2609,8 @@
       docLoad(tab);
     }
     docDock(target.slot);
-    edApplyBackground(target.frame || target.root, (CONTENT[tab] && CONTENT[tab].background) || {});
+    edApplyBackground(target.frame || target.root,
+      target.layout ? (HOME.bg || {}) : (CONTENT[tab] && CONTENT[tab].background) || {});
   }
   function docUnmount() {
     if (DOC.key) docFlush();
@@ -2612,7 +2620,9 @@
   }
   Object.keys(DOC_TARGETS).forEach(function (key) {
     var root = DOC_TARGETS[key].root;
-    if (root) root.addEventListener("input", function () { DOC.dirty = true; });
+    if (root) root.addEventListener("input", function () {
+      if (key === "home") homeMarkDirty(); else DOC.dirty = true;
+    });
   });
 
   /* ---------- save ---------- */
@@ -2629,27 +2639,33 @@
       .finally(function () { if (btn) btn.disabled = false; });
   }
   var saveHomeBtn = document.querySelector("#save-home-btn");
-  if (saveHomeBtn) saveHomeBtn.addEventListener("click", function () {
-    HOME.touched = true;   // an explicit save adopts even an unedited default layout
-    docSave("home", saveHomeBtn, "Domovská stránka byla uložena.");
-  });
+  if (saveHomeBtn) saveHomeBtn.addEventListener("click", homeSave);
 
   /* ============================================================
-     HOMEPAGE LAYOUT EDITOR (Google-Sites-like block grid)
+     HOMEPAGE LAYOUT EDITOR (Google-Sites-like box grid)
      The canvas is drawn by VNHome.render() — the same renderer and CSS the
      public page uses — so what the admin sees is 1:1 what readers get.
-     Editor chrome (toolbars, outlines, drop lines) is absolutely positioned
-     on top and never changes the layout. Text blocks are contenteditable and
-     use the docked formatting toolbar: DOC.root = the text block in focus.
+     Every block sits on an invisible grid 4 boxes wide (block.col = first
+     box). Blocks are dragged by grabbing them anywhere and snap to the
+     nearest free boxes. All changes live in a DRAFT (HOME.layout/HOME.bg)
+     and reach readers only on „Uložit stránku" (homeSave); other saves
+     (team, contacts, „O nás") never publish the draft. Text blocks are
+     contenteditable and use the docked toolbar: DOC.root = the text block
+     being edited.
      ============================================================ */
   var HOME = {
-    layout: null,            // working copy of CONTENT.home.layout
+    layout: null,            // the draft layout (null until loaded)
+    bg: null,                // the draft page background
+    dirty: false,            // draft differs from what readers see
     host: DOC_TARGETS.home.root,
     frameHost: document.querySelector("#home-frame-host"),
+    unsavedEl: document.querySelector("#hl-unsaved"),
     selectedId: null,
     pickerFor: null,         // post block id the article picker is open for
+    press: null,             // pointer pressed on a block, drag not started yet
     drag: null
   };
+  var HL_GAP = 24;
   var hlPicker = {
     box: document.querySelector("#hl-picker"),
     search: document.querySelector("#hl-picker-search"),
@@ -2663,28 +2679,62 @@
   function homeLiveArticles() {
     return ADMIN_ARTICLES.filter(function (a) { return !isScheduled(a); });
   }
-  // Load the layout into the editor (the saved one, or the default the public
-  // page shows until a layout is saved — that one needs the article list).
+  // Load the draft: an unsaved draft from earlier in this session wins (tab
+  // switches keep it); otherwise the saved layout, or the default the public
+  // page shows until a layout is saved (that one needs the article list).
   function homeLoad() {
     if (!CONTENT) return;
+    if (!HOME.bg) HOME.bg = JSON.parse(JSON.stringify((CONTENT.home && CONTENT.home.background) || { color: "", image: "" }));
     var saved = VNHome.normalize(CONTENT.home && CONTENT.home.layout);
-    // An untouched default must stay unsaved (it follows the newest articles);
-    // only an edited or already-saved layout is written back into CONTENT.
-    HOME.touched = !!saved;
-    if (saved) HOME.layout = saved;
-    else if (articlesLoaded) HOME.layout = VNHome.defaultLayout(CONTENT, homeLiveArticles());
-    else {
-      HOME.layout = null;
-      HOME.host.innerHTML = '<p class="empty-state">Načítám příspěvky…</p>';
-      return;
+    // an unedited default is rebuilt each time, so it follows the newest
+    // articles exactly like the public page does
+    if (!HOME.layout || (!saved && !HOME.dirty)) {
+      if (saved) HOME.layout = saved;
+      else if (articlesLoaded) HOME.layout = VNHome.defaultLayout(CONTENT, homeLiveArticles());
+      else { HOME.host.innerHTML = '<p class="empty-state">Načítám příspěvky…</p>'; return; }
     }
     homeRender();
+    homeUpdateUnsaved();
+  }
+  function homeMarkDirty() {
+    HOME.dirty = true;
+    HOME.rev = (HOME.rev || 0) + 1;   // lets a running save tell whether the draft moved on
+    homeUpdateUnsaved();
+  }
+  function homeUpdateUnsaved() {
+    if (HOME.unsavedEl) HOME.unsavedEl.hidden = !HOME.dirty;
+  }
+  // „Uložit stránku": publish the draft (layout + background) to readers.
+  function homeSave() {
+    if (!CONTENT || !HOME.layout || uploadsBusy()) return;
+    homeSyncText();
+    DOC.dirty = false;                                // everything typed so far is in this save
+    var prevLayout = CONTENT.home && CONTENT.home.layout, prevBg = CONTENT.home && CONTENT.home.background;
+    if (!CONTENT.home) CONTENT.home = {};
+    CONTENT.home.layout = VNHome.normalize(HOME.layout);
+    CONTENT.home.background = JSON.parse(JSON.stringify(HOME.bg || { color: "", image: "" }));
+    saveHomeBtn.disabled = true;
+    var rev = HOME.rev;
+    saveContent()
+      .then(function () {
+        // edits made while the request ran are not on the server yet: stay unsaved
+        if (HOME.rev === rev && !DOC.dirty) { HOME.dirty = false; homeUpdateUnsaved(); }
+        toast("Domovská stránka byla uložena — čtenáři ji teď vidí.");
+      })
+      .catch(function (err) {
+        CONTENT.home.layout = prevLayout;             // readers keep the previous version
+        CONTENT.home.background = prevBg;
+        if (err.status === 401) { showLogin(); return; }
+        toast("Uložení selhalo: " + (err.detail || err.message));
+      })
+      .finally(function () { saveHomeBtn.disabled = false; });
   }
   // Article list changed (loaded, saved, deleted) -> refresh the cards.
   function homeArticlesChanged() {
     if (DOC.key !== "home") return;
     if (pendingUploads > 0) { setTimeout(homeArticlesChanged, 500); return; }   // see homeBusy
-    if (HOME.layout) { homeSyncText(); homeRender(); } else homeLoad();
+    var unsavedDefault = !(CONTENT && CONTENT.home && CONTENT.home.layout) && !HOME.dirty;
+    if (HOME.layout && !unsavedDefault) { homeSyncText(); homeRender(); } else homeLoad();
   }
   // A redraw rebuilds every text block, which would orphan an image still
   // uploading into one (its blob: node is not saved). Refuse layout changes
@@ -2698,6 +2748,9 @@
   function homeBlockNodes() {
     return HOME.host.querySelectorAll(":scope > .hl-canvas > .hl-row > .hl-block");
   }
+  function homeRowNodes() {
+    return Array.prototype.slice.call(HOME.host.querySelectorAll(":scope > .hl-canvas > .hl-row"));
+  }
   function homeBlockNode(id) {
     return Array.prototype.filter.call(homeBlockNodes(), function (n) { return n.dataset.blockId === id; })[0] || null;
   }
@@ -2709,7 +2762,7 @@
     }
     return n;
   }
-  // Pull the live text of every text block back into the layout state.
+  // Pull the live text of every text block back into the draft.
   function homeSyncText() {
     if (!HOME.layout) return;
     Array.prototype.forEach.call(homeBlockNodes(), function (node) {
@@ -2731,14 +2784,6 @@
       f.block.html = copy.innerHTML;
     });
   }
-  // force: the explicit „Uložit stránku" on this tab (adopts even an unedited default)
-  function homeFlush(force) {
-    if (!HOME.layout) return;
-    if (DOC.dirty || force) HOME.touched = true;
-    if (!HOME.touched) return;
-    homeSyncText();
-    CONTENT.home.layout = VNHome.normalize(HOME.layout);
-  }
   function homeFind(id) {
     var rows = HOME.layout ? HOME.layout.rows : [];
     for (var ri = 0; ri < rows.length; ri++) {
@@ -2748,24 +2793,21 @@
     }
     return null;
   }
-  function homeNewRow(block) { return { id: VNHome.uid("r"), align: "start", blocks: [block] }; }
-  function homeCleanRows() {
-    HOME.layout.rows = HOME.layout.rows.filter(function (r) { return r.blocks.length; });
-  }
-  // A structural change: mark unsaved, redraw.
+  function homeNewRow(block) { return { id: VNHome.uid("r"), blocks: [block] }; }
+  // A structural change: tidy rows, mark the draft unsaved, redraw.
   function homeChanged() {
-    homeCleanRows();
-    DOC.dirty = true;
+    HOME.layout.rows = HOME.layout.rows.filter(function (r) { return r.blocks.length; });
+    HOME.layout.rows.forEach(function (r) { r.blocks.sort(function (x, y) { return x.col - y.col; }); });
+    homeMarkDirty();
     homeRender();
   }
 
   function homeRender() {
     if (!HOME.layout) return;
     // the old text nodes are about to be replaced: stop formatting into them
-    DOC.root = null; ED.savedRange = null; ED.liveSpan = null;
-    VNHome.render(HOME.host, HOME.layout, ADMIN_ARTICLES, {
-      editing: true, decorate: homeDecorate, decorateRow: homeDecorateRow
-    });
+    DOC.root = null; ED.savedRange = null; ED.liveSpan = null; HOME.editingId = null;
+    if (HOME.selectedId && !homeFind(HOME.selectedId)) HOME.selectedId = null;
+    VNHome.render(HOME.host, HOME.layout, ADMIN_ARTICLES, { editing: true, decorate: homeDecorate });
   }
   function hlButton(label, title, act, arg, on) {
     var b = document.createElement("button");
@@ -2779,37 +2821,21 @@
     return b;
   }
   function hlSep() { var s = document.createElement("span"); s.className = "hl-sep"; return s; }
-  // Per-block toolbar: drag, move, size, (article), delete.
-  function homeDecorate(node, b, row) {
+  // Context toolbar of a selected block: size, (article), delete.
+  function homeDecorate(node, b) {
     if (b.id === HOME.selectedId) node.classList.add("is-selected");
     var bar = document.createElement("div");
     bar.className = "hl-chrome";
-    bar.appendChild(hlButton("⠿", "Přetáhnout blok", "drag"));
-    bar.appendChild(hlButton("←", "Posunout doleva", "left"));
-    bar.appendChild(hlButton("→", "Posunout doprava", "right"));
-    bar.appendChild(hlButton("↑", "Posunout o řádek výš", "up"));
-    bar.appendChild(hlButton("↓", "Posunout o řádek níž", "down"));
-    bar.appendChild(hlSep());
     var w = VNHome.blockWidth(b);
     [1, 2, 3, 4].forEach(function (n) {
       var title = b.kind === "post"
-        ? "Velikost " + HL_POST_BY_WIDTH[n] + " (" + HL_SIZE_LABEL[n] + " řádku)"
+        ? (["", "Čtvrtina (1×1)", "Polovina (2×1)", "Tři čtvrtiny (3×1)", "Celá šířka (4×2)"])[n]
         : "Šířka " + HL_SIZE_LABEL[n] + " řádku";
       bar.appendChild(hlButton(HL_SIZE_LABEL[n], title, "size", n, n === w));
     });
     bar.appendChild(hlSep());
     if (b.kind === "post") bar.appendChild(hlButton("↻", b.articleId ? "Změnit příspěvek" : "Vybrat příspěvek", "pick"));
     bar.appendChild(hlButton("✕", "Smazat blok", "delete"));
-    // row tools, shown here only on screens without a left margin for the row toolbar
-    var rt = document.createElement("span");
-    rt.className = "hl-rowtools";
-    rt.appendChild(hlSep());
-    rt.appendChild(hlButton("⇡", "Řádek výš", "row-up"));
-    rt.appendChild(hlButton("⇣", "Řádek níž", "row-down"));
-    rt.appendChild(hlButton("⇤", "Zarovnat řádek doleva", "align", "start", row.align === "start"));
-    rt.appendChild(hlButton("↔", "Zarovnat řádek na střed", "align", "center", row.align === "center"));
-    rt.appendChild(hlButton("⇥", "Zarovnat řádek doprava", "align", "end", row.align === "end"));
-    bar.appendChild(rt);
     node.appendChild(bar);
     // scheduled article: visible here, blank on the public page until it's out
     var a = b.kind === "post" && b.articleId && ADMIN_ARTICLES.filter(function (x) { return x.id === b.articleId; })[0];
@@ -2820,52 +2846,52 @@
       node.appendChild(badge);
     }
   }
-  // Per-row toolbar: move the row, align its blocks.
-  function homeDecorateRow(rowEl, row) {
-    var bar = document.createElement("div");
-    bar.className = "hl-row-chrome";
-    bar.dataset.rowId = row.id;
-    bar.appendChild(hlButton("⇡", "Řádek výš", "row-up"));
-    bar.appendChild(hlButton("⇣", "Řádek níž", "row-down"));
-    bar.appendChild(hlSep());
-    bar.appendChild(hlButton("⇤", "Zarovnat řádek doleva", "align", "start", row.align === "start"));
-    bar.appendChild(hlButton("↔", "Zarovnat řádek na střed", "align", "center", row.align === "center"));
-    bar.appendChild(hlButton("⇥", "Zarovnat řádek doprava", "align", "end", row.align === "end"));
-    rowEl.appendChild(bar);
-  }
   function homeSelect(id) {
     HOME.selectedId = id;
     Array.prototype.forEach.call(homeBlockNodes(), function (n) {
       n.classList.toggle("is-selected", n.dataset.blockId === id);
     });
   }
+  // Click-away: close the context toolbar and drop the selection.
+  function homeDeselect() {
+    if (!HOME.selectedId) return;
+    homeStopEditing();
+    homeSelect(null);
+  }
+  // Leave text editing (the block stays selected, draggable again).
+  function homeStopEditing() {
+    var body = DOC.root;
+    if (body && (document.activeElement === body || body.contains(document.activeElement))) body.blur();
+    HOME.editingId = null;
+    DOC.root = null;
+  }
+  // A canvas in the phone layout (mobile preview) ignores grid columns, so
+  // grid moves there would change positions the admin can't see.
+  function homePhoneLayout() {
+    var cv = HOME.host.querySelector(":scope > .hl-canvas");
+    return !!cv && cv.getBoundingClientRect().width <= 640;
+  }
 
-  /* ---------- block / row actions ---------- */
-  function homeMoveVertical(f, dir) {
+  /* ---------- placing a block on the grid ---------- */
+  // Put block f.block at (rowIndex, col) — or into a new row inserted at
+  // newRowIndex when rowIndex is null. Columns are validated by the caller.
+  function homePlace(f, rowIndex, col, newRowIndex) {
     var rows = HOME.layout.rows;
-    if (f.row.blocks.length === 1) {               // alone in its row: move the whole row
-      var j = f.ri + dir;
-      if (j < 0 || j >= rows.length) return;
-      rows[f.ri] = rows[j]; rows[j] = f.row;
-      return;
-    }
-    var w = VNHome.blockWidth(f.block), target = rows[f.ri + dir];
-    f.row.blocks.splice(f.bi, 1);
-    if (target && VNHome.rowUsed(target) + w <= 4) {
-      if (dir < 0) target.blocks.push(f.block); else target.blocks.unshift(f.block);
-    } else {
-      rows.splice(dir < 0 ? f.ri : f.ri + 1, 0, homeNewRow(f.block));
-    }
+    var target = rowIndex == null ? null : rows[rowIndex];
+    f.row.blocks.splice(f.bi, 1);                  // empty rows are tidied in homeChanged
+    f.block.col = col;
+    if (target) target.blocks.push(f.block);
+    else rows.splice(newRowIndex, 0, homeNewRow(f.block));
   }
   function homeResize(f, width) {
     width = Math.max(1, Math.min(4, width | 0));
     if (f.block.kind === "post") f.block.size = HL_POST_BY_WIDTH[width];
     else f.block.span = width;
-    if (VNHome.rowUsed(f.row) > 4) {               // doesn't fit any more: own row below
-      f.row.blocks.splice(f.bi, 1);
-      HOME.layout.rows.splice(f.ri + 1, 0, homeNewRow(f.block));
-      toast("Blok se do řádku nevešel — přesunut na nový řádek.");
-    }
+    // keep it in its row if there are enough free boxes (nearest to where it was)
+    var col = VNHome.nearestFreeCol(f.row, width, f.block.col, f.block.id);
+    if (col >= 0) { f.block.col = col; return; }
+    homePlace(f, null, 0, f.ri + 1);               // otherwise: its own row below
+    toast("Blok se do řádku nevešel — je na novém řádku.");
   }
   function homeAction(id, act, arg) {
     var f = homeFind(id);
@@ -2873,44 +2899,22 @@
     if (act === "pick") { homeOpenPicker(id); return; }
     if (homeBusy()) return;
     homeSyncText();
-    var blocks = f.row.blocks, t;
-    if (act === "left" && f.bi > 0) { t = blocks[f.bi - 1]; blocks[f.bi - 1] = f.block; blocks[f.bi] = t; }
-    else if (act === "right" && f.bi < blocks.length - 1) { t = blocks[f.bi + 1]; blocks[f.bi + 1] = f.block; blocks[f.bi] = t; }
-    else if (act === "up") homeMoveVertical(f, -1);
-    else if (act === "down") homeMoveVertical(f, 1);
-    else if (act === "size") homeResize(f, +arg);
-    else if (act === "delete") { blocks.splice(f.bi, 1); if (HOME.selectedId === id) HOME.selectedId = null; }
+    if (act === "size") homeResize(f, +arg);
+    else if (act === "delete") { f.row.blocks.splice(f.bi, 1); HOME.selectedId = null; }
     else return;
     homeChanged();
   }
-  function homeRowAction(rowId, act, arg) {
-    if (homeBusy()) return;
-    var rows = HOME.layout.rows, i = -1;
-    rows.forEach(function (r, k) { if (r.id === rowId) i = k; });
-    if (i < 0) return;
-    homeSyncText();
-    var j = act === "row-up" ? i - 1 : act === "row-down" ? i + 1 : -1;
-    if (j >= 0 && j < rows.length) { var t = rows[i]; rows[i] = rows[j]; rows[j] = t; }
-    else if (act === "align") rows[i].align = arg;
-    else return;
-    homeChanged();
-  }
-  // Palette: a new block goes right after the selected one (same row if it
-  // fits, else a new row below it), otherwise at the end of the page.
+  // Palette: the new block takes the first free boxes of the last row, else
+  // a new row at the end of the page.
   function homeAdd(kind) {
-    if (homeBusy()) return;
-    if (!HOME.layout) return;
+    if (!HOME.layout || homeBusy()) return;
     homeSyncText();
     var b = kind === "text"
-      ? { id: VNHome.uid("b"), kind: "text", span: 4, html: "<p>Nový textový blok</p>" }
-      : { id: VNHome.uid("b"), kind: "post", size: kind, articleId: "" };
-    var w = VNHome.blockWidth(b), rows = HOME.layout.rows;
-    var sel = HOME.selectedId && homeFind(HOME.selectedId);
-    var last = rows[rows.length - 1];
-    if (sel && VNHome.rowUsed(sel.row) + w <= 4) sel.row.blocks.splice(sel.bi + 1, 0, b);
-    else if (sel) rows.splice(sel.ri + 1, 0, homeNewRow(b));
-    else if (last && VNHome.rowUsed(last) + w <= 4) last.blocks.push(b);
-    else rows.push(homeNewRow(b));
+      ? { id: VNHome.uid("b"), kind: "text", span: 4, col: 0, html: "<p>Nový textový blok</p>" }
+      : { id: VNHome.uid("b"), kind: "post", size: kind, col: 0, articleId: "" };
+    var w = VNHome.blockWidth(b), rows = HOME.layout.rows, last = rows[rows.length - 1];
+    var col = last ? VNHome.nearestFreeCol(last, w, 0) : -1;
+    if (col >= 0) { b.col = col; last.blocks.push(b); } else rows.push(homeNewRow(b));
     HOME.selectedId = b.id;
     homeChanged();
     var node = homeBlockNode(b.id);
@@ -2924,40 +2928,80 @@
     }
   }
 
-  /* ---------- events on the canvas ---------- */
+  /* ---------- pointer: select / grab anywhere / edit text ---------- */
   HOME.host.addEventListener("mousedown", function (e) {
     // toolbar buttons must not steal focus from the text being edited
-    if (e.target.closest(".hl-chrome, .hl-row-chrome")) e.preventDefault();
+    if (e.target.closest(".hl-chrome")) e.preventDefault();
   });
-  // the toolbar a click belongs to must be the block's/row's OWN one
-  function homeOwnChrome(target, node, cls) {
-    var bar = target.closest && target.closest(cls);
-    return bar && node && bar.parentNode === node ? bar : null;
-  }
+  // Editing state is explicit (HOME.editingId), not "where is focus": focus
+  // may sit in a toolbar input (font size, colour) while a block is edited.
+  function homeIsEditing(node) { return HOME.editingId === node.dataset.blockId; }
+  function hlTouch(type) { return type === "touch" || type === "pen"; }
   HOME.host.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0 || HOME.drag) return;
     var node = homeOwnBlock(e.target);
-    var bar = homeOwnChrome(e.target, node, ".hl-chrome");
-    if (bar && e.target.closest('[data-act="drag"]')) { homeDragStart(e, node.dataset.blockId); return; }
-    if (node && !bar) {
-      homeSelect(node.dataset.blockId);
-      if (!e.target.closest(".hl-text-body")) DOC.root = null;   // not formatting text now
-    }
+    if (!node) return;
+    if (e.target.closest(".hl-chrome, .hl-plus")) return;          // their own click handlers
+    // inside the text being edited: normal text editing (caret, selection)
+    if (homeIsEditing(node) && e.target.closest(".hl-text-body")) return;
+    // touch / pen: a swipe must scroll the page — only an already selected
+    // block can be dragged; a tap selects (see the click handler)
+    if (hlTouch(e.pointerType) && node.dataset.blockId !== HOME.selectedId) return;
+    e.preventDefault();          // no focus / text selection: this may become a drag
+    HOME.press = { id: node.dataset.blockId, node: node, x0: e.clientX, y0: e.clientY, pointerId: e.pointerId,
+                   wasSelected: HOME.selectedId === node.dataset.blockId };
+    document.addEventListener("pointermove", homePressMove);
+    document.addEventListener("pointerup", homePressUp);
+    document.addEventListener("pointercancel", homePressCancel);
   });
+  function homePressCleanup() {
+    document.removeEventListener("pointermove", homePressMove);
+    document.removeEventListener("pointerup", homePressUp);
+    document.removeEventListener("pointercancel", homePressCancel);
+    HOME.press = null;
+  }
+  function homePressCancel() { homePressCleanup(); }
+  function homePressMove(e) {
+    var p = HOME.press;
+    if (!p) return;
+    if (Math.abs(e.clientX - p.x0) + Math.abs(e.clientY - p.y0) < 6) return;   // still a click
+    homePressCleanup();
+    if (homePhoneLayout()) { toast("Rozložení upravujte v náhledu Počítač."); return; }
+    homeDragStart(p, e);
+  }
+  // A click (no drag). First click selects the block (it stays draggable);
+  // a click on an already selected text block starts editing at that spot.
+  function homePressUp(e) {
+    var p = HOME.press;
+    homePressCleanup();
+    if (!p) return;
+    homeClickBlock(p.node, p.wasSelected, e.clientX, e.clientY);
+  }
+  function homeClickBlock(node, wasSelected, x, y) {
+    var id = node.dataset.blockId;
+    if (HOME.editingId && HOME.editingId !== id) homeStopEditing();
+    homeSelect(id);
+    var body = node.querySelector(":scope > .hl-text-body");
+    if (!body || !wasSelected) return;
+    HOME.editingId = id;
+    body.focus({ preventScroll: true });
+    var r = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+    if (r && body.contains(r.startContainer)) {
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    }
+  }
   HOME.host.addEventListener("click", function (e) {
     var node = homeOwnBlock(e.target);
+    if (!node) return;
     var plus = e.target.closest(".hl-plus");
-    if (plus && node && plus.parentNode === node) { homeOpenPicker(node.dataset.blockId); return; }
-    var bar = homeOwnChrome(e.target, node, ".hl-chrome");
-    var btn = bar && e.target.closest("button");
-    if (btn && btn.dataset.act !== "drag") {
-      if (/^row-|^align$/.test(btn.dataset.act)) homeRowAction(node.parentNode.dataset.rowId, btn.dataset.act, btn.dataset.arg);
-      else homeAction(node.dataset.blockId, btn.dataset.act, btn.dataset.arg);
-      return;
+    if (plus && plus.parentNode === node) { homeSelect(node.dataset.blockId); homeOpenPicker(node.dataset.blockId); return; }
+    var bar = e.target.closest(".hl-chrome");
+    var btn = bar && bar.parentNode === node && e.target.closest("button");
+    if (btn) { homeAction(node.dataset.blockId, btn.dataset.act, btn.dataset.arg); return; }
+    // a touch tap (mouse clicks are handled on pointerup)
+    if (hlTouch(HOME.lastPointer) && !homeIsEditing(node)) {
+      homeClickBlock(node, HOME.selectedId === node.dataset.blockId, e.clientX, e.clientY);
     }
-    var rbar = e.target.closest(".hl-row-chrome");
-    var rbtn = rbar && rbar.parentNode && rbar.parentNode.parentNode && rbar.parentNode.parentNode.parentNode === HOME.host
-      && e.target.closest("button");
-    if (rbtn) homeRowAction(rbar.dataset.rowId, rbtn.dataset.act, rbtn.dataset.arg);
   });
   // a text block in focus becomes the formatting target of the docked toolbar
   HOME.host.addEventListener("focusin", function (e) {
@@ -2965,101 +3009,120 @@
     if (!body || DOC.key !== "home") return;
     if (DOC.root !== body) { edCommitLive(); DOC.root = body; ED.savedRange = null; }
     var node = body.closest(".hl-block");
-    if (node) homeSelect(node.dataset.blockId);
+    if (node) { HOME.editingId = node.dataset.blockId; homeSelect(node.dataset.blockId); }
   });
+  // Smart blur: a click anywhere outside the selected block, its toolbar,
+  // the formatting toolbar or the article picker closes the menu and
+  // deselects. Touch uses "click", so starting to scroll doesn't deselect.
+  function homeClickAway(e) {
+    if (DOC.key !== "home" || !HOME.selectedId || HOME.drag) return;
+    var t = e.target;
+    var node = homeBlockNode(HOME.selectedId);
+    if (node && node.contains(t)) return;
+    if (t.closest && t.closest(".ed-bar2, #hl-picker, .toast")) return;
+    homeDeselect();
+  }
+  document.addEventListener("pointerdown", function (e) {
+    HOME.lastPointer = e.pointerType;
+    if (!hlTouch(e.pointerType)) homeClickAway(e);
+  }, true);
+  document.addEventListener("click", function (e) { if (hlTouch(HOME.lastPointer)) homeClickAway(e); }, true);
 
-  /* ---------- drag & drop (pointer based, works with touch too) ---------- */
-  function homeDragStart(e, id) {
+  /* ---------- drag & drop with grid snapping ---------- */
+  function homeDragStart(p, e) {
     if (homeBusy()) return;
-    e.preventDefault();
     homeSyncText();
-    var node = homeBlockNode(id);
-    if (!node) return;
-    var r = node.getBoundingClientRect();
+    var f = homeFind(p.id);
+    if (!f) return;
+    if (HOME.editingId && HOME.editingId !== p.id) homeStopEditing();
+    homeSelect(p.id);
+    var node = p.node, r = node.getBoundingClientRect();
     var ghost = node.cloneNode(true);
+    ghost.classList.remove("is-selected");
     ghost.classList.add("hl-ghost");
     ghost.style.width = r.width + "px";
     ghost.style.height = r.height + "px";
-    ghost.style.left = r.left + "px";
-    ghost.style.top = r.top + "px";
     document.body.appendChild(ghost);
-    var line = document.createElement("div");
-    line.className = "hl-drop";
-    line.hidden = true;
-    HOME.frameHost.appendChild(line);
+    var grid = document.createElement("div");           // the 4 boxes become visible
+    grid.className = "hl-gridlines";
+    grid.innerHTML = "<i></i><i></i><i></i><i></i>";
+    var drop = document.createElement("div");
+    drop.className = "hl-drop";
+    drop.hidden = true;
+    HOME.frameHost.appendChild(grid);
+    HOME.frameHost.appendChild(drop);
     node.classList.add("is-dragging");
-    HOME.drag = { id: id, node: node, ghost: ghost, line: line, dx: e.clientX - r.left, dy: e.clientY - r.top,
-                  x0: e.clientX, y0: e.clientY, moved: false, target: null };
+    document.body.classList.add("hl-dragging");
+    HOME.drag = { id: p.id, node: node, ghost: ghost, grid: grid, drop: drop, w: VNHome.blockWidth(f.block),
+                  h: r.height, dx: p.x0 - r.left, dy: p.y0 - r.top, target: null };
+    homeDragPaint();
     document.addEventListener("pointermove", homeDragMove);
     document.addEventListener("pointerup", homeDragEnd);
     document.addEventListener("pointercancel", homeDragCancel);
     document.addEventListener("keydown", homeDragKey);
+    homeDragMove(e);
+  }
+  function homeDragPaint() {
+    var d = HOME.drag, canvas = HOME.host.querySelector(":scope > .hl-canvas");
+    if (!d || !canvas) return;
+    var host = HOME.frameHost.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+    d.grid.style.left = (c.left - host.left) + "px";
+    d.grid.style.top = (c.top - host.top) + "px";
+    d.grid.style.width = c.width + "px";
+    d.grid.style.height = c.height + "px";
   }
   function homeDragMove(e) {
     var d = HOME.drag;
     if (!d) return;
-    if (!d.moved && Math.abs(e.clientX - d.x0) + Math.abs(e.clientY - d.y0) > 4) d.moved = true;
     d.ghost.style.left = (e.clientX - d.dx) + "px";
     d.ghost.style.top = (e.clientY - d.dy) + "px";
-    d.target = d.moved ? homeDropTarget(e.clientX, e.clientY) : null;
-    var host = HOME.frameHost.getBoundingClientRect(), L = d.line, t = d.target;
-    if (!t) { L.hidden = true; return; }
-    L.hidden = false;
-    if (t.type === "row") {            // vertical line between blocks of a row
-      L.style.left = (t.x - host.left - 2) + "px"; L.style.top = (t.top - host.top) + "px";
-      L.style.width = "4px"; L.style.height = Math.max(24, t.height) + "px";
-    } else {                           // horizontal line = a new row there
-      L.style.left = (t.left - host.left) + "px"; L.style.top = (t.y - host.top - 2) + "px";
-      L.style.width = t.width + "px"; L.style.height = "4px";
-    }
+    // near the window edge: scroll, so far away rows can be reached
+    if (e.clientY < 60) window.scrollBy(0, -14);
+    else if (e.clientY > window.innerHeight - 60) window.scrollBy(0, 14);
+    d.target = homeDropTarget(e.clientX - d.dx, e.clientY);
+    var t = d.target, box = d.drop;
+    if (!t) { box.hidden = true; return; }
+    var host = HOME.frameHost.getBoundingClientRect();
+    box.hidden = false;
+    box.classList.toggle("is-newrow", t.rowIndex == null);
+    box.style.left = (t.left - host.left) + "px";
+    box.style.top = (t.top - host.top) + "px";
+    box.style.width = t.width + "px";
+    box.style.height = t.height + "px";
   }
-  // Where would the block land? In a row (if it fits there) or as a new row.
-  function homeDropTarget(x, y) {
-    var f = homeFind(HOME.drag.id);
-    if (!f) return null;
-    var w = VNHome.blockWidth(f.block);
-    var rowEls = Array.prototype.slice.call(HOME.host.querySelectorAll(":scope > .hl-canvas > .hl-row"));
-    if (!rowEls.length) return null;
-    var canvas = HOME.host.querySelector(".hl-canvas").getBoundingClientRect();
-    var GAP = 24;
-    function newRowAt(i, yLine) { return { type: "new", index: i, y: yLine, left: canvas.left, width: canvas.width }; }
+  /* Snap the dragged block to the grid. The column comes from the block's
+     left edge (nearest box); the row from the pointer. If those boxes are
+     taken, the nearest free boxes of that row are used; a full row (or the
+     gap between rows) makes a new row there. */
+  function homeDropTarget(blockLeft, y) {
+    var d = HOME.drag, f = homeFind(d.id);
+    var canvas = HOME.host.querySelector(":scope > .hl-canvas");
+    if (!f || !canvas) return null;
+    var c = canvas.getBoundingClientRect(), w = d.w;
+    var colW = (c.width - 3 * HL_GAP) / 4, pitch = colW + HL_GAP;
+    var want = Math.max(0, Math.min(4 - w, Math.round((blockLeft - c.left) / pitch)));
+    var width = w * colW + (w - 1) * HL_GAP;
+    function boxAt(col) { return c.left + col * pitch; }
+    function newRow(index, yLine) {
+      return { rowIndex: null, newRowIndex: index, col: want, left: boxAt(want), width: width,
+               top: yLine - 10, height: 20 };
+    }
+    var rowEls = homeRowNodes();
     for (var i = 0; i < rowEls.length; i++) {
       var rr = rowEls[i].getBoundingClientRect();
-      if (y < rr.top) return newRowAt(i, rr.top - GAP / 2);
+      if (y < rr.top) return newRow(i, rr.top - HL_GAP / 2);
       if (y > rr.bottom) continue;
-      var row = HOME.layout.rows[i];
-      var fits = row === f.row || VNHome.rowUsed(row) + w <= 4;
       var rel = (y - rr.top) / Math.max(1, rr.height);
-      if (!fits || rel < 0.15 || rel > 0.85) {
-        return rel < 0.5 ? newRowAt(i, rr.top - GAP / 2) : newRowAt(i + 1, rr.bottom + GAP / 2);
+      var row = HOME.layout.rows[i];
+      var col = VNHome.spanFree(VNHome.rowCells(row, d.id), want, w) ? want : VNHome.nearestFreeCol(row, w, want, d.id);
+      // thin bands at the row edges = "put it in a new row above/below"
+      if (col < 0 || rel < 0.12 || rel > 0.88) {
+        return rel < 0.5 ? newRow(i, rr.top - HL_GAP / 2) : newRow(i + 1, rr.bottom + HL_GAP / 2);
       }
-      // position among the other blocks of the row; on phones a row wraps onto
-      // several lines, so only blocks on the pointer's visual line count by x
-      var others = Array.prototype.filter.call(rowEls[i].querySelectorAll(":scope > .hl-block"), function (n) {
-        return n.dataset.blockId !== HOME.drag.id;
-      });
-      var rects = others.map(function (n) { return n.getBoundingClientRect(); });
-      var lineTop = -Infinity;
-      rects.forEach(function (b) { if (b.top <= y && b.top > lineTop) lineTop = b.top; });
-      if (lineTop === -Infinity && rects.length) lineTop = rects[0].top;
-      var idx = 0, lineH = 0, onLine = [];
-      rects.forEach(function (b, k) {
-        var same = Math.abs(b.top - lineTop) < 1;
-        if (same) { lineH = Math.max(lineH, b.height); onLine.push(k); }
-        if (b.top < lineTop - 1 || (same && x > b.left + b.width / 2)) idx++;
-      });
-      var lx;
-      if (!rects.length) lx = rr.left;
-      else {
-        var before = onLine.filter(function (k) { return k < idx; });
-        lx = before.length ? rects[before[before.length - 1]].right + GAP / 2
-                           : rects[onLine.length ? onLine[0] : 0].left - GAP / 2;
-      }
-      return { type: "row", rowIndex: i, index: idx, x: lx,
-               top: rects.length ? lineTop : rr.top, height: lineH || rr.height };
+      return { rowIndex: i, col: col, left: boxAt(col), width: width, top: rr.top, height: Math.max(d.h, 24) };
     }
-    var last = rowEls[rowEls.length - 1].getBoundingClientRect();
-    return newRowAt(rowEls.length, last.bottom + GAP / 2);
+    var last = rowEls.length ? rowEls[rowEls.length - 1].getBoundingClientRect() : c;
+    return newRow(rowEls.length, last.bottom + HL_GAP / 2);
   }
   function homeDragCleanup() {
     var d = HOME.drag;
@@ -3067,8 +3130,9 @@
     document.removeEventListener("pointerup", homeDragEnd);
     document.removeEventListener("pointercancel", homeDragCancel);
     document.removeEventListener("keydown", homeDragKey);
+    document.body.classList.remove("hl-dragging");
     if (!d) return;
-    d.ghost.remove(); d.line.remove();
+    d.ghost.remove(); d.grid.remove(); d.drop.remove();
     d.node.classList.remove("is-dragging");
     HOME.drag = null;
   }
@@ -3080,14 +3144,52 @@
     if (!t) return;
     var f = homeFind(d.id);
     if (!f) return;
-    var rows = HOME.layout.rows;
-    var targetRow = t.type === "row" ? rows[t.rowIndex] : null;
-    f.row.blocks.splice(f.bi, 1);                  // empty rows are cleaned after the insert
-    if (targetRow) targetRow.blocks.splice(Math.min(t.index, targetRow.blocks.length), 0, f.block);
-    else rows.splice(t.index, 0, homeNewRow(f.block));
+    if (t.rowIndex === f.ri && t.col === f.block.col) return;   // dropped where it was
+    homePlace(f, t.rowIndex, t.col, t.newRowIndex);
     HOME.selectedId = f.block.id;
     homeChanged();
   }
+
+  /* ---------- keyboard: arrows move the selected block by one box ---------- */
+  document.addEventListener("keydown", function (e) {
+    if (DOC.key !== "home" || !HOME.selectedId || HOME.drag || !hlPicker.box.hidden) return;
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Escape"].indexOf(e.key) < 0) return;
+    var node = homeBlockNode(HOME.selectedId);
+    if (!node) return;
+    if (homeIsEditing(node)) {                    // while typing, arrows move the caret
+      if (e.key === "Escape") { e.preventDefault(); homeStopEditing(); }   // Esc: back to "selected"
+      return;
+    }
+    var a = document.activeElement;
+    if (a && a !== document.body && !node.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
+    e.preventDefault();
+    if (e.key === "Escape") { homeDeselect(); return; }
+    if (homePhoneLayout()) { toast("Rozložení upravujte v náhledu Počítač."); return; }
+    if (homeBusy()) return;
+    homeSyncText();
+    var f = homeFind(HOME.selectedId), w = VNHome.blockWidth(f.block), rows = HOME.layout.rows;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      var step = e.key === "ArrowLeft" ? -1 : 1, cells = VNHome.rowCells(f.row, f.block.id);
+      for (var c = f.block.col + step; c >= 0 && c + w <= 4; c += step) {
+        if (VNHome.spanFree(cells, c, w)) { f.block.col = c; homeChanged(); return; }
+      }
+      return;                                     // nothing free that way: no change
+    }
+    var dir = e.key === "ArrowUp" ? -1 : 1, j = f.ri + dir;
+    if (j < 0 || j >= rows.length) {
+      if (f.row.blocks.length === 1) return;      // already the first/last row
+      homePlace(f, null, f.block.col, dir < 0 ? f.ri : f.ri + 1);   // own new row at the edge
+      homeChanged();
+      return;
+    }
+    var col = VNHome.nearestFreeCol(rows[j], w, f.block.col, f.block.id);
+    if (col >= 0) homePlace(f, j, col);
+    else if (f.row.blocks.length === 1) {
+      // alone in its row and the neighbour row is full: jump over it
+      homePlace(f, null, f.block.col, dir < 0 ? f.ri - 1 : f.ri + 2);
+    } else homePlace(f, null, f.block.col, dir < 0 ? f.ri : f.ri + 1);
+    homeChanged();
+  });
 
   /* ---------- article picker for "+" ---------- */
   function homeOpenPicker(blockId) {
@@ -3231,6 +3333,10 @@
   }
   // Which background is the toolbar currently editing?
   function edCurrentBg() {
+    if (DOC.key === "home") {                 // homepage: part of the draft (published on save)
+      if (!HOME.bg) HOME.bg = { color: "", image: "" };
+      return HOME.bg;
+    }
     if (DOC.key && CONTENT) {
       if (!CONTENT[DOC.key]) CONTENT[DOC.key] = {};
       if (!CONTENT[DOC.key].background) CONTENT[DOC.key].background = { color: "", image: "" };
@@ -3250,6 +3356,7 @@
     var bg = edCurrentBg();
     edApplyBackground(edBgTargetEl(), bg);
     if (!DOC.key) { fBackground.value = JSON.stringify(bg); return; }
+    if (DOC.key === "home") { homeMarkDirty(); return; }   // waits for „Uložit stránku"
     var key = DOC.key;
     clearTimeout(bgSaveTimer);
     bgSaveTimer = setTimeout(function () {
@@ -3309,6 +3416,11 @@
           bg.image = url;
           edBgChanged();
           toast("Pozadí nahráno.");
+        } else if (targetKey === "home") {      // finished after leaving the tab: into the draft
+          if (!HOME.bg) HOME.bg = { color: "", image: "" };
+          HOME.bg.image = url;
+          homeMarkDirty();
+          toast("Pozadí domovské stránky nahráno — uloží se tlačítkem „Uložit stránku“.");
         } else if (targetKey && CONTENT) {
           if (!CONTENT[targetKey]) CONTENT[targetKey] = {};
           var old = CONTENT[targetKey].background || {};

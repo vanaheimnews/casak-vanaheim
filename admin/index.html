@@ -262,6 +262,7 @@
 
         <div class="admin-list-head">
           <h1 class="admin-section-title" style="margin:0;">Správa domovské stránky</h1>
+          <span class="hl-unsaved" id="hl-unsaved" hidden>Neuložené změny — čtenáři je zatím nevidí</span>
           <button class="btn" type="button" id="save-home-btn"
                   style="background:var(--brand);border-color:var(--brand);color:#fff;">Uložit stránku</button>
         </div>
@@ -279,7 +280,7 @@
           <button type="button" data-view="desktop" aria-pressed="true">Počítač</button>
           <button type="button" data-view="mobile" aria-pressed="false">Mobil</button>
         </div>
-        <p class="hl-help">Bloky přesouvejte za úchyt ⠿ (nebo šipkami v liště bloku). Do textu klikněte a pište; formát nastavíte panelem nahoře. Prázdný blok příspěvku (+) se čtenářům zobrazí jako volné místo.</p>
+        <p class="hl-help">Blok chyťte myší kdekoli a pusťte na volné políčko mřížky (4 políčka na šířku) — přichytí se. Kliknutím blok vyberete (velikost, příspěvek, smazání); kliknutím vedle se nabídka zavře. Šipky posouvají vybraný blok o políčko. Změny uvidí čtenáři až po „Uložit stránku“.</p>
 
         <!-- Canvas: rendered by home-layout.js with the same CSS as the public page -->
         <div class="home-frame-host" id="home-frame-host">
