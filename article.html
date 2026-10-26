@@ -13,6 +13,10 @@
   <meta property="og:title" content="Vanaheim News">
   <meta property="og:description" content="Článek ze školního magazínu Vanaheim News.">
   <meta property="og:image" content="https://www.vanaheim-news.cz/logo.png">
+  <!-- Fonts the editor offers (articles / homepage text may use them) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&family=Inter:wght@400;700&family=JetBrains+Mono:wght@400;700&family=Merriweather:ital,wght@0,400;0,700;1,400;1,700&family=Montserrat:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Roboto:wght@400;700&display=swap">
   <link rel="stylesheet" href="./style.css">
   <style>
     /* Page-specific overrides — keeps the design system from style.css. */
@@ -196,6 +200,7 @@
           } else {
             node.innerHTML = VNSafe.html(el.content);
             var s = el.styles || {};
+            if (s.fontFamily) node.style.fontFamily = String(s.fontFamily);   // CSSOM: a bad value is just ignored
             node.style.fontSize = s.fontSize || "16px";
             node.style.color = s.color || "#1a1a1a";
             node.style.fontWeight = s.bold ? "700" : "400";

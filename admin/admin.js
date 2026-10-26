@@ -1268,6 +1268,7 @@
   }
 
   function edApplyContentStyles(content, el) {
+    content.style.fontFamily = el.styles.fontFamily || "";
     content.style.fontSize = el.styles.fontSize || "16px";
     content.style.color = el.styles.color || "#1a1a1a";
     content.style.fontWeight = el.styles.bold ? "700" : "400";
@@ -1357,6 +1358,57 @@
   }
 
   /* ---------- selection / drag / resize ---------- */
+  /* ---------- smart guides (snap to other blocks while moving / resizing) ----------
+     Snap lines: left / centre / right and top / middle / bottom of every
+     other block, plus the page edges and centre. When an edge or the centre
+     of the moving box comes within GUIDE_SNAP px of a line it snaps onto it
+     and a dashed guide shows which block it lines up with. Alt = no snapping. */
+  var GUIDE_SNAP = 5;
+  function edGuideLines(exceptId) {
+    var pageH = Math.max(EDITOR.canvas.scrollHeight, EDITOR.canvas.offsetHeight);
+    var v = [0, ED_CANVAS_W / 2, ED_CANVAS_W].map(function (p) { return { pos: p, from: 0, to: pageH }; });
+    var h = [];
+    Array.prototype.forEach.call(EDITOR.canvas.querySelectorAll(":scope > .ed-el"), function (n) {
+      if (n.dataset.id === exceptId) return;
+      var l = n.offsetLeft, t = n.offsetTop, w = n.offsetWidth, ht = n.offsetHeight;
+      [l, l + w / 2, l + w].forEach(function (p) { v.push({ pos: p, from: t, to: t + ht }); });
+      [t, t + ht / 2, t + ht].forEach(function (p) { h.push({ pos: p, from: l, to: l + w }); });
+    });
+    return { v: v, h: h };
+  }
+  // Closest line to any of the moving box's `edges` within GUIDE_SNAP (or null).
+  function edSnap(edges, lines) {
+    var best = null;
+    edges.forEach(function (e) {
+      lines.forEach(function (L) {
+        var d = L.pos - e;
+        if (Math.abs(d) <= GUIDE_SNAP && (!best || Math.abs(d) < Math.abs(best.delta))) best = { delta: d, line: L };
+      });
+    });
+    return best;
+  }
+  // Draw the guides: each spans from the aligned block to the moving box.
+  function edShowGuides(gx, gy, box) {
+    [["v", gx], ["h", gy]].forEach(function (pair) {
+      var kind = pair[0], g = pair[1];
+      var line = EDITOR.canvas.querySelector(":scope > .ed-guide--" + kind);
+      if (!g) { if (line) line.hidden = true; return; }
+      if (!line) {
+        line = document.createElement("div");
+        line.className = "ed-guide ed-guide--" + kind;
+        EDITOR.canvas.appendChild(line);
+      }
+      line.hidden = false;
+      var a = kind === "v" ? Math.min(g.line.from, box.y) : Math.min(g.line.from, box.x);
+      var b = kind === "v" ? Math.max(g.line.to, box.y + box.h) : Math.max(g.line.to, box.x + box.w);
+      if (kind === "v") { line.style.left = g.line.pos + "px"; line.style.top = a + "px"; line.style.height = (b - a) + "px"; }
+      else { line.style.top = g.line.pos + "px"; line.style.left = a + "px"; line.style.width = (b - a) + "px"; }
+    });
+  }
+  function edHideGuides() {
+    Array.prototype.forEach.call(EDITOR.canvas.querySelectorAll(":scope > .ed-guide"), function (n) { n.remove(); });
+  }
+
   function edPointerDownOnElement(ev, el, node, content) {
     if (ev.button !== 0) return;
     // already editing this text box -> let the caret/selection work
@@ -1370,20 +1422,34 @@
     // the existing node live, then commit selection on pointerup.
     try { content.setPointerCapture(ev.pointerId); } catch (e) {}
 
+    var guides = null;                 // snap lines of the other blocks (built on first move)
     function move(e2) {
       var dx = e2.clientX - startX, dy = e2.clientY - startY;
       if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       if (moved) {
-        el.x = Math.min(Math.max(0, origX + dx), Math.max(0, ED_CANVAS_W - (+el.width || 0)));
-        el.y = Math.max(0, origY + dy);
+        var w = node.offsetWidth, hgt = node.offsetHeight, maxX = Math.max(0, ED_CANVAS_W - w);
+        var x = Math.min(Math.max(0, origX + dx), maxX), y = Math.max(0, origY + dy);
+        // smart guides: edges/centre snap to other blocks (Alt = move freely)
+        var gx = null, gy = null;
+        if (!e2.altKey) {
+          guides = guides || edGuideLines(el.id);
+          gx = edSnap([x, x + w / 2, x + w], guides.v);
+          gy = edSnap([y, y + hgt / 2, y + hgt], guides.h);
+          if (gx) x = Math.min(Math.max(0, x + gx.delta), maxX);
+          if (gy) y = Math.max(0, y + gy.delta);
+        }
+        el.x = Math.round(x);
+        el.y = Math.round(y);
         node.style.left = el.x + "px";
         node.style.top = el.y + "px";
+        edShowGuides(gx, gy, { x: el.x, y: el.y, w: w, h: hgt });
       }
     }
     function up() {
       content.removeEventListener("pointermove", move);
       content.removeEventListener("pointerup", up);
       try { content.releasePointerCapture(ev.pointerId); } catch (e) {}
+      edHideGuides();
       if (moved) {
         if (!wasSelected) edSelect(el.id); else edUpdateToolbar();
       } else if (wasSelected && el.type === "embed") {
@@ -1407,6 +1473,7 @@
     var origW = node.offsetWidth;
     var origH = node.offsetHeight;
     try { node.setPointerCapture(ev.pointerId); } catch (e) {}
+    var guides = edGuideLines(el.id);
 
     function move(e2) {
       var dx = e2.clientX - startX, dy = e2.clientY - startY;
@@ -1415,6 +1482,14 @@
       if (h.indexOf("s") > -1) ht = origH + dy;
       if (h.indexOf("w") > -1) { w = origW - dx; x = origX + dx; }
       if (h.indexOf("n") > -1) { ht = origH - dy; y = origY + dy; }
+      // smart guides: the dragged edge snaps to other blocks (Alt = free)
+      var gx = null, gy = null;
+      if (!e2.altKey) {
+        if (h.indexOf("e") > -1 && (gx = edSnap([x + w], guides.v))) w += gx.delta;
+        if (h.indexOf("w") > -1 && (gx = edSnap([x], guides.v))) { x += gx.delta; w -= gx.delta; }
+        if (h.indexOf("s") > -1 && (gy = edSnap([y + ht], guides.h))) ht += gy.delta;
+        if (h.indexOf("n") > -1 && (gy = edSnap([y], guides.h))) { y += gy.delta; ht -= gy.delta; }
+      }
       w = Math.max(40, w); ht = Math.max(24, ht);
       // clamp x/y so resizing from top/left can't invert
       if (h.indexOf("w") > -1) x = origX + (origW - w);
@@ -1426,11 +1501,13 @@
       el.width = Math.round(w); el.height = Math.round(ht);
       node.style.left = el.x + "px"; node.style.top = el.y + "px";
       node.style.width = el.width + "px"; node.style.height = el.height + "px";
+      edShowGuides(gx, gy, { x: el.x, y: el.y, w: el.width, h: el.height });
     }
     function up() {
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
       try { node.releasePointerCapture(ev.pointerId); } catch (e) {}
+      edHideGuides();
     }
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
@@ -2069,6 +2146,46 @@
   EDITOR.indInc.addEventListener("click", function () { edIndent(40); });
   EDITOR.indDec.addEventListener("click", function () { edIndent(-40); });
 
+  /* ---------- copy & paste blocks (Ctrl/Cmd + C / V) ----------
+     With a block selected (and not typing inside it), Ctrl+C keeps a copy of
+     the whole block — text, font, size, colour, box size — in the editor's
+     own clipboard; Ctrl+V adds a clone 20px lower-right (each further paste
+     another 20px). Works across articles while the admin stays open. While
+     typing in a text box the keys do the normal text copy/paste. */
+  var ED_CLIP = null;
+  document.addEventListener("keydown", function (e) {
+    if (EDITOR.overlay.hidden || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    var k = e.key.toLowerCase();
+    if (k !== "c" && k !== "v") return;
+    if (ED.editingId) return;                                  // native text copy/paste
+    var a = document.activeElement;
+    if (a && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;  // typing in a field
+    if (a && a.isContentEditable) return;
+    if (k === "c") {
+      var el = edFind(ED.selectedId);
+      if (!el) return;
+      e.preventDefault();
+      edExitEdit();
+      ED_CLIP = { data: JSON.parse(JSON.stringify(el)), pastes: 0 };
+      toast("Blok zkopírován — Ctrl+V vloží kopii.");
+      return;
+    }
+    if (!ED_CLIP || ED_CLIP.data.uploading) return;
+    e.preventDefault();
+    ED_CLIP.pastes++;
+    var copy = JSON.parse(JSON.stringify(ED_CLIP.data)), off = 20 * ED_CLIP.pastes;
+    copy.id = edUid();
+    copy.isTitle = false;                                      // only one title per article
+    var w = +copy.width || 0;
+    copy.x = Math.min(Math.max(0, (+copy.x || 0) + off), Math.max(0, ED_CANVAS_W - w));
+    copy.y = Math.max(0, (+copy.y || 0) + off);
+    copy.z = ED.elements.reduce(function (m, x) { return Math.max(m, x.z || 0); }, 0) + 1;   // on top
+    if (copy.type === "text") copy.content = VNSafe.html(copy.content);
+    ED.elements.push(copy);
+    edSelect(copy.id);
+    toast("Kopie bloku vložena.");
+  });
+
   /* ---------- keyboard shortcuts (Ctrl+Shift+L / E / R) ---------- */
   document.addEventListener("keydown", function (e) {
     if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
@@ -2248,6 +2365,7 @@
   function edApplyColorLive() {
     var el = edFind(ED.selectedId);
     if (!DOC.root && (!el || el.type !== "text")) return;
+    edRecallSelection();      // the selection remembered when the colour button was pressed
     if (edContext() === "range") {
       edLiveStyle({ color: ED.currentColor });
     } else {
@@ -2283,10 +2401,69 @@
     if (!m) return ED.currentColor;
     return rgbToHex(+m[1], +m[2], +m[3]);
   }
+  /* The text selection must survive the trip to the colour panel: it is
+     remembered when the colour button is pressed (before anything can steal
+     focus) and every colour is applied to exactly that range; afterwards the
+     caret/selection goes back into the text. */
+  function edRememberSelection() {
+    var content = edEditingContent();
+    ED.colorRange = (content && ED.savedRange && content.contains(ED.savedRange.commonAncestorContainer))
+      ? ED.savedRange.cloneRange() : null;
+  }
+  function edRecallSelection() {
+    var content = edEditingContent();
+    if (!content || !ED.colorRange || !content.contains(ED.colorRange.commonAncestorContainer)) return;
+    if (!ED.savedRange || !content.contains(ED.savedRange.commonAncestorContainer)) ED.savedRange = ED.colorRange.cloneRange();
+  }
+  EDITOR.colorBtn.addEventListener("pointerdown", edRememberSelection);
   EDITOR.colorBtn.addEventListener("click", function (e) {
     e.stopPropagation();
-    if (EDITOR.colorPanel.hidden) edOpenColorPanel(); else edCloseColorPanel();
+    if (EDITOR.colorPanel.hidden) edOpenColorPanel();
+    else { edCloseColorPanel(); edRestoreRange(); }      // back to the text
   });
+  // Quick swatches: mousedown is cancelled, so focus and the selection stay
+  // in the text; the colour lands on the selection immediately.
+  var swatches = document.querySelector("#ed-swatches");
+  if (swatches) {
+    swatches.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    swatches.addEventListener("click", function (e) {
+      var b = e.target.closest("button[data-color]");
+      var rgb = b && hexToRgb(b.dataset.color);
+      if (!rgb) return;
+      edRecallSelection();
+      edColorInput(rgb.r, rgb.g, rgb.b);
+      if (ED.liveSpan || DOC.root) edRestoreRange();
+    });
+  }
+
+  /* ---------- toolbar: font family ---------- */
+  var fontSel = document.querySelector("#ed-font");
+  // Which menu entry matches a computed font-family ("Inter", system-ui… -> Inter)
+  function edFontOption(family) {
+    var first = String(family || "").split(",")[0].replace(/["']/g, "").trim().toLowerCase();
+    var hit = Array.prototype.filter.call(fontSel.options, function (o) {
+      return o.value && o.value.split(",")[0].replace(/["']/g, "").trim().toLowerCase() === first;
+    })[0];
+    return hit ? hit.value : "";
+  }
+  if (fontSel) {
+    fontSel.addEventListener("pointerdown", edRememberSelection);
+    fontSel.addEventListener("change", function () {
+      var font = fontSel.value;
+      var el = edFind(ED.selectedId);
+      if (!DOC.root && (!el || el.type !== "text")) return;
+      edRecallSelection();
+      if (edContext() === "range") {
+        edLiveStyle({ fontFamily: font });            // the selected words (or what's typed next)
+        edCommitLive();
+        edRestoreRange();                             // straight back to typing
+      } else {
+        el.styles.fontFamily = font;                  // the whole text box
+        var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
+        if (content) edApplyContentStyles(content, el);
+      }
+    });
+  }
   // close panel when clicking elsewhere
   document.addEventListener("pointerdown", function (e) {
     if (EDITOR.overlay.hidden || EDITOR.colorPanel.hidden) return;
@@ -2351,6 +2528,10 @@
     var el = edFind(ED.selectedId);
     if (!DOC.root && (!el || el.type !== "text")) return;
     EDITOR.fsVal.value = edCurrentFontSize();
+    if (fontSel) {                            // font menu shows the font at the caret / of the box
+      var fNode = edContext() === "range" ? edRangeAnchorEl() : null;
+      fontSel.value = edFontOption(fNode && fNode.nodeType === 1 ? window.getComputedStyle(fNode).fontFamily : (el && el.styles.fontFamily) || "");
+    }
     var ctx = edContext();
     var bActive, iActive, uActive, color;
     if (ctx === "range") {

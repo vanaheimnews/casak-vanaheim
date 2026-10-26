@@ -5,6 +5,10 @@
   <title>Administrace — Školní magazín</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  <!-- Fonts for the editor font menu (all with full Czech diacritics) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&family=Inter:wght@400;700&family=JetBrains+Mono:wght@400;700&family=Merriweather:ital,wght@0,400;0,700;1,400;1,700&family=Montserrat:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Roboto:wght@400;700&display=swap">
   <link rel="stylesheet" href="/style.css">
   <style>
     /* Admin component styles (layout lives in style.css under "ADMIN DASHBOARD") */
@@ -497,6 +501,23 @@
         </div>
 
         <div class="ed-bar2-right" id="ed-format-tools" aria-hidden="true">
+          <!-- Font family (Google Fonts with full Czech diacritics, loaded in <head>) -->
+          <select class="ed-font" id="ed-font" title="Písmo" aria-label="Písmo">
+            <option value="">Výchozí písmo</option>
+            <optgroup label="Bezpatkové">
+              <option value="'Inter', system-ui, sans-serif" style="font-family:'Inter'">Inter</option>
+              <option value="'Roboto', system-ui, sans-serif" style="font-family:'Roboto'">Roboto</option>
+              <option value="'Montserrat', system-ui, sans-serif" style="font-family:'Montserrat'">Montserrat</option>
+            </optgroup>
+            <optgroup label="Patkové">
+              <option value="'Merriweather', Georgia, serif" style="font-family:'Merriweather'">Merriweather</option>
+              <option value="'Playfair Display', Georgia, serif" style="font-family:'Playfair Display'">Playfair Display</option>
+            </optgroup>
+            <optgroup label="Neproporcionální">
+              <option value="'Fira Code', ui-monospace, monospace" style="font-family:'Fira Code'">Fira Code</option>
+              <option value="'JetBrains Mono', ui-monospace, monospace" style="font-family:'JetBrains Mono'">JetBrains Mono</option>
+            </optgroup>
+          </select>
           <!-- Font size -->
           <div class="ed-fontsize">
             <button type="button" id="ed-fs-dec" aria-label="Zmenšit písmo">&#8722;</button>
@@ -511,6 +532,19 @@
           <div class="ed-color-wrap">
             <button class="ed-tool ed-tool-o" type="button" id="ed-color" title="Barva textu" aria-label="Barva textu" style="color:#000000;">O</button>
             <div class="ed-color-panel" id="ed-color-panel" hidden>
+              <!-- one-click swatches: they never take focus, so the selected text stays selected -->
+              <div class="ed-swatches" id="ed-swatches" role="group" aria-label="Rychlé barvy">
+                <button type="button" data-color="#1a1a1a" style="background:#1a1a1a" title="Černá" aria-label="Černá"></button>
+                <button type="button" data-color="#5b6770" style="background:#5b6770" title="Šedá" aria-label="Šedá"></button>
+                <button type="button" data-color="#ffffff" style="background:#ffffff" title="Bílá" aria-label="Bílá"></button>
+                <button type="button" data-color="#16a9e0" style="background:#16a9e0" title="Modrá (Vanaheim)" aria-label="Modrá"></button>
+                <button type="button" data-color="#1d4ed8" style="background:#1d4ed8" title="Tmavě modrá" aria-label="Tmavě modrá"></button>
+                <button type="button" data-color="#15a34a" style="background:#15a34a" title="Zelená" aria-label="Zelená"></button>
+                <button type="button" data-color="#f59e0b" style="background:#f59e0b" title="Oranžová" aria-label="Oranžová"></button>
+                <button type="button" data-color="#dc2626" style="background:#dc2626" title="Červená" aria-label="Červená"></button>
+                <button type="button" data-color="#7e22ce" style="background:#7e22ce" title="Fialová" aria-label="Fialová"></button>
+                <button type="button" data-color="#db2777" style="background:#db2777" title="Růžová" aria-label="Růžová"></button>
+              </div>
               <div class="ed-color-preview" id="ed-color-preview"></div>
               <input class="ed-color-native" type="color" id="ed-color-native" value="#000000" aria-label="Výběr barvy">
               <div class="ed-color-row"><label for="ed-r-num">R</label><input type="range" min="0" max="255" id="ed-r-range" value="0"><input type="number" min="0" max="255" id="ed-r-num" value="0"></div>

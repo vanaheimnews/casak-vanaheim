@@ -1053,6 +1053,21 @@ button { font: inherit; cursor: pointer; }
   box-shadow: 0 12px 30px rgba(16, 24, 40, 0.18);
 }
 .ed-color-panel[hidden] { display: none !important; }
+/* one-click colour swatches (keep the text selection) */
+.ed-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px; }
+.ed-swatches button {
+  height: 24px; border: 1px solid rgba(0, 0, 0, 0.18); border-radius: 5px; cursor: pointer; padding: 0;
+}
+.ed-swatches button:hover { transform: scale(1.08); box-shadow: 0 0 0 2px var(--brand); }
+/* font family menu */
+.ed-font {
+  height: 34px; max-width: 170px; padding: 0 8px; border: 1px solid var(--content-rule); border-radius: 6px;
+  background: #fff; font: inherit; font-size: 0.85rem; cursor: pointer;
+}
+/* smart guides shown while moving / resizing a block */
+.ed-guide { position: absolute; z-index: 9999; pointer-events: none; }
+.ed-guide--v { width: 0; border-left: 1px dashed #e0119d; }
+.ed-guide--h { height: 0; border-top: 1px dashed #e0119d; }
 .ed-color-preview {
   height: 40px; border-radius: 6px; border: 1px solid var(--content-rule);
   margin-bottom: 12px;
