@@ -1556,8 +1556,9 @@
       raf = 0;
       if (lastY === null) return;
       var r = wrap.getBoundingClientRect(), v = 0;
-      if (lastY > r.bottom - EDGE) v = Math.min(EDGE, lastY - (r.bottom - EDGE));
-      else if (lastY < r.top + EDGE) v = -Math.min(EDGE, r.top + EDGE - lastY);
+      var zone = Math.min(EDGE, r.height / 4);        // a short (phone) view must not be all edge
+      if (lastY > r.bottom - zone) v = Math.min(zone, lastY - (r.bottom - zone));
+      else if (lastY < r.top + zone) v = -Math.min(zone, r.top + zone - lastY);
       if (!v) return;
       var before = wrap.scrollTop;
       wrap.scrollTop += Math.ceil(Math.abs(v) / 3) * (v < 0 ? -1 : 1);
@@ -1589,6 +1590,9 @@
     var edge = edEdgeScroller(function () { if (last) move(last); });
     function move(e2) {
       last = e2;
+      // a re-render (upload finishing, Ctrl+V…) replaced the block mid-drag:
+      // its pointerup will never come, so end the gesture here
+      if (!node.isConnected) { up(); return; }
       var dx = e2.clientX - startX + (wrap.scrollLeft - sx0), dy = e2.clientY - startY + (wrap.scrollTop - sy0);
       if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       if (moved) {
@@ -1620,7 +1624,7 @@
       edge.stop();
       edHideGuides();
       if (moved) edAutoHeight(null, { shrink: true });
-      if (e3 && e3.type === "pointercancel") return;   // the browser took the gesture over
+      if (!e3 || e3.type === "pointercancel") return;  // the browser took the gesture over / the block was re-rendered away
       var dbl = !moved && edIsDoubleClick(el.id, e3);
       if (moved) {
         if (!wasSelected) edSelect(el.id); else edUpdateToolbar();
@@ -1654,6 +1658,7 @@
 
     function move(e2) {
       last = e2;
+      if (!node.isConnected) { up(); return; }
       var dx = e2.clientX - startX + (wrap.scrollLeft - sx0), dy = e2.clientY - startY + (wrap.scrollTop - sy0);
       var w = origW, ht = origH, x = origX, y = origY;
       if (h.indexOf("e") > -1) w = origW + dx;
@@ -1681,7 +1686,7 @@
       node.style.width = el.width + "px"; node.style.height = el.height + "px";
       edShowGuides(gx, gy, { x: el.x, y: el.y, w: el.width, h: el.height });
       edAutoHeight(el.y + el.height);
-      edge.update(e2.clientY);
+      if (/[ns]/.test(h)) edge.update(e2.clientY);    // a sideways resize must not scroll
     }
     function up() {
       document.removeEventListener("pointermove", move);
@@ -2011,7 +2016,7 @@
      outline and resize handles go, edit mode ends (the text is saved into
      the layout), every floating panel closes and a focused field or text box
      is blurred so its value commits. Pressing another block is left to that
-     block — it selects itself. Touch acts on a tap, so swiping to scroll
+     block — it selects itself. Touch and pen act on a tap, so swiping to scroll
      keeps the selection. */
   var ED_AWAY_KEEP = ".ed-bar1, .ed-bar2, .ed-pop, .ed-color-panel, .ed-confirm, .toast, .login-screen";
   function edOnScrollbar(t, x, y) {
@@ -2023,26 +2028,37 @@
     edCloseColorPanel();
     Array.prototype.forEach.call(EDITOR.overlay.querySelectorAll(".ed-pop"), function (p) { p.hidden = true; });
   }
-  function edClickAway(t, x, y) {
-    if (EDITOR.overlay.hidden || !t || !t.closest) return;
-    if (t.closest(ED_AWAY_KEEP)) return;                                   // toolbars, panels, dialogs
-    if (EDITOR.canvas.contains(t) && t.closest(".ed-el")) return;          // a block handles its own press
-    if (edOnScrollbar(t, x, y)) return;                                    // scrollbar = just scrolling
-    edClosePopovers();
-    if (ED.selectedId || ED.editingId || ED.playingId) edDeselect();
+  // Is a press on `t` a press "away"? Decided at press time, while `t` is
+  // still in the page (a block's own handler may re-render it before pointerup).
+  function edIsAway(t, x, y) {
+    if (EDITOR.overlay.hidden || !t || !t.closest) return false;
+    if (t.closest(ED_AWAY_KEEP)) return false;                             // toolbars, panels, dialogs
+    if (EDITOR.canvas.contains(t) && t.closest(".ed-el")) return false;    // a block handles its own press
+    return !edOnScrollbar(t, x, y);                                        // scrollbar = just scrolling
+  }
+  function edClickAway(t) {
+    // blur first: a field's change / blur handler (size box, HEX…) must still
+    // commit against the live selection before the selection is dropped
     var a = document.activeElement;
     if (a && a !== document.body && EDITOR.overlay.contains(a) && !a.contains(t) && a.blur) a.blur();
+    edClosePopovers();
+    if (ED.selectedId || ED.editingId || ED.playingId) edDeselect();
   }
+  // Mouse acts on the press; touch and pen on a tap, so a swipe that pans
+  // the canvas keeps the selection.
   var edAwayTap = null;
   document.addEventListener("pointerdown", function (e) {
-    if (e.pointerType === "touch") { edAwayTap = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.target }; return; }
-    if (e.button === 0) edClickAway(e.target, e.clientX, e.clientY);
+    if (e.pointerType === "touch" || e.pointerType === "pen") {
+      edAwayTap = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.target, away: edIsAway(e.target, e.clientX, e.clientY) };
+      return;
+    }
+    if (e.button === 0 && edIsAway(e.target, e.clientX, e.clientY)) edClickAway(e.target);
   });
   document.addEventListener("pointerup", function (e) {
     var tap = edAwayTap;
     edAwayTap = null;
-    if (!tap || tap.id !== e.pointerId || Math.abs(e.clientX - tap.x) + Math.abs(e.clientY - tap.y) > 10) return;
-    edClickAway(tap.t, tap.x, tap.y);
+    if (!tap || !tap.away || tap.id !== e.pointerId || Math.abs(e.clientX - tap.x) + Math.abs(e.clientY - tap.y) > 10) return;
+    edClickAway(tap.t);
   });
   document.addEventListener("pointercancel", function () { edAwayTap = null; });
 
@@ -2272,7 +2288,7 @@
   // box, font menu, colour inputs, their labels) take focus; they style the
   // remembered range (ED.savedRange) instead.
   function edToolbarKeepFocus(e) {
-    if (e.target.closest && e.target.closest("input, select, textarea, label")) return;
+    if (e.target.closest && e.target.closest("input, select, textarea, label, .ed-bg-panel")) return;
     e.preventDefault();
   }
   var edBar2 = document.querySelector(".ed-bar2");
@@ -2722,16 +2738,19 @@
     return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
   }
   // single source of truth: set all controls to one rgb (no text apply)
-  function edSyncColor(r, g, b) {
+  // src: the control the user is typing in / dragging. It is left as typed
+  // (rewriting "#1a2" to "#11AA22" ate keystrokes). Every other control,
+  // focused or not, is updated, so a swatch click never leaves one stale.
+  function edSyncColor(r, g, b, src) {
     r = clamp255(r); g = clamp255(g); b = clamp255(b);
     var hex = rgbToHex(r, g, b);
     ED.colorSyncing = true;
-    // never rewrite the field the user is typing in (its blur normalises it)
-    function put(input, v) { if (input !== document.activeElement) input.value = v; }
+    function put(input, v) { if (input !== src) input.value = v; }
     put(EDITOR.rRange, r); put(EDITOR.rNum, r);
     put(EDITOR.gRange, g); put(EDITOR.gNum, g);
     put(EDITOR.bRange, b); put(EDITOR.bNum, b);
     put(EDITOR.hex, hex.toUpperCase());
+    if (src !== EDITOR.hex) ED.hexTyped = false;   // HEX shows the live colour again
     put(EDITOR.colorNative, hex);
     EDITOR.preview.style.background = hex;
     EDITOR.colorBtn.style.color = hex;
@@ -2866,20 +2885,20 @@
   // Control listeners: every `input` (slider drag, number typing, native
   // picker browsing, valid HEX) syncs all controls AND recolours the text
   // immediately. No `change`/Enter step is needed to see or keep it.
-  function edColorInput(r, g, b) {
+  function edColorInput(r, g, b, src) {
     if (ED.colorSyncing) return;
-    edSyncColor(r, g, b);
+    edSyncColor(r, g, b, src);
     edApplyColorLive();
   }
   ["rRange", "gRange", "bRange"].forEach(function (k) {
     EDITOR[k].addEventListener("input", function () {
-      edColorInput(EDITOR.rRange.value, EDITOR.gRange.value, EDITOR.bRange.value);
+      edColorInput(EDITOR.rRange.value, EDITOR.gRange.value, EDITOR.bRange.value, EDITOR[k]);
     });
   });
   ["rNum", "gNum", "bNum"].forEach(function (k) {
     EDITOR[k].addEventListener("input", function () {
       if (EDITOR[k].value === "") return;          // mid-edit, wait for a digit
-      edColorInput(EDITOR.rNum.value, EDITOR.gNum.value, EDITOR.bNum.value);
+      edColorInput(EDITOR.rNum.value, EDITOR.gNum.value, EDITOR.bNum.value, EDITOR[k]);
     });
     // blur: normalise an emptied/out-of-range number back to the live colour
     EDITOR[k].addEventListener("blur", function () {
@@ -2887,19 +2906,23 @@
     });
   });
   EDITOR.colorNative.addEventListener("input", function () {
-    var rgb = hexToRgb(EDITOR.colorNative.value); if (rgb) edColorInput(rgb.r, rgb.g, rgb.b);
+    var rgb = hexToRgb(EDITOR.colorNative.value); if (rgb) edColorInput(rgb.r, rgb.g, rgb.b, EDITOR.colorNative);
   });
   // A complete #RRGGBB applies while typing; the #RGB shorthand only on Enter
   // or leaving the field — applying "#1a2" on the way to "#1a2b3c" used to
   // rewrite the field to #11AA22 and maxlength swallowed the other digits.
   EDITOR.hex.addEventListener("input", function () {
+    ED.hexTyped = true;
     var v = EDITOR.hex.value.trim();
     var rgb = /^#?[0-9a-f]{6}$/i.test(v) && hexToRgb(v);
-    if (rgb) edColorInput(rgb.r, rgb.g, rgb.b);
+    if (rgb) edColorInput(rgb.r, rgb.g, rgb.b, EDITOR.hex);
   });
+  // only what the user typed is committed: a stale value left in the field
+  // (e.g. after a swatch click) must not undo the colour on blur
   function edHexCommit() {
+    if (!ED.hexTyped) return;
     var rgb = hexToRgb(EDITOR.hex.value.trim());
-    if (rgb && rgbToHex(rgb.r, rgb.g, rgb.b) !== ED.currentColor) edColorInput(rgb.r, rgb.g, rgb.b);
+    if (rgb && rgbToHex(rgb.r, rgb.g, rgb.b) !== ED.currentColor) edColorInput(rgb.r, rgb.g, rgb.b, EDITOR.hex);
   }
   EDITOR.hex.addEventListener("change", edHexCommit);
   // blur: an incomplete HEX snaps back to the last valid (already applied) colour.
