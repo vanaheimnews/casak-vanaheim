@@ -867,9 +867,14 @@ button { font: inherit; cursor: pointer; }
 /* ============================================================
    Reduced motion
    ============================================================ */
+/* `transition: none`, not a near-zero duration: with transition-property at
+   its initial `all`, a 0.01ms duration made EVERY property of every element
+   transition — getComputedStyle then returned the old font size / colour
+   until the next frame, so the editor toolbar showed stale values and the
+   next +/- step was computed from them. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    transition-duration: 0.01ms !important;
+    transition: none !important;
     animation-duration: 0.01ms !important;
   }
 }
@@ -1141,6 +1146,7 @@ button { font: inherit; cursor: pointer; }
   flex: 1 1 auto;
   min-width: 0;             /* let the fixed-width canvas scroll instead of widening the row */
   overflow: auto;
+  overflow-anchor: none;    /* re-renders replace every block; never let the browser shift the scroll */
   padding: 24px;
   background: var(--content-bg);
   border: 1px solid var(--content-rule);
@@ -1150,11 +1156,15 @@ button { font: inherit; cursor: pointer; }
   position: relative;
   width: 820px;
   max-width: none;          /* fixed 820px = the public article width; the wrap scrolls */
-  min-height: 1100px;
+  min-height: 1100px;       /* one sheet; admin.js grows it with the content (edAutoHeight) */
   margin: 0 auto;
   background: #fff;
   border-radius: 4px;
   box-shadow: 0 2px 18px rgba(16, 24, 40, 0.12);
+  transition: min-height 180ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ed-canvas { transition: none; }
 }
 
 /* Custom selection highlight on canvas text (no default blue/white) */

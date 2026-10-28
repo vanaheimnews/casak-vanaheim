@@ -1088,6 +1088,8 @@
     edSetToolsVisible(false);
     edSetLayerVisible(false);
     EDITOR.overlay.hidden = false;
+    ED.pageH = 0;                        // a new article starts from one sheet + its content
+    edAutoHeight();
     ED.snapshot = edStateSnapshot();     // compared by the leave-page warning
   }
   // Everything Vydat would save — compared with the state at open time.
@@ -1256,17 +1258,87 @@
 
   /* ---------- rendering ---------- */
   function edRenderCanvas() {
+    var keep = edKeepSelection();
     EDITOR.canvas.innerHTML = "";
+    if (edResizeObs) edResizeObs.disconnect();
     // Elements created before layering existed (or newly added, which are
     // pushed last) get a z by array order — so new blocks land on top.
     ED.elements.forEach(function (el, i) {
       if (typeof el.z !== "number") el.z = i + 1;
     });
     ED.elements.forEach(function (el) {
-      EDITOR.canvas.appendChild(edBuildNode(el));
+      var node = edBuildNode(el);
+      EDITOR.canvas.appendChild(node);
+      if (edResizeObs) edResizeObs.observe(node);   // typing / image load -> page grows
     });
+    edRestoreKeptSelection(keep);
+    edScheduleAutoHeight();
   }
 
+  /* A re-render (upload finishing, layer change…) replaces the node being
+     edited. ED.savedRange then pointed into the removed node and the next
+     colour / font / size change silently did nothing until the text was
+     selected again. Carry the selection over as text offsets instead. */
+  function edTextOffset(root, node, offset) {
+    var r = document.createRange();
+    r.selectNodeContents(root);
+    r.setEnd(node, offset);
+    return r.toString().length;
+  }
+  // isStart: a point exactly between two text runs belongs to the next run
+  // (else the toolbar would read the size / font of the run before it)
+  function edTextPoint(root, chars, isStart) {
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), n, last = null;
+    while ((n = w.nextNode())) {
+      if (chars < n.nodeValue.length || (!isStart && chars === n.nodeValue.length)) return { node: n, offset: chars };
+      chars -= n.nodeValue.length;
+      last = n;
+    }
+    return last ? { node: last, offset: last.nodeValue.length } : { node: root, offset: root.childNodes.length };
+  }
+  function edKeepSelection() {
+    if (DOC.root || !ED.editingId || !ED.savedRange) return null;
+    var old = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"] .ed-el-content');
+    var r = ED.savedRange;
+    if (!old || !old.contains(r.startContainer) || !old.contains(r.endContainer)) return null;
+    return {
+      id: ED.editingId,
+      start: edTextOffset(old, r.startContainer, r.startOffset),
+      end: edTextOffset(old, r.endContainer, r.endOffset),
+      focused: old === document.activeElement || old.contains(document.activeElement)
+    };
+  }
+  function edRestoreKeptSelection(keep) {
+    if (!keep || keep.id !== ED.editingId) return;
+    var content = edEditingContent();
+    if (!content) return;
+    var a = edTextPoint(content, keep.start, keep.start !== keep.end), b = edTextPoint(content, keep.end);
+    var r = document.createRange();
+    r.setStart(a.node, a.offset);
+    r.setEnd(b.node, b.offset);
+    ED.liveSpan = null;               // its node is gone; the styling is already in el.content
+    ED.savedRange = r;
+    if (keep.focused) {
+      content.focus();
+      var sel = window.getSelection();
+      sel.removeAllRanges(); sel.addRange(r.cloneRange());
+    }
+  }
+
+  /* Whole-box formatting (block selected, not being edited). The box style
+     alone stayed hidden wherever earlier range formatting had left an inline
+     style for the same property, so it seemed to do nothing there. Clear
+     those first — like formatting all of the text in Google Docs. */
+  function edBoxStyle(el, props) {
+    var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
+    if (!content) return;
+    Array.prototype.forEach.call(content.querySelectorAll("[style]"), function (n) {
+      props.forEach(function (p) { n.style[p] = ""; });
+      if (!n.getAttribute("style")) n.removeAttribute("style");
+    });
+    edApplyContentStyles(content, el);
+    el.content = content.innerHTML;
+  }
   function edApplyContentStyles(content, el) {
     content.style.fontFamily = el.styles.fontFamily || "";
     content.style.fontSize = el.styles.fontSize || "16px";
@@ -1345,7 +1417,9 @@
     // pointer interactions (drag / select / enter-edit)
     content.addEventListener("pointerdown", function (ev) { edPointerDownOnElement(ev, el, node, content); });
     content.addEventListener("dblclick", function (ev) {
-      if (el.type === "text") { ev.preventDefault(); edEnterEdit(el.id); }
+      // already editing: keep the browser's own double-click word selection
+      // (re-entering edit mode re-rendered the box and threw it away)
+      if (el.type === "text") { if (ED.editingId === el.id) return; ev.preventDefault(); edEnterEdit(el.id, ev.clientX, ev.clientY); }
       else if (el.type === "embed") { ev.preventDefault(); edPlayEmbed(el.id); }
     });
     // keep state in sync while editing
@@ -1409,6 +1483,93 @@
     Array.prototype.forEach.call(EDITOR.canvas.querySelectorAll(":scope > .ed-guide"), function (n) { n.remove(); });
   }
 
+  /* ---------- page auto-expansion (Word / Google Docs style) ----------
+     The paper is never one fixed sheet. It always keeps ED_PAGE_STEP px of
+     free room under the lowest block (so typing, resizing or dragging a block
+     down grows it live), and the pointer or the scrolled view coming within
+     ED_GROW_ZONE px of the bottom edge adds another step — every time, so the
+     page never ends. Room nobody used is given back after a drop / delete
+     (only below the visible area, so nothing jumps). Dragging / resizing near
+     the top or bottom of the visible area scrolls the canvas along.
+     Editor-only: article.html sizes the public page from the blocks. */
+  var ED_PAGE_MIN = 1100;      // one sheet — the old fixed height
+  var ED_PAGE_STEP = 600;
+  var ED_GROW_ZONE = 100;
+  ED.pageH = 0;
+  function edContentBottom() {
+    var b = 0;
+    Array.prototype.forEach.call(EDITOR.canvas.querySelectorAll(":scope > .ed-el"), function (n) {
+      // the inline top is the layout value; offsetTop can lag behind a running transition
+      var top = parseFloat(n.style.top);
+      b = Math.max(b, (isNaN(top) ? n.offsetTop : top) + n.offsetHeight);
+    });
+    return b;
+  }
+  // Canvas y of the bottom edge of the visible area.
+  function edSeenBottom() {
+    return EDITOR.canvas.parentNode.getBoundingClientRect().bottom - EDITOR.canvas.getBoundingClientRect().top;
+  }
+  // near (optional): canvas y of the pointer / moving block / visible bottom —
+  // inside the grow zone it adds a step. opts.shrink gives back unused room,
+  // but never what is on screen.
+  function edAutoHeight(near, opts) {
+    if (EDITOR.overlay.hidden) return;
+    opts = opts || {};
+    var base = Math.max(ED_PAGE_MIN, edContentBottom() + ED_PAGE_STEP);
+    var h = Math.max(ED.pageH || 0, base);
+    // (the kept margin below the visible bottom stops a shrink from landing in the grow zone)
+    if (opts.shrink) h = Math.max(base, Math.min(h, Math.ceil(edSeenBottom()) + ED_GROW_ZONE));
+    if (typeof near === "number" && h - near < ED_GROW_ZONE) h += ED_PAGE_STEP;
+    h = Math.round(h);
+    if (h !== ED.pageH) {
+      ED.pageH = h;
+      EDITOR.canvas.style.minHeight = h + "px";
+    }
+  }
+  // Any block changing size (typing, image load, font change) re-checks the page.
+  var edAutoRaf = 0;
+  function edScheduleAutoHeight() {
+    if (edAutoRaf) return;
+    edAutoRaf = requestAnimationFrame(function () { edAutoRaf = 0; edAutoHeight(); });
+  }
+  var edResizeObs = window.ResizeObserver ? new ResizeObserver(edScheduleAutoHeight) : null;
+  EDITOR.canvas.parentNode.addEventListener("pointermove", function (e) {
+    var y = e.clientY - EDITOR.canvas.getBoundingClientRect().top;
+    if ((ED.pageH || 0) - y < ED_GROW_ZONE) edAutoHeight(y);
+  });
+  // Scrolling (wheel, keys, scrollbar) to the end of the page also extends it.
+  var edScrollRaf = 0;
+  EDITOR.canvas.parentNode.addEventListener("scroll", function () {
+    if (edScrollRaf) return;
+    edScrollRaf = requestAnimationFrame(function () {
+      edScrollRaf = 0;
+      var seen = edSeenBottom();
+      if ((ED.pageH || 0) - seen < ED_GROW_ZONE) edAutoHeight(seen);
+    });
+  }, { passive: true });
+  // While a block is dragged / resized with the pointer near the top or bottom
+  // edge of the visible canvas, scroll it; onScroll re-runs the move so the
+  // block stays under the pointer (and the page keeps growing under it).
+  function edEdgeScroller(onScroll) {
+    var wrap = EDITOR.canvas.parentNode, raf = 0, lastY = null, EDGE = 48;
+    function tick() {
+      raf = 0;
+      if (lastY === null) return;
+      var r = wrap.getBoundingClientRect(), v = 0;
+      if (lastY > r.bottom - EDGE) v = Math.min(EDGE, lastY - (r.bottom - EDGE));
+      else if (lastY < r.top + EDGE) v = -Math.min(EDGE, r.top + EDGE - lastY);
+      if (!v) return;
+      var before = wrap.scrollTop;
+      wrap.scrollTop += Math.ceil(Math.abs(v) / 3) * (v < 0 ? -1 : 1);
+      if (wrap.scrollTop !== before) onScroll();      // the move it re-runs may already have queued the next tick
+      if (!raf) raf = requestAnimationFrame(tick);    // exactly one loop, never a second one
+    }
+    return {
+      update: function (clientY) { lastY = clientY; if (!raf) raf = requestAnimationFrame(tick); },
+      stop: function () { lastY = null; if (raf) cancelAnimationFrame(raf); raf = 0; }
+    };
+  }
+
   function edPointerDownOnElement(ev, el, node, content) {
     if (ev.button !== 0) return;
     // already editing this text box -> let the caret/selection work
@@ -1423,8 +1584,12 @@
     try { content.setPointerCapture(ev.pointerId); } catch (e) {}
 
     var guides = null;                 // snap lines of the other blocks (built on first move)
+    // the canvas may scroll under a held block (edge auto-scroll, wheel)
+    var wrap = EDITOR.canvas.parentNode, sx0 = wrap.scrollLeft, sy0 = wrap.scrollTop, last = null;
+    var edge = edEdgeScroller(function () { if (last) move(last); });
     function move(e2) {
-      var dx = e2.clientX - startX, dy = e2.clientY - startY;
+      last = e2;
+      var dx = e2.clientX - startX + (wrap.scrollLeft - sx0), dy = e2.clientY - startY + (wrap.scrollTop - sy0);
       if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       if (moved) {
         var w = node.offsetWidth, hgt = node.offsetHeight, maxX = Math.max(0, ED_CANVAS_W - w);
@@ -1443,25 +1608,35 @@
         node.style.left = el.x + "px";
         node.style.top = el.y + "px";
         edShowGuides(gx, gy, { x: el.x, y: el.y, w: w, h: hgt });
+        edAutoHeight(el.y + hgt);
+        edge.update(e2.clientY);
       }
     }
-    function up() {
+    function up(e3) {
       content.removeEventListener("pointermove", move);
       content.removeEventListener("pointerup", up);
+      content.removeEventListener("pointercancel", up);
       try { content.releasePointerCapture(ev.pointerId); } catch (e) {}
+      edge.stop();
       edHideGuides();
+      if (moved) edAutoHeight(null, { shrink: true });
+      if (e3 && e3.type === "pointercancel") return;   // the browser took the gesture over
+      var dbl = !moved && edIsDoubleClick(el.id, e3);
       if (moved) {
         if (!wasSelected) edSelect(el.id); else edUpdateToolbar();
       } else if (wasSelected && el.type === "embed") {
         edPlayEmbed(el.id);          // click on already-selected video -> live preview
       } else if (wasSelected && el.type === "text") {
-        edEnterEdit(el.id);          // click on already-selected text -> edit
+        // click on already-selected text -> edit with the caret at the click
+        // (a double-click selects the word there)
+        edEnterEdit(el.id, e3.clientX, e3.clientY, dbl);
       } else {
         edSelect(el.id);             // first click -> select
       }
     }
     content.addEventListener("pointermove", move);
     content.addEventListener("pointerup", up);
+    content.addEventListener("pointercancel", up);
   }
 
   function edStartResize(ev, el, node, h) {
@@ -1474,9 +1649,12 @@
     var origH = node.offsetHeight;
     try { node.setPointerCapture(ev.pointerId); } catch (e) {}
     var guides = edGuideLines(el.id);
+    var wrap = EDITOR.canvas.parentNode, sx0 = wrap.scrollLeft, sy0 = wrap.scrollTop, last = null;
+    var edge = edEdgeScroller(function () { if (last) move(last); });
 
     function move(e2) {
-      var dx = e2.clientX - startX, dy = e2.clientY - startY;
+      last = e2;
+      var dx = e2.clientX - startX + (wrap.scrollLeft - sx0), dy = e2.clientY - startY + (wrap.scrollTop - sy0);
       var w = origW, ht = origH, x = origX, y = origY;
       if (h.indexOf("e") > -1) w = origW + dx;
       if (h.indexOf("s") > -1) ht = origH + dy;
@@ -1502,15 +1680,21 @@
       node.style.left = el.x + "px"; node.style.top = el.y + "px";
       node.style.width = el.width + "px"; node.style.height = el.height + "px";
       edShowGuides(gx, gy, { x: el.x, y: el.y, w: el.width, h: el.height });
+      edAutoHeight(el.y + el.height);
+      edge.update(e2.clientY);
     }
     function up() {
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
       try { node.releasePointerCapture(ev.pointerId); } catch (e) {}
+      edge.stop();
       edHideGuides();
+      edAutoHeight(null, { shrink: true });
     }
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
   }
 
   function edSelect(id) {
@@ -1543,14 +1727,40 @@
     if (ED.selectedId === id) ED.selectedId = null;
     if (ED.editingId === id) ED.editingId = null;
     edRenderCanvas();
+    edAutoHeight(null, { shrink: true });
     edSetToolsVisible(false);
     edSetLayerVisible(false);
   }
 
   /* ---------- inline editing ---------- */
-  function edEnterEdit(id) {
+  // Our own double-click detection: the first click re-renders the block, and
+  // Chrome drops the native dblclick when its target node was replaced.
+  var edLastClick = null;
+  function edIsDoubleClick(id, e) {
+    var prev = edLastClick;
+    edLastClick = { id: id, t: e.timeStamp, x: e.clientX, y: e.clientY };
+    return !!prev && prev.id === id && e.timeStamp - prev.t < 500 &&
+      Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y) < 8;
+  }
+  // The word around a caret (Czech letters included: anything but spaces/punctuation).
+  function edWordAt(r) {
+    var n = r.startContainer, i = r.startOffset;
+    if (n.nodeType !== 3) return r;
+    var s = n.nodeValue, a = i, b = i, W = /[^\s.,;:!?()[\]{}"'„“”«»\/\\​]/;
+    while (a > 0 && W.test(s.charAt(a - 1))) a--;
+    while (b < s.length && W.test(s.charAt(b))) b++;
+    if (a === b) return r;
+    var w = document.createRange();
+    w.setStart(n, a); w.setEnd(n, b);
+    return w;
+  }
+  // x / y (optional): the click that opened editing — the caret goes there
+  // instead of to the start of the text, like a click into a Word document;
+  // word: it was a double-click, so the word there gets selected.
+  function edEnterEdit(id, x, y, word) {
     var el = edFind(id);
     if (!el || el.type !== "text") return;
+    if (ED.editingId === id) { edSetToolsVisible(true); edUpdateToolbar(); return; }   // never rebuild the box being edited
     ED.editingId = id;
     ED.selectedId = id;
     edRenderCanvas();
@@ -1559,8 +1769,27 @@
     var content = node.querySelector(".ed-el-content");
     content.contentEditable = "true";
     content.focus();
+    var caret = typeof x === "number" ? edCaretAt(x, y) : null;
+    if (caret && content.contains(caret.startContainer)) {
+      if (word) caret = edWordAt(caret);
+      var sel = window.getSelection();
+      sel.removeAllRanges(); sel.addRange(caret);
+      ED.savedRange = caret.cloneRange();
+    }
     edSetToolsVisible(true);
     edUpdateToolbar();
+  }
+  function edCaretAt(x, y) {
+    if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+    if (document.caretPositionFromPoint) {
+      var p = document.caretPositionFromPoint(x, y);
+      if (!p) return null;
+      var r = document.createRange();
+      r.setStart(p.offsetNode, p.offset);
+      r.collapse(true);
+      return r;
+    }
+    return null;
   }
   function edExitEdit() {
     if (!ED.editingId) return;
@@ -1776,10 +2005,46 @@
       .finally(function () { URL.revokeObjectURL(localUrl); });
   }
 
-  // deselect when clicking empty canvas
-  EDITOR.canvas.addEventListener("pointerdown", function (ev) {
-    if (ev.target === EDITOR.canvas) edDeselect();
+  /* ---------- global click-away ----------
+     A press anywhere outside the blocks, the two toolbars and the open
+     pop-ups / dialogs ends the selection like in Word / Google Docs: the
+     outline and resize handles go, edit mode ends (the text is saved into
+     the layout), every floating panel closes and a focused field or text box
+     is blurred so its value commits. Pressing another block is left to that
+     block — it selects itself. Touch acts on a tap, so swiping to scroll
+     keeps the selection. */
+  var ED_AWAY_KEEP = ".ed-bar1, .ed-bar2, .ed-pop, .ed-color-panel, .ed-confirm, .toast, .login-screen";
+  function edOnScrollbar(t, x, y) {
+    if (!t || t.nodeType !== 1 || (t.scrollHeight <= t.clientHeight && t.scrollWidth <= t.clientWidth)) return false;
+    var r = t.getBoundingClientRect();
+    return x - r.left - t.clientLeft >= t.clientWidth || y - r.top - t.clientTop >= t.clientHeight;
+  }
+  function edClosePopovers() {
+    edCloseColorPanel();
+    Array.prototype.forEach.call(EDITOR.overlay.querySelectorAll(".ed-pop"), function (p) { p.hidden = true; });
+  }
+  function edClickAway(t, x, y) {
+    if (EDITOR.overlay.hidden || !t || !t.closest) return;
+    if (t.closest(ED_AWAY_KEEP)) return;                                   // toolbars, panels, dialogs
+    if (EDITOR.canvas.contains(t) && t.closest(".ed-el")) return;          // a block handles its own press
+    if (edOnScrollbar(t, x, y)) return;                                    // scrollbar = just scrolling
+    edClosePopovers();
+    if (ED.selectedId || ED.editingId || ED.playingId) edDeselect();
+    var a = document.activeElement;
+    if (a && a !== document.body && EDITOR.overlay.contains(a) && !a.contains(t) && a.blur) a.blur();
+  }
+  var edAwayTap = null;
+  document.addEventListener("pointerdown", function (e) {
+    if (e.pointerType === "touch") { edAwayTap = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.target }; return; }
+    if (e.button === 0) edClickAway(e.target, e.clientX, e.clientY);
   });
+  document.addEventListener("pointerup", function (e) {
+    var tap = edAwayTap;
+    edAwayTap = null;
+    if (!tap || tap.id !== e.pointerId || Math.abs(e.clientX - tap.x) + Math.abs(e.clientY - tap.y) > 10) return;
+    edClickAway(tap.t, tap.x, tap.y);
+  });
+  document.addEventListener("pointercancel", function () { edAwayTap = null; });
 
   /* ---------- rich-text helpers ---------- */
   // remember the live text selection while editing
@@ -1796,6 +2061,13 @@
     if (!content) return;
     var sel = window.getSelection();
     if (sel && sel.rangeCount && content.contains(sel.anchorNode)) {
+      // While a toolbar control has focus (colour slider / picker, font menu)
+      // the user cannot be selecting text: the selection only moved because
+      // the styling itself rewrote the DOM (wrapping the text in a span
+      // collapses it). Taking that as a new selection ended the live session
+      // and every further change landed on an empty caret span instead of the
+      // highlighted words — the "works only on the second try" bug.
+      if (edToolbarHasFocus()) return;
       var r = sel.getRangeAt(0);
       // A genuinely new selection ends the live-styling session (see edLiveStyle).
       if (ED.liveSpan && !edRangeIsLiveSpan(r)) edCommitLive();
@@ -1803,6 +2075,10 @@
       edUpdateToolbar();
     }
   });
+  function edToolbarHasFocus() {
+    var a = document.activeElement;
+    return !!(a && a.closest && a.closest(".ed-bar2"));
+  }
 
   function edEditingContent() {
     if (DOC.root) return DOC.root;   // Google-Docs mode: the whole document is the editable
@@ -1879,21 +2155,98 @@
     if (n && n.nodeType === 3) n = n.parentNode;
     return n;
   }
+  // Read from the remembered range (ED.savedRange / live span), not the live
+  // window selection: that has often moved to a toolbar control, and the
+  // first B/I/U click then re-applied a style instead of removing it.
   function edRangeIsActive(kind) {
-    var n = edSelectionAnchorEl();
+    var n = edRangeAnchorEl();
     var content = edEditingContent();
     if (!n || !content || !content.contains(n)) return false;
     var cs = window.getComputedStyle(n);
     if (kind === "bold") return (parseInt(cs.fontWeight, 10) || 400) >= 600 || cs.fontWeight === "bold";
     if (kind === "italic") return cs.fontStyle === "italic";
-    if (kind === "underline") return (cs.textDecorationLine || cs.textDecoration || "").indexOf("underline") > -1;
+    if (kind === "underline") return edUnderlineHosts(n, content).length > 0;
     return false;
+  }
+  // Underline is not inherited (it is drawn by the ancestor that declares it),
+  // so look at every element from `n` up to and including the text box.
+  function edUnderlineHosts(n, content) {
+    var hosts = [];
+    for (; n && n.nodeType === 1; n = n.parentNode) {
+      var cs = window.getComputedStyle(n);
+      if ((cs.textDecorationLine || cs.textDecoration || "").indexOf("underline") > -1) hosts.push(n);
+      if (n === content) break;
+    }
+    return hosts;
+  }
+  /* Remove the underline from just the selected text. A "text-decoration:
+     none" span inside an underlined parent cannot do that, so the parent
+     that draws the line loses it and every text outside the selection gets
+     its own underline back (works for the whole-box underline too). */
+  function edRemoveUnderline() {
+    var content = edEditingContent();
+    edRestoreRange();
+    var sel = window.getSelection();
+    if (!content || !sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    if (range.collapsed || !content.contains(range.commonAncestorContainer)) return;
+    // cut boundary text nodes so the selection starts / ends between nodes
+    var sN = range.startContainer, sO = range.startOffset, eN = range.endContainer, eO = range.endOffset;
+    if (eN.nodeType === 3 && eO < eN.nodeValue.length) eN.splitText(eO);
+    if (sN.nodeType === 3 && sO > 0) {
+      var rest = sN.splitText(sO);
+      if (eN === sN) { eN = rest; eO = eO - sO; }
+      sN = rest; sO = 0;
+    }
+    range = document.createRange();
+    if (sN.nodeType === 3) range.setStartBefore(sN); else range.setStart(sN, sO);
+    if (eN.nodeType === 3) range.setEndAfter(eN); else range.setEnd(eN, eO);
+    // every element drawing a line under any selected text
+    var hosts = [];
+    var tw = document.createTreeWalker(range.commonAncestorContainer.nodeType === 3
+      ? range.commonAncestorContainer.parentNode : range.commonAncestorContainer, NodeFilter.SHOW_TEXT);
+    for (var tn = tw.nextNode(); tn; tn = tw.nextNode()) {
+      if (!range.intersectsNode(tn)) continue;
+      edUnderlineHosts(tn.parentNode, content).forEach(function (h) { if (hosts.indexOf(h) < 0) hosts.push(h); });
+    }
+    hosts.forEach(function (host) {
+      var outside = [];
+      var w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+      for (var t = w.nextNode(); t; t = w.nextNode()) {
+        if (!range.intersectsNode(t) && t.nodeValue) outside.push(t);
+      }
+      if (host === content) {
+        var el = edFind(ED.editingId || ED.selectedId);
+        if (el) el.styles.underline = false;
+        content.style.textDecoration = "none";
+      } else if (host.tagName === "U") {
+        var plain = document.createElement("span");
+        while (host.firstChild) plain.appendChild(host.firstChild);
+        host.parentNode.replaceChild(plain, host);
+      } else {
+        host.style.textDecoration = "";
+        host.style.textDecorationLine = "";
+        if (!host.getAttribute("style")) host.removeAttribute("style");
+      }
+      outside.forEach(function (t) {
+        var u = document.createElement("span");
+        u.style.textDecoration = "underline";
+        t.parentNode.insertBefore(u, t);
+        u.appendChild(t);
+      });
+    });
+    sel.removeAllRanges(); sel.addRange(range);
+    ED.savedRange = range.cloneRange();
+    edCommitEditingContent();
   }
 
   // context: are we formatting a text range (editing) or the whole box?
+  // A remembered range that is no longer inside the text box (its node was
+  // replaced) must not count — every change then silently did nothing.
   function edContext() {
     if (DOC.root) return "range";   // doc mode always formats the live text range
-    return (ED.editingId && ED.editingId === ED.selectedId && ED.savedRange) ? "range" : "box";
+    var content = ED.editingId && ED.editingId === ED.selectedId && ED.savedRange ? edEditingContent() : null;
+    return (content && content.contains(ED.savedRange.commonAncestorContainer)) ? "range" : "box";
   }
 
   /* ---------- toolbar: bold / italic / underline ---------- */
@@ -1903,18 +2256,27 @@
     if (edContext() === "range") {
       if (kind === "bold") edStyleSelection({ fontWeight: edRangeIsActive("bold") ? "normal" : "700" });
       if (kind === "italic") edStyleSelection({ fontStyle: edRangeIsActive("italic") ? "normal" : "italic" });
-      if (kind === "underline") edStyleSelection({ textDecoration: edRangeIsActive("underline") ? "none" : "underline" });
+      if (kind === "underline") {
+        if (edRangeIsActive("underline")) edRemoveUnderline();
+        else edStyleSelection({ textDecoration: "underline" });
+      }
     } else {
       el.styles[kind] = !el.styles[kind];
-      var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
-      if (content) edApplyContentStyles(content, el);
+      edBoxStyle(el, kind === "bold" ? ["fontWeight"] : kind === "italic" ? ["fontStyle"] : ["textDecoration", "textDecorationLine"]);
     }
     edUpdateToolbar();
   }
-  function edBtnMouseDownKeepFocus(e) { e.preventDefault(); }  // keep caret/selection
-  [EDITOR.bold, EDITOR.italic, EDITOR.underline, EDITOR.colorBtn, EDITOR.fsDec, EDITOR.fsInc,
-   EDITOR.alignL, EDITOR.alignC, EDITOR.alignR, EDITOR.ul, EDITOR.ol, EDITOR.indDec, EDITOR.indInc
-  ].forEach(function (b) { if (b) b.addEventListener("mousedown", edBtnMouseDownKeepFocus); });
+  // A press anywhere on the toolbar — buttons, swatches, the gaps between
+  // them, the pop-up panels — must not take focus (and with it the text
+  // selection) away from the text being edited. Only real form fields (size
+  // box, font menu, colour inputs, their labels) take focus; they style the
+  // remembered range (ED.savedRange) instead.
+  function edToolbarKeepFocus(e) {
+    if (e.target.closest && e.target.closest("input, select, textarea, label")) return;
+    e.preventDefault();
+  }
+  var edBar2 = document.querySelector(".ed-bar2");
+  if (edBar2) edBar2.addEventListener("mousedown", edToolbarKeepFocus);
   EDITOR.bold.addEventListener("click", function () { edToggle("bold"); });
   EDITOR.italic.addEventListener("click", function () { edToggle("italic"); });
   EDITOR.underline.addEventListener("click", function () { edToggle("underline"); });
@@ -2266,9 +2628,24 @@
   // Element the toolbar should read styles from in range context.
   function edRangeAnchorEl() {
     if (ED.liveSpan && ED.liveSpan.isConnected) return ED.liveSpan;
-    var n = ED.savedRange ? ED.savedRange.startContainer : edSelectionAnchorEl();
+    var r = ED.savedRange;
+    var n = (r && !r.collapsed && edRangeFirstText(r)) || (r ? r.startContainer : edSelectionAnchorEl());
     if (n && n.nodeType === 3) n = n.parentNode;
     return n;
+  }
+  // First text node with a selected character — a drag often starts at the
+  // very end of the previous run (or on an element boundary), whose size /
+  // font / colour is not what the user selected.
+  function edRangeFirstText(r) {
+    var s = r.startContainer;
+    if (s.nodeType === 3 && r.startOffset < s.nodeValue.length) return s;
+    var root = r.commonAncestorContainer.nodeType === 3 ? r.commonAncestorContainer.parentNode : r.commonAncestorContainer;
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (var t = w.nextNode(); t; t = w.nextNode()) {
+      if (t === s || !t.nodeValue || !r.intersectsNode(t)) continue;
+      if (r.comparePoint(t, 0) >= 0) return t;      // starts inside the range
+    }
+    return null;
   }
 
   /* ---------- toolbar: font size ---------- */
@@ -2291,8 +2668,7 @@
       edLiveStyle({ fontSize: px + "px" });
     } else {
       el.styles.fontSize = px + "px";
-      var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
-      if (content) edApplyContentStyles(content, el);
+      edBoxStyle(el, ["fontSize"]);
     }
   }
   // Clamp + show + apply (buttons, committed values).
@@ -2350,11 +2726,13 @@
     r = clamp255(r); g = clamp255(g); b = clamp255(b);
     var hex = rgbToHex(r, g, b);
     ED.colorSyncing = true;
-    EDITOR.rRange.value = r; EDITOR.rNum.value = r;
-    EDITOR.gRange.value = g; EDITOR.gNum.value = g;
-    EDITOR.bRange.value = b; EDITOR.bNum.value = b;
-    EDITOR.hex.value = hex.toUpperCase();
-    EDITOR.colorNative.value = hex;
+    // never rewrite the field the user is typing in (its blur normalises it)
+    function put(input, v) { if (input !== document.activeElement) input.value = v; }
+    put(EDITOR.rRange, r); put(EDITOR.rNum, r);
+    put(EDITOR.gRange, g); put(EDITOR.gNum, g);
+    put(EDITOR.bRange, b); put(EDITOR.bNum, b);
+    put(EDITOR.hex, hex.toUpperCase());
+    put(EDITOR.colorNative, hex);
     EDITOR.preview.style.background = hex;
     EDITOR.colorBtn.style.color = hex;
     ED.currentColor = hex;
@@ -2370,8 +2748,7 @@
       edLiveStyle({ color: ED.currentColor });
     } else {
       el.styles.color = ED.currentColor;
-      var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
-      if (content) edApplyContentStyles(content, el);
+      edBoxStyle(el, ["color"]);
     }
   }
   function edOpenColorPanel() {
@@ -2446,6 +2823,20 @@
     })[0];
     return hit ? hit.value : "";
   }
+  // How many different fonts the remembered (non-empty) selection is set in.
+  function edRangeFontCount() {
+    var r = ED.savedRange, content = edEditingContent();
+    if (!r || r.collapsed || !content || !content.contains(r.commonAncestorContainer)) return 0;
+    var root = r.commonAncestorContainer.nodeType === 3 ? r.commonAncestorContainer.parentNode : r.commonAncestorContainer;
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), seen = {}, n = 0;
+    for (var t = w.nextNode(); t; t = w.nextNode()) {
+      if (!t.nodeValue.replace(/[\s​]/g, "") || !r.intersectsNode(t)) continue;
+      var f = edFontOption(window.getComputedStyle(t.parentNode).fontFamily) || "?";
+      if (!seen[f]) { seen[f] = 1; n++; }
+      if (n > 1) break;
+    }
+    return n;
+  }
   if (fontSel) {
     fontSel.addEventListener("pointerdown", edRememberSelection);
     fontSel.addEventListener("change", function () {
@@ -2454,13 +2845,16 @@
       if (!DOC.root && (!el || el.type !== "text")) return;
       edRecallSelection();
       if (edContext() === "range") {
-        edLiveStyle({ fontFamily: font });            // the selected words (or what's typed next)
+        // "Výchozí písmo" inside text that has a font must be a real value —
+        // an empty one just inherits the surrounding font and changes nothing
+        var c = edEditingContent();
+        var base = (el && el.styles.fontFamily) || (c && c.parentNode ? window.getComputedStyle(c.parentNode).fontFamily : "");
+        edLiveStyle({ fontFamily: font || base });    // the selected words (or what's typed next)
         edCommitLive();
         edRestoreRange();                             // straight back to typing
       } else {
         el.styles.fontFamily = font;                  // the whole text box
-        var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
-        if (content) edApplyContentStyles(content, el);
+        edBoxStyle(el, ["fontFamily"]);
       }
     });
   }
@@ -2495,18 +2889,31 @@
   EDITOR.colorNative.addEventListener("input", function () {
     var rgb = hexToRgb(EDITOR.colorNative.value); if (rgb) edColorInput(rgb.r, rgb.g, rgb.b);
   });
+  // A complete #RRGGBB applies while typing; the #RGB shorthand only on Enter
+  // or leaving the field — applying "#1a2" on the way to "#1a2b3c" used to
+  // rewrite the field to #11AA22 and maxlength swallowed the other digits.
   EDITOR.hex.addEventListener("input", function () {
-    var rgb = hexToRgb(EDITOR.hex.value); if (rgb) edColorInput(rgb.r, rgb.g, rgb.b);
+    var v = EDITOR.hex.value.trim();
+    var rgb = /^#?[0-9a-f]{6}$/i.test(v) && hexToRgb(v);
+    if (rgb) edColorInput(rgb.r, rgb.g, rgb.b);
   });
+  function edHexCommit() {
+    var rgb = hexToRgb(EDITOR.hex.value.trim());
+    if (rgb && rgbToHex(rgb.r, rgb.g, rgb.b) !== ED.currentColor) edColorInput(rgb.r, rgb.g, rgb.b);
+  }
+  EDITOR.hex.addEventListener("change", edHexCommit);
   // blur: an incomplete HEX snaps back to the last valid (already applied) colour.
   EDITOR.hex.addEventListener("blur", function () {
-    var rgb = hexToRgb(EDITOR.hex.value) || hexToRgb(ED.currentColor);
+    edHexCommit();
+    var rgb = hexToRgb(ED.currentColor);
     if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
   });
+  EDITOR.hex.addEventListener("focus", function () { EDITOR.hex.select(); });
   // Enter inside the panel: commit + close + caret back to the text.
   EDITOR.colorPanel.addEventListener("keydown", function (e) {
     if (e.key !== "Enter") return;
     e.preventDefault();
+    if (e.target === EDITOR.hex) edHexCommit();
     edCloseColorPanel();
     edRestoreRange();
   });
@@ -2528,9 +2935,12 @@
     var el = edFind(ED.selectedId);
     if (!DOC.root && (!el || el.type !== "text")) return;
     EDITOR.fsVal.value = edCurrentFontSize();
-    if (fontSel) {                            // font menu shows the font at the caret / of the box
+    if (fontSel && document.activeElement !== fontSel) {   // font menu shows the font at the caret / of the box
       var fNode = edContext() === "range" ? edRangeAnchorEl() : null;
       fontSel.value = edFontOption(fNode && fNode.nodeType === 1 ? window.getComputedStyle(fNode).fontFamily : (el && el.styles.fontFamily) || "");
+      // selection in several fonts -> no entry is current, so picking the
+      // font shown for the first word still fires `change` and applies
+      if (fNode && edRangeFontCount() > 1) fontSel.selectedIndex = -1;
     }
     var ctx = edContext();
     var bActive, iActive, uActive, color;
@@ -3476,7 +3886,12 @@
     else if (action === "forward")  el.z = (el.z || 1) + 1.5;
     else if (action === "backward") el.z = (el.z || 1) - 1.5;
     edNormalizeLayers();
-    edRenderCanvas();
+    // only z-index changes: update the nodes in place — a full re-render would
+    // throw away the text selection of a box being edited
+    ED.elements.forEach(function (e) {
+      var n = EDITOR.canvas.querySelector('.ed-el[data-id="' + e.id + '"]');
+      if (n) n.style.zIndex = e.z || 1;
+    });
   }
   var layerBtn  = document.querySelector("#ed-layer");
   var layerMenu = document.querySelector("#ed-layer-menu");
