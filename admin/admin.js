@@ -1319,7 +1319,7 @@
     ED.liveSpan = null;               // its node is gone; the styling is already in el.content
     ED.savedRange = r;
     if (keep.focused) {
-      content.focus();
+      content.focus({ preventScroll: true });
       var sel = window.getSelection();
       sel.removeAllRanges(); sel.addRange(r.cloneRange());
     }
@@ -1332,6 +1332,14 @@
   function edBoxStyle(el, props) {
     var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
     if (!content) return;
+    var TAGS = { fontWeight: "b,strong", fontStyle: "i,em", textDecoration: "u" };
+    props.forEach(function (p) {
+      if (!TAGS[p]) return;
+      Array.prototype.forEach.call(content.querySelectorAll(TAGS[p]), function (t) {
+        while (t.firstChild) t.parentNode.insertBefore(t.firstChild, t);
+        t.parentNode.removeChild(t);
+      });
+    });
     Array.prototype.forEach.call(content.querySelectorAll("[style]"), function (n) {
       props.forEach(function (p) { n.style[p] = ""; });
       if (!n.getAttribute("style")) n.removeAttribute("style");
@@ -1773,8 +1781,9 @@
     if (!node) return;
     var content = node.querySelector(".ed-el-content");
     content.contentEditable = "true";
-    content.focus();
+    // read the click position first: a plain focus() scrolls the box's top into view
     var caret = typeof x === "number" ? edCaretAt(x, y) : null;
+    content.focus({ preventScroll: true });
     if (caret && content.contains(caret.startContainer)) {
       if (word) caret = edWordAt(caret);
       var sel = window.getSelection();
@@ -2022,7 +2031,9 @@
   function edOnScrollbar(t, x, y) {
     if (!t || t.nodeType !== 1 || (t.scrollHeight <= t.clientHeight && t.scrollWidth <= t.clientWidth)) return false;
     var r = t.getBoundingClientRect();
-    return x - r.left - t.clientLeft >= t.clientWidth || y - r.top - t.clientTop >= t.clientHeight;
+    var OV = 16;   // overlay scrollbars (macOS, Firefox auto-hide) take no layout space
+    return x - r.left - t.clientLeft >= t.clientWidth || y - r.top - t.clientTop >= t.clientHeight ||
+      (t.scrollHeight > t.clientHeight && x >= r.right - OV) || (t.scrollWidth > t.clientWidth && y >= r.bottom - OV);
   }
   function edClosePopovers() {
     edCloseColorPanel();
@@ -2205,7 +2216,16 @@
     var sel = window.getSelection();
     if (!content || !sel || !sel.rangeCount) return;
     var range = sel.getRangeAt(0);
-    if (range.collapsed || !content.contains(range.commonAncestorContainer)) return;
+    if (!content.contains(range.commonAncestorContainer)) return;
+    // caret only: a zero-width character is "selected" and freed from the
+    // underline, and the caret stays in it, so what is typed next is plain
+    var zw = null;
+    if (range.collapsed) {
+      zw = document.createTextNode("​");
+      range.insertNode(zw);
+      range = document.createRange();
+      range.setStart(zw, 0); range.setEnd(zw, 1);
+    }
     // cut boundary text nodes so the selection starts / ends between nodes
     var sN = range.startContainer, sO = range.startOffset, eN = range.endContainer, eO = range.endOffset;
     if (eN.nodeType === 3 && eO < eN.nodeValue.length) eN.splitText(eO);
@@ -2217,6 +2237,9 @@
     range = document.createRange();
     if (sN.nodeType === 3) range.setStartBefore(sN); else range.setStart(sN, sO);
     if (eN.nodeType === 3) range.setEndAfter(eN); else range.setEnd(eN, eO);
+    // the DOM surgery below moves nodes and collapses live ranges: keep text offsets
+    var keepS = edTextOffset(content, range.startContainer, range.startOffset);
+    var keepE = edTextOffset(content, range.endContainer, range.endOffset);
     // every element drawing a line under any selected text
     var hosts = [];
     var tw = document.createTreeWalker(range.commonAncestorContainer.nodeType === 3
@@ -2251,6 +2274,12 @@
         u.appendChild(t);
       });
     });
+    range = document.createRange();
+    if (zw && zw.parentNode) { range.setStart(zw, 1); range.collapse(true); }
+    else {
+      var a = edTextPoint(content, keepS, true), b = edTextPoint(content, keepE);
+      range.setStart(a.node, a.offset); range.setEnd(b.node, b.offset);
+    }
     sel.removeAllRanges(); sel.addRange(range);
     ED.savedRange = range.cloneRange();
     edCommitEditingContent();
@@ -2683,8 +2712,18 @@
     if (edContext() === "range") {
       edLiveStyle({ fontSize: px + "px" });
     } else {
+      // whole box: inner sizes move by the same step, so a bigger first line stays bigger
+      var delta = px - (parseInt(el.styles.fontSize, 10) || 16);
       el.styles.fontSize = px + "px";
-      edBoxStyle(el, ["fontSize"]);
+      var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
+      if (content) {
+        Array.prototype.forEach.call(content.querySelectorAll("[style]"), function (n) {
+          var s = parseFloat(n.style.fontSize);
+          if (s) n.style.fontSize = Math.max(FS_MIN, Math.min(FS_MAX, Math.round(s + delta))) + "px";
+        });
+        edApplyContentStyles(content, el);
+        el.content = content.innerHTML;
+      }
     }
   }
   // Clamp + show + apply (buttons, committed values).
@@ -2843,8 +2882,15 @@
     return hit ? hit.value : "";
   }
   // How many different fonts the remembered (non-empty) selection is set in.
-  function edRangeFontCount() {
-    var r = ED.savedRange, content = edEditingContent();
+  function edBoxFontCount(el) {
+    var content = el && EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
+    if (!content) return 0;
+    var r = document.createRange();
+    r.selectNodeContents(content);
+    return edRangeFontCount(r, content);
+  }
+  function edRangeFontCount(r, content) {
+    r = r || ED.savedRange; content = content || edEditingContent();
     if (!r || r.collapsed || !content || !content.contains(r.commonAncestorContainer)) return 0;
     var root = r.commonAncestorContainer.nodeType === 3 ? r.commonAncestorContainer.parentNode : r.commonAncestorContainer;
     var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), seen = {}, n = 0;
@@ -2874,12 +2920,14 @@
       } else {
         el.styles.fontFamily = font;                  // the whole text box
         edBoxStyle(el, ["fontFamily"]);
+        fontSel.blur();
       }
     });
   }
   // close panel when clicking elsewhere
   document.addEventListener("pointerdown", function (e) {
     if (EDITOR.overlay.hidden || EDITOR.colorPanel.hidden) return;
+    if (e.pointerType === "touch" || e.pointerType === "pen") return;   // tap = edClickAway, swipe = keep open
     if (!EDITOR.colorPanel.contains(e.target) && e.target !== EDITOR.colorBtn) edCloseColorPanel();
   });
   // Control listeners: every `input` (slider drag, number typing, native
@@ -2963,7 +3011,7 @@
       fontSel.value = edFontOption(fNode && fNode.nodeType === 1 ? window.getComputedStyle(fNode).fontFamily : (el && el.styles.fontFamily) || "");
       // selection in several fonts -> no entry is current, so picking the
       // font shown for the first word still fires `change` and applies
-      if (fNode && edRangeFontCount() > 1) fontSel.selectedIndex = -1;
+      if ((fNode ? edRangeFontCount() : edBoxFontCount(el)) > 1) fontSel.selectedIndex = -1;
     }
     var ctx = edContext();
     var bActive, iActive, uActive, color;
