@@ -22,8 +22,10 @@ export const LISTS = ["tags", "authors"];
 const MAX_NAME = 60;
 
 export function cleanName(v) {
-  return String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, MAX_NAME);
+  return String(v == null ? "" : v).normalize("NFC").replace(/\s+/g, " ").trim();
 }
+// new names typed by the admin are capped; existing ones are never cut
+function newName(v) { return cleanName(v).slice(0, MAX_NAME).trim(); }
 export function nameKey(v) {
   return cleanName(v).toLocaleLowerCase("cs");
 }
@@ -102,7 +104,7 @@ export function applyTaxonomyAction(taxonomy, articles, req) {
   let out = articles;
 
   if (req.action === "add") {
-    const n = cleanName(req.name);
+    const n = newName(req.name);
     checkNew(n, -1);
     names.push(n);
   } else if (req.action === "rename" || req.action === "delete") {
@@ -111,7 +113,7 @@ export function applyTaxonomyAction(taxonomy, articles, req) {
     const old = nameKey(names[at]);
     const uses = (a) => (a[list] || []).some((n) => nameKey(n) === old);
     if (req.action === "rename") {
-      const to = cleanName(req.to);
+      const to = newName(req.to);
       checkNew(to, at);
       names[at] = to;
       out = articles.map((a) => {

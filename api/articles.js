@@ -8,7 +8,7 @@
  * ============================================================ */
 import {
   loadArticles, saveArticles, requireAdmin, isAdmin, readJsonBody, shapeArticle, uid,
-  isLive, compareNewest, sendServerError, loadTaxonomy, restrictToTaxonomy
+  isLive, compareNewest, sendServerError, ensureTaxonomy, restrictToTaxonomy
 } from "./_lib.js";
 
 export default async function handler(req, res) {
@@ -41,8 +41,9 @@ export default async function handler(req, res) {
       if (!(await requireAdmin(req, res))) return;
       const body = await readJsonBody(req);
       const items = await loadArticles();
+      const taxonomy = await ensureTaxonomy(items);
       const newArticle = shapeArticle({ ...body, id: uid() });   // never trust a client id
-      restrictToTaxonomy(newArticle, await loadTaxonomy(items));   // tags / authors only from the lists
+      restrictToTaxonomy(newArticle, taxonomy);                 // tags / authors only from the lists
       items.push(newArticle);
       await saveArticles(items);
       return res.status(201).json(newArticle);
@@ -55,7 +56,8 @@ export default async function handler(req, res) {
       const items = await loadArticles();
       const idx = items.findIndex((a) => a.id === id);
       if (idx === -1) return res.status(404).json({ error: "Not found" });
-      items[idx] = restrictToTaxonomy(shapeArticle({ ...items[idx], ...body, id }), await loadTaxonomy(items));
+      const taxonomy = await ensureTaxonomy(items);
+      items[idx] = restrictToTaxonomy(shapeArticle({ ...items[idx], ...body, id }), taxonomy, items[idx]);
       await saveArticles(items);
       return res.status(200).json(items[idx]);
     }
@@ -64,6 +66,7 @@ export default async function handler(req, res) {
       if (!(await requireAdmin(req, res))) return;
       if (!id) return res.status(400).json({ error: "Missing id" });
       const items = await loadArticles();
+      await ensureTaxonomy(items);   // the post's names stay in the lists
       const next = items.filter((a) => a.id !== id);
       if (next.length === items.length) {
         return res.status(404).json({ error: "Not found" });

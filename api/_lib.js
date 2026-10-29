@@ -245,6 +245,15 @@ export async function loadTaxonomy(articles) {
   return seedTaxonomy(articles || await loadArticles());
 }
 
+/* Admin write paths call this BEFORE changing anything: the first time,
+ * the lists seeded from the articles are saved, so an entry does not
+ * vanish just because its last post was edited or deleted. */
+export async function ensureTaxonomy(articles) {
+  const data = await loadJson("taxonomy", null);
+  if (data) return shapeTaxonomy(data);
+  return saveTaxonomy(seedTaxonomy(articles));
+}
+
 export async function saveTaxonomy(taxonomy) {
   const shaped = shapeTaxonomy(taxonomy);
   await saveJson("taxonomy", shaped);
@@ -253,10 +262,13 @@ export async function saveTaxonomy(taxonomy) {
 
 /* An article may only use names from the global lists (spelled as there).
  * Tags set again end the "nespecifikováno" fallback state. */
-export function restrictToTaxonomy(article, taxonomy) {
+export function restrictToTaxonomy(article, taxonomy, stored) {
+  const asked = (article.tags || []).length;
   article.tags = restrictNames(article.tags, taxonomy.tags);
   article.authors = restrictNames(article.authors, taxonomy.authors);
-  article.tagsUnspecified = !!article.tagsUnspecified && !article.tags.length;
+  // left with no tag because the stored post had the fallback, or because
+  // the tags sent no longer exist (deleted meanwhile): show "nespecifikováno"
+  article.tagsUnspecified = !article.tags.length && (!!(stored && stored.tagsUnspecified) || asked > 0);
   return article;
 }
 
