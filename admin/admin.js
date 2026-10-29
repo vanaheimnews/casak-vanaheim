@@ -420,15 +420,20 @@
   }
   // Same filter as the public site: OR within a section, AND between them.
   function renderArticleFilter() {
+    var pruned = false;
     [["tags", articleTagList], ["authors", articleAuthorList]].forEach(function (p) {
       var list = p[0], box = p[1], sel = adminSelected[list], counts = txCounts(list);
       if (!box) return;
+      var known = {};
+      txNames(list).forEach(function (name) { known[nameKey(name)] = 1; });
+      Object.keys(sel).forEach(function (k) { if (!known[k]) { delete sel[k]; pruned = true; } });
       box.innerHTML = txNames(list).map(function (name) {
         var k = nameKey(name), c = counts[k] || 0;
         return '<label class="tag-checkbox' + (c || sel[k] ? "" : " is-empty") + '"><input type="checkbox" value="' + escapeHtml(k) + '"' +
           (sel[k] ? " checked" : "") + "><span>" + escapeHtml(name) + ' <span class="tag-count">(' + c + ")</span></span></label>";
       }).join("") || '<span class="tag-list-empty">Zatím nic.</span>';
     });
+    if (pruned && articlesLoaded) renderArticleCards();   // a renamed / deleted entry was ticked
   }
   function adminMatches(a, list) {
     var sel = adminSelected[list];
@@ -951,6 +956,8 @@
      ============================================================ */
   var TAXO = { tags: [], authors: [] };
   var taxoLoaded = false;
+  var taxoFailed = false;       // the last load failed (and nothing was loaded before)
+  var taxoSeq = 0;              // a GET that started before a newer change is ignored
   var TX_WORDS = {
     tags:    { one: "Štítek", none: "Zatím žádné štítky." },
     authors: { one: "Autor",  none: "Zatím žádní autoři." }
@@ -958,8 +965,9 @@
   var TX = { menu: null, editing: null, confirm: null, busy: false };
   var txDialog = document.querySelector("#tx-dialog");
 
-  function nameKey(n) { return String(n == null ? "" : n).replace(/\s+/g, " ").trim().toLocaleLowerCase("cs"); }
-  function cleanName(n) { return String(n == null ? "" : n).replace(/\s+/g, " ").trim().slice(0, 60); }
+  // same rules as api/_taxonomy.js (NFC, collapsed spaces, any letter case)
+  function cleanName(n) { return String(n == null ? "" : n).normalize("NFC").replace(/\s+/g, " ").trim(); }
+  function nameKey(n) { return cleanName(n).toLocaleLowerCase("cs"); }
   function txNames(list) {
     if (taxoLoaded) return TAXO[list];
     var seen = {}, out = [];     // lists not loaded (yet): the names the articles use
@@ -991,11 +999,18 @@
   function txPosts(c) { return c + " " + (c === 1 ? "příspěvku" : "příspěvků"); }
 
   function loadTaxonomy() {
+    var mine = ++taxoSeq;
     return api("/api/taxonomy").then(function (t) {
+      if (mine !== taxoSeq) return;              // a newer list (from a change) is already here
       TAXO = { tags: (t && t.tags) || [], authors: (t && t.authors) || [] };
       taxoLoaded = true;
+      taxoFailed = false;
       txChanged();
-    }).catch(function () { /* filters fall back to the names the articles use */ });
+    }).catch(function () {
+      if (mine !== taxoSeq || taxoLoaded) return;
+      taxoFailed = true;                         // filters fall back to the names the articles use
+      txChanged();
+    });
   }
   // Everything that shows the lists follows a change.
   function txChanged() {
@@ -1007,6 +1022,10 @@
   function txRender() {
     Array.prototype.forEach.call(txDialog.querySelectorAll(".tx-chips"), function (box) {
       var list = box.dataset.list, counts = txCounts(list);
+      if (!taxoLoaded) {
+        box.innerHTML = '<span class="tag-list-empty">' + (taxoFailed ? "Seznam se nepodařilo načíst. Zavřete okno a zkuste to znovu." : "Načítám…") + "</span>";
+        return;
+      }
       if (!TAXO[list].length) { box.innerHTML = '<span class="tag-list-empty">' + TX_WORDS[list].none + "</span>"; return; }
       box.innerHTML = TAXO[list].map(function (n) {
         var c = counts[nameKey(n)] || 0;
@@ -1048,8 +1067,10 @@
     txDialog.classList.add("is-busy");
     api("/api/taxonomy", { method: "POST", body: req })
       .then(function (res) {
+        taxoSeq++;                     // an older GET still on its way must not undo this
         if (res && res.taxonomy) TAXO = { tags: res.taxonomy.tags || [], authors: res.taxonomy.authors || [] };
         taxoLoaded = true;
+        taxoFailed = false;
         edPickApply(req);              // an open editor follows the rename / delete
         txReset();
         if (req.action === "add" && form) { form.reset(); txShowDup(form, false); }
@@ -1063,7 +1084,12 @@
       .catch(function (err) {
         var code = err.body && err.body.error;
         if (code === "duplicate" && form) { txShowDup(form, true); return; }
-        if (err.status === 401) { showLogin(); return; }
+        if (err.status === 401) {
+          txClose();
+          toast("Vypršela platnost přihlášení — přihlaste se a zkuste to znovu.");
+          showLogin();
+          return;
+        }
         toast(code === "reserved" ? "„nespecifikováno“ je vyhrazený název." : "Chyba: " + err.message);
       })
       .finally(function () {
@@ -1160,7 +1186,7 @@
     var out = [], seen = {};
     (names || []).forEach(function (n) {
       // once the lists are known, only their entries (spelled as there) stay
-      var canon = taxoLoaded ? txFind(list, n) : cleanName(n);
+      var canon = (taxoLoaded && txFind(list, n)) || cleanName(n);
       if (canon && !seen[nameKey(canon)]) { seen[nameKey(canon)] = 1; out.push(canon); }
     });
     ED_PICK[list] = out;
@@ -1178,7 +1204,7 @@
     }).join("");
     if (!chips && list === "tags" && fTags.dataset.unspecified) chips = '<span class="ed-pick-none">nespecifikováno</span>';
     var first = avail.length ? PICK_ADD[list]
-      : !taxoLoaded ? "Načítám seznam…"
+      : !taxoLoaded ? (taxoFailed ? "Seznam se nepodařilo načíst" : "Načítám seznam…")
       : TAXO[list].length ? "Vše vybráno" : "Nejdřív přidejte v „Upravit filtry“";
     box.innerHTML = (chips ? '<span class="ed-pick-chips">' + chips + "</span>" : "") +
       '<select aria-label="' + escapeHtml(PICK_ADD[list].replace(/[+…]/g, "").trim()) + '"' + (avail.length ? "" : " disabled") + ">" +
@@ -1352,6 +1378,7 @@
     // load metadata into the left sidebar (mirrors the article form)
     edPickSet("authors", edNameList(fAuthors.value));
     edPickSet("tags", edNameList(fTags.value));
+    loadTaxonomy();                      // fresh lists (another tab may have changed them)
     EDITOR.kind.value = fKind.value || "article";
     EDITOR.date.value = fDate.value || nowLocalInput();
     edUpdateSchedule();

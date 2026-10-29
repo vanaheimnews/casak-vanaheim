@@ -211,7 +211,7 @@
      Within a section the choice is OR (any ticked tag), between the
      sections AND (a ticked tag AND a ticked author).
      ============================================================ */
-  function nameKey(n) { return String(n == null ? "" : n).replace(/\s+/g, " ").trim().toLocaleLowerCase("cs"); }
+  function nameKey(n) { return String(n == null ? "" : n).normalize("NFC").replace(/\s+/g, " ").trim().toLocaleLowerCase("cs"); }
   function facetNames(list) {
     if (TAXO && Array.isArray(TAXO[list])) return TAXO[list];
     // lists not loaded (yet): the names the posts use
@@ -519,9 +519,14 @@
     showPage(initial);
 
     // 3) Refresh from the server and re-render (updates cache too).
-    Promise.all([loadArticles(), loadTaxonomy()]).then(function () {
+    loadArticles().then(function () {
       articlesReady = true;
       renderHome();
+      renderFilters();
+      renderArticles();
+    });
+    loadTaxonomy().then(function () {
+      if (!articlesReady) return;        // the articles' render shows the lists too
       renderFilters();
       renderArticles();
     });
