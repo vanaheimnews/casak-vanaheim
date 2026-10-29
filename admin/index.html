@@ -216,16 +216,25 @@
       <section class="admin-section is-active" id="section-articles" aria-label="Správa příspěvků">
         <div class="admin-list-head">
           <h1 class="admin-section-title" style="margin:0;">Správa příspěvků</h1>
+          <div class="admin-list-actions">
+            <button class="btn btn-ghost" type="button" id="tx-open-btn">Upravit filtry</button>
           <button class="btn" type="button" id="new-article-btn"
                   style="background:var(--brand);border-color:var(--brand);color:#fff;">+ Nový příspěvek</button>
+          </div>
         </div>
 
-        <!-- Same tag filter as the public Příspěvky page -->
-        <fieldset class="tag-filter" id="article-tag-filter" aria-label="Filtr štítků">
-          <legend>Filtr podle štítků</legend>
-          <div class="tag-list" id="article-tag-list"></div>
+        <!-- Same filter as the public Příspěvky page (counts include scheduled posts) -->
+        <div class="filter-panel admin-filter" id="article-tag-filter">
+          <fieldset class="tag-filter">
+            <legend>Štítky</legend>
+            <div class="tag-list" id="article-tag-list"></div>
+          </fieldset>
+          <fieldset class="tag-filter">
+            <legend>Autoři</legend>
+            <div class="tag-list" id="article-author-list"></div>
+          </fieldset>
           <button class="btn btn-ghost" type="button" id="article-clear-tags">Zrušit filtr</button>
-        </fieldset>
+        </div>
 
         <!-- Public-style article cards; click a card to open its detail editor -->
         <div class="card-grid" id="article-grid"></div>
@@ -588,12 +597,16 @@
         <!-- Collapsible metadata drawer (toggled by #ed-meta-toggle) -->
         <aside class="ed-side" id="metadata-sidebar">
           <h3 class="ed-side-title">Data</h3>
-          <label>Autor / Autoři (čárkou)
-            <input type="text" id="ed-author" placeholder="Anna Nováková">
-          </label>
-          <label>Štítky (čárkou)
-            <input type="text" id="ed-tags" placeholder="Komiks, Humor">
-          </label>
+          <!-- Authors / tags: chosen only from the global lists ("Upravit filtry") -->
+          <div class="ed-picker-field">
+            <span class="ed-picker-label" id="ed-author-label">Autoři</span>
+            <div class="ed-picker" id="ed-author" data-list="authors" role="group" aria-labelledby="ed-author-label"></div>
+          </div>
+          <div class="ed-picker-field">
+            <span class="ed-picker-label" id="ed-tags-label">Štítky</span>
+            <div class="ed-picker" id="ed-tags" data-list="tags" role="group" aria-labelledby="ed-tags-label"></div>
+          </div>
+          <button class="ed-picker-manage" type="button" id="ed-tx-open">Upravit filtry…</button>
           <label>Typ
             <select id="ed-kind">
               <option value="article">Článek</option>
@@ -644,6 +657,39 @@
       <div class="ed-confirm-actions">
         <button class="btn btn-ghost" type="button" id="hl-picker-clear">Vyprázdnit blok</button>
         <button class="ed-confirm-cancel" type="button" id="hl-picker-cancel">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- "Upravit filtry": global tag / author lists (add, rename, delete with cascade) -->
+  <div class="ed-confirm" id="tx-dialog" hidden>
+    <div class="ed-confirm-box tx-box" role="dialog" aria-modal="true" aria-labelledby="tx-title">
+      <h3 id="tx-title">Upravit filtry</h3>
+      <p>Štítky a autoři, ze kterých se vybírá v editoru. Klikněte na položku pro úpravu nebo smazání. V závorce je počet příspěvků.</p>
+      <section class="tx-section">
+        <h4>Štítky</h4>
+        <div class="tx-chips" data-list="tags"></div>
+        <form class="tx-add" data-list="tags" autocomplete="off">
+          <span class="tx-dup" hidden>duplikát</span>
+          <div class="tx-add-row">
+            <input type="text" maxlength="60" placeholder="Nový štítek" aria-label="Nový štítek">
+            <button class="btn" type="submit">Přidat</button>
+          </div>
+        </form>
+      </section>
+      <section class="tx-section">
+        <h4>Autoři</h4>
+        <div class="tx-chips" data-list="authors"></div>
+        <form class="tx-add" data-list="authors" autocomplete="off">
+          <span class="tx-dup" hidden>duplikát</span>
+          <div class="tx-add-row">
+            <input type="text" maxlength="60" placeholder="Nový autor" aria-label="Nový autor">
+            <button class="btn" type="submit">Přidat</button>
+          </div>
+        </form>
+      </section>
+      <div class="ed-confirm-actions">
+        <button class="ed-confirm-ok" type="button" id="tx-close">Hotovo</button>
       </div>
     </div>
   </div>

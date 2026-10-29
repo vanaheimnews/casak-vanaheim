@@ -219,6 +219,7 @@
     if (headerNav) headerNav.hidden = false;   // reveal admin controls in the header
     if (adminTag) adminTag.hidden = false;
     refreshTable();
+    loadTaxonomy();
   }
 
   loginForm.addEventListener("submit", function (e) {
@@ -299,6 +300,7 @@
     fElements.value = "";
     fBackground.value = "";
     fDate.value = nowLocalInput();
+    fTags.dataset.unspecified = "";
     pendingImageUrl = "";
     updatePreview("");
     formTitle.textContent = "Nový příspěvek";
@@ -310,9 +312,10 @@
     fBackground.value = article.background ? JSON.stringify(article.background) : "";
     fTitle.value    = article.title || "";
     fBody.value     = article.body || "";
-    fAuthors.value  = (article.authors || []).join(", ");
+    fAuthors.value  = JSON.stringify(article.authors || []);
     fDate.value     = articleLocalInput(article);
-    fTags.value     = (article.tags || []).join(", ");
+    fTags.value     = JSON.stringify(article.tags || []);
+    fTags.dataset.unspecified = article.tagsUnspecified ? "1" : "";
     fKind.value     = article.kind || "article";
     pendingImageUrl = article.image || "";
     fImageUrl.value = pendingImageUrl;
@@ -347,8 +350,8 @@
       title:   fTitle.value,
       body:    fBody.value,
       image:   pendingImageUrl || fImageUrl.value || "",
-      authors: fAuthors.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean),
-      tags:    fTags.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean),
+      authors: edNameList(fAuthors.value),
+      tags:    edNameList(fTags.value),
       date:    toLocalInput(when).slice(0, 10),
       publishAt: when.toISOString(),
       kind:    fKind.value === "comic" ? "comic" : "article",
@@ -394,11 +397,12 @@
   var articleGrid      = document.querySelector("#article-grid");
   var articleEmpty     = document.querySelector("#article-empty");
   var articleTagList   = document.querySelector("#article-tag-list");
+  var articleAuthorList = document.querySelector("#article-author-list");
   var articleClearTags = document.querySelector("#article-clear-tags");
   var newArticleBtn    = document.querySelector("#new-article-btn");
   var ADMIN_ARTICLES = [];
   var articlesLoaded = false;   // true after the first successful /api/articles
-  var adminSelectedTags = {};
+  var adminSelected = { tags: {}, authors: {} };   // ticked filter entries, by nameKey()
 
   function articleThumb(a) {
     if (a.image) return a.image;
@@ -414,23 +418,25 @@
     }
     return "";
   }
-  function allArticleTags() {
-    var set = {};
-    ADMIN_ARTICLES.forEach(function (a) { (a.tags || []).forEach(function (t) { set[t] = true; }); });
-    return Object.keys(set).sort(function (x, y) { return x.localeCompare(y); });
-  }
+  // Same filter as the public site: OR within a section, AND between them.
   function renderArticleFilter() {
-    articleTagList.innerHTML = allArticleTags().map(function (t) {
-      return '<label class="tag-checkbox"><input type="checkbox" value="' + escapeHtml(t) + '"' +
-        (adminSelectedTags[t] ? " checked" : "") + "><span>" + escapeHtml(t) + "</span></label>";
-    }).join("");
+    [["tags", articleTagList], ["authors", articleAuthorList]].forEach(function (p) {
+      var list = p[0], box = p[1], sel = adminSelected[list], counts = txCounts(list);
+      if (!box) return;
+      box.innerHTML = txNames(list).map(function (name) {
+        var k = nameKey(name), c = counts[k] || 0;
+        return '<label class="tag-checkbox' + (c || sel[k] ? "" : " is-empty") + '"><input type="checkbox" value="' + escapeHtml(k) + '"' +
+          (sel[k] ? " checked" : "") + "><span>" + escapeHtml(name) + ' <span class="tag-count">(' + c + ")</span></span></label>";
+      }).join("") || '<span class="tag-list-empty">Zatím nic.</span>';
+    });
+  }
+  function adminMatches(a, list) {
+    var sel = adminSelected[list];
+    if (!Object.keys(sel).length) return true;
+    return (a[list] || []).some(function (n) { return sel[nameKey(n)]; });
   }
   function renderArticleCards() {
-    var sel = Object.keys(adminSelectedTags);
-    var list = ADMIN_ARTICLES.filter(function (a) {
-      if (sel.length === 0) return true;
-      return (a.tags || []).some(function (t) { return adminSelectedTags[t]; });
-    });
+    var list = ADMIN_ARTICLES.filter(function (a) { return adminMatches(a, "tags") && adminMatches(a, "authors"); });
     if (list.length === 0) { articleGrid.innerHTML = ""; articleEmpty.hidden = false; return; }
     articleEmpty.hidden = true;
     articleGrid.innerHTML = list.map(function (a) {
@@ -439,6 +445,7 @@
       var authors = (a.authors || []).join(", ");
       var future = isScheduled(a);
       var tagsHtml = (a.tags || []).map(function (t) { return '<span class="card-tag">' + escapeHtml(t) + "</span>"; }).join("");
+      if (!tagsHtml && a.tagsUnspecified) tagsHtml = '<span class="card-tag card-tag--none">nespecifikováno</span>';
       return (
         '<article class="card" data-id="' + escapeHtml(a.id) + '" role="button" tabindex="0">' +
           '<div class="card-media">' + media + "</div>" +
@@ -462,7 +469,7 @@
       .then(function (items) {
         ADMIN_ARTICLES = Array.isArray(items) ? items : [];
         articlesLoaded = true;
-        renderArticleFilter();
+        txChanged();                 // filter + "Upravit filtry" counts
         renderArticleCards();
         homeArticlesChanged();       // homepage cards depend on the article list
       })
@@ -489,14 +496,17 @@
     var card = event.target.closest(".card[data-id]");
     if (card) { event.preventDefault(); openArticleForEdit(card.dataset.id); }
   });
-  articleTagList.addEventListener("change", function (event) {
-    var inp = event.target;
-    if (!inp || inp.type !== "checkbox") return;
-    if (inp.checked) adminSelectedTags[inp.value] = true; else delete adminSelectedTags[inp.value];
-    renderArticleCards();
+  [["tags", articleTagList], ["authors", articleAuthorList]].forEach(function (p) {
+    if (!p[1]) return;
+    p[1].addEventListener("change", function (event) {
+      var inp = event.target;
+      if (!inp || inp.type !== "checkbox") return;
+      if (inp.checked) adminSelected[p[0]][inp.value] = true; else delete adminSelected[p[0]][inp.value];
+      renderArticleCards();
+    });
   });
   articleClearTags.addEventListener("click", function () {
-    adminSelectedTags = {};
+    adminSelected = { tags: {}, authors: {} };
     renderArticleFilter();
     renderArticleCards();
   });
@@ -932,6 +942,278 @@
   });
 
   /* ============================================================
+     GLOBAL TAG / AUTHOR LISTS — "Upravit filtry"
+     The lists live in taxonomy.json (/api/taxonomy, see api/_taxonomy.js).
+     Articles store names; the counts are computed from the articles here
+     (all of them, scheduled too). Add / rename / delete go through the
+     API, which also rewrites every article using the entry — a post left
+     with no tag after a delete shows "nespecifikováno" (not a real tag).
+     ============================================================ */
+  var TAXO = { tags: [], authors: [] };
+  var taxoLoaded = false;
+  var TX_WORDS = {
+    tags:    { one: "Štítek", none: "Zatím žádné štítky." },
+    authors: { one: "Autor",  none: "Zatím žádní autoři." }
+  };
+  var TX = { menu: null, editing: null, confirm: null, busy: false };
+  var txDialog = document.querySelector("#tx-dialog");
+
+  function nameKey(n) { return String(n == null ? "" : n).replace(/\s+/g, " ").trim().toLocaleLowerCase("cs"); }
+  function cleanName(n) { return String(n == null ? "" : n).replace(/\s+/g, " ").trim().slice(0, 60); }
+  function txNames(list) {
+    if (taxoLoaded) return TAXO[list];
+    var seen = {}, out = [];     // lists not loaded (yet): the names the articles use
+    ADMIN_ARTICLES.forEach(function (a) {
+      (a[list] || []).forEach(function (n) { if (!seen[nameKey(n)]) { seen[nameKey(n)] = 1; out.push(n); } });
+    });
+    return out.sort(function (x, y) { return x.localeCompare(y, "cs"); });
+  }
+  function txCounts(list) {
+    var counts = {};
+    ADMIN_ARTICLES.forEach(function (a) {
+      var seen = {};
+      (a[list] || []).forEach(function (n) {
+        var k = nameKey(n);
+        if (!seen[k]) { seen[k] = 1; counts[k] = (counts[k] || 0) + 1; }
+      });
+    });
+    return counts;
+  }
+  function txFind(list, name) {
+    var k = nameKey(name);
+    return TAXO[list].filter(function (n) { return nameKey(n) === k; })[0] || null;
+  }
+  // Same name (any letter case) already in the list? `except` = the entry being renamed.
+  function txIsDup(list, name, except) {
+    var hit = txFind(list, name);
+    return !!hit && !(except && nameKey(hit) === nameKey(except));
+  }
+  function txPosts(c) { return c + " " + (c === 1 ? "příspěvku" : "příspěvků"); }
+
+  function loadTaxonomy() {
+    return api("/api/taxonomy").then(function (t) {
+      TAXO = { tags: (t && t.tags) || [], authors: (t && t.authors) || [] };
+      taxoLoaded = true;
+      txChanged();
+    }).catch(function () { /* filters fall back to the names the articles use */ });
+  }
+  // Everything that shows the lists follows a change.
+  function txChanged() {
+    renderArticleFilter();
+    if (!txDialog.hidden) txRender();
+    edPickRenderAll();
+  }
+
+  function txRender() {
+    Array.prototype.forEach.call(txDialog.querySelectorAll(".tx-chips"), function (box) {
+      var list = box.dataset.list, counts = txCounts(list);
+      if (!TAXO[list].length) { box.innerHTML = '<span class="tag-list-empty">' + TX_WORDS[list].none + "</span>"; return; }
+      box.innerHTML = TAXO[list].map(function (n) {
+        var c = counts[nameKey(n)] || 0;
+        function is(s) { return !!s && s.list === list && nameKey(s.name) === nameKey(n); }
+        if (is(TX.editing)) {
+          return '<form class="tx-edit" data-list="' + list + '" data-name="' + escapeHtml(n) + '" autocomplete="off">' +
+            '<span class="tx-dup" hidden>duplikát</span>' +
+            '<span class="tx-add-row"><input type="text" maxlength="60" value="' + escapeHtml(n) + '" aria-label="Nový název">' +
+            '<button class="tx-mini tx-mini--ok" type="submit">Uložit</button>' +
+            '<button class="tx-mini" type="button" data-tx="cancel">Zrušit</button></span></form>';
+        }
+        var menu = "";
+        if (is(TX.menu)) {
+          menu = is(TX.confirm)
+            ? '<span class="tx-menu" role="menu"><span class="tx-menu-q">Smazat „' + escapeHtml(n) + "“?" +
+                (c ? " Odebere se z " + txPosts(c) + "." : "") + "</span>" +
+                '<button type="button" class="tx-danger" data-tx="delete-yes">Smazat</button>' +
+                '<button type="button" data-tx="cancel">Zrušit</button></span>'
+            : '<span class="tx-menu" role="menu">' +
+                '<button type="button" role="menuitem" data-tx="edit">Upravit</button>' +
+                '<button type="button" role="menuitem" class="tx-danger" data-tx="delete">Smazat</button></span>';
+        }
+        return '<span class="tx-item"><button type="button" class="tx-chip' + (menu ? " is-open" : "") +
+          '" data-list="' + list + '" data-name="' + escapeHtml(n) + '" aria-haspopup="true" aria-expanded="' + (menu ? "true" : "false") + '">' +
+          escapeHtml(n) + ' <span class="tag-count">(' + c + ")</span></button>" + menu + "</span>";
+      }).join("");
+    });
+  }
+  function txShowDup(form, on) {
+    var d = form.querySelector(".tx-dup");
+    if (d) d.hidden = !on;
+    form.classList.toggle("is-dup", !!on);
+  }
+  function txReset() { TX.menu = TX.editing = TX.confirm = null; }
+
+  function txAction(req, form) {
+    if (TX.busy) return;
+    TX.busy = true;
+    txDialog.classList.add("is-busy");
+    api("/api/taxonomy", { method: "POST", body: req })
+      .then(function (res) {
+        if (res && res.taxonomy) TAXO = { tags: res.taxonomy.tags || [], authors: res.taxonomy.authors || [] };
+        taxoLoaded = true;
+        edPickApply(req);              // an open editor follows the rename / delete
+        txReset();
+        if (req.action === "add" && form) { form.reset(); txShowDup(form, false); }
+        var w = TX_WORDS[req.list], changed = (res && res.changed) || 0;
+        toast(req.action === "add" ? w.one + " „" + req.name + "“ přidán."
+          : req.action === "rename" ? "Přejmenováno na „" + req.to + "“" + (changed ? " — upravené příspěvky: " + changed + "." : ".")
+          : w.one + " „" + req.name + "“ smazán" + (changed ? " a odebrán z " + txPosts(changed) + "." : "."));
+        txChanged();
+        if (changed) refreshTable();   // the cards show the new names
+      })
+      .catch(function (err) {
+        var code = err.body && err.body.error;
+        if (code === "duplicate" && form) { txShowDup(form, true); return; }
+        if (err.status === 401) { showLogin(); return; }
+        toast(code === "reserved" ? "„nespecifikováno“ je vyhrazený název." : "Chyba: " + err.message);
+      })
+      .finally(function () {
+        TX.busy = false;
+        txDialog.classList.remove("is-busy");
+      });
+  }
+
+  function txOpen() {
+    txReset();
+    txRender();
+    txDialog.hidden = false;
+    loadTaxonomy();                    // fresh lists (another admin may have changed them)
+  }
+  function txClose() {
+    txDialog.hidden = true;
+    txReset();
+    Array.prototype.forEach.call(txDialog.querySelectorAll(".tx-add"), function (f) { f.reset(); txShowDup(f, false); });
+  }
+  document.querySelector("#tx-open-btn").addEventListener("click", txOpen);
+  document.querySelector("#ed-tx-open").addEventListener("click", txOpen);
+  document.querySelector("#tx-close").addEventListener("click", txClose);
+  txDialog.addEventListener("click", function (e) {
+    if (e.target === txDialog) { txClose(); return; }          // backdrop
+    var chip = e.target.closest(".tx-chip");
+    var act = e.target.closest("[data-tx]");
+    if (chip) {
+      var open = TX.menu && TX.menu.list === chip.dataset.list && nameKey(TX.menu.name) === nameKey(chip.dataset.name);
+      txReset();
+      if (!open) TX.menu = { list: chip.dataset.list, name: chip.dataset.name };
+      txRender();
+      return;
+    }
+    if (act) {
+      var a = act.dataset.tx, m = TX.menu;
+      if (a === "edit" && m) {
+        txReset();
+        TX.editing = m;
+        txRender();
+        var inp = txDialog.querySelector(".tx-edit input");
+        if (inp) { inp.focus(); inp.select(); }
+      } else if (a === "delete" && m) {
+        TX.confirm = m;
+        txRender();
+      } else if (a === "delete-yes" && m) {
+        txAction({ list: m.list, action: "delete", name: m.name });
+      } else if (a === "cancel") {
+        txReset();
+        txRender();
+      }
+      return;
+    }
+    // a press anywhere else in the window closes the small menu
+    if (TX.menu && !e.target.closest(".tx-menu")) { txReset(); txRender(); }
+  });
+  // live "duplikát" warning while typing
+  txDialog.addEventListener("input", function (e) {
+    var form = e.target.closest("form");
+    if (!form) return;
+    var v = cleanName(e.target.value);
+    txShowDup(form, !!v && txIsDup(form.dataset.list, v, form.dataset.name || null));
+  });
+  txDialog.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var form = e.target, list = form.dataset.list;
+    var input = form.querySelector("input"), v = cleanName(input.value);
+    var old = form.classList.contains("tx-edit") ? form.dataset.name : null;
+    if (!v) { input.focus(); return; }
+    // already in the list: not added, red "duplikát" right above the input
+    if (txIsDup(list, v, old)) { txShowDup(form, true); input.focus(); return; }
+    if (list === "tags" && nameKey(v) === nameKey("nespecifikováno")) { toast("„nespecifikováno“ je vyhrazený název."); return; }
+    if (old && v === old) { txReset(); txRender(); return; }
+    txAction(old ? { list: list, action: "rename", name: old, to: v } : { list: list, action: "add", name: v }, form);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || txDialog.hidden) return;
+    if (TX.menu || TX.editing) { txReset(); txRender(); } else txClose();
+  });
+
+  /* ---------- editor: authors / tags pickers ----------
+     Chips of the chosen entries + a menu of the remaining ones from the
+     global lists. Nothing can be typed, so only approved names are used.
+     The hidden form fields carry the choice as a JSON array. */
+  var ED_PICK = { authors: [], tags: [] };
+  var PICK_ADD = { authors: "+ Přidat autora…", tags: "+ Přidat štítek…" };
+  function edNameList(v) {
+    v = String(v || "").trim();
+    if (v.charAt(0) === "[") {
+      try { var arr = JSON.parse(v); if (Array.isArray(arr)) return arr.map(String); } catch (e) { /* fall through */ }
+    }
+    return v.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+  function edPickSet(list, names) {
+    var out = [], seen = {};
+    (names || []).forEach(function (n) {
+      // once the lists are known, only their entries (spelled as there) stay
+      var canon = taxoLoaded ? txFind(list, n) : cleanName(n);
+      if (canon && !seen[nameKey(canon)]) { seen[nameKey(canon)] = 1; out.push(canon); }
+    });
+    ED_PICK[list] = out;
+    edPickRender(list);
+  }
+  function edPickRender(list) {
+    var box = document.querySelector('.ed-picker[data-list="' + list + '"]');
+    if (!box) return;
+    var keys = {};
+    ED_PICK[list].forEach(function (n) { keys[nameKey(n)] = 1; });
+    var avail = (taxoLoaded ? TAXO[list] : []).filter(function (n) { return !keys[nameKey(n)]; });
+    var chips = ED_PICK[list].map(function (n) {
+      return '<span class="ed-pick-chip">' + escapeHtml(n) +
+        '<button type="button" data-remove="' + escapeHtml(n) + '" aria-label="Odebrat ' + escapeHtml(n) + '">×</button></span>';
+    }).join("");
+    if (!chips && list === "tags" && fTags.dataset.unspecified) chips = '<span class="ed-pick-none">nespecifikováno</span>';
+    var first = avail.length ? PICK_ADD[list]
+      : !taxoLoaded ? "Načítám seznam…"
+      : TAXO[list].length ? "Vše vybráno" : "Nejdřív přidejte v „Upravit filtry“";
+    box.innerHTML = (chips ? '<span class="ed-pick-chips">' + chips + "</span>" : "") +
+      '<select aria-label="' + escapeHtml(PICK_ADD[list].replace(/[+…]/g, "").trim()) + '"' + (avail.length ? "" : " disabled") + ">" +
+        '<option value="">' + escapeHtml(first) + "</option>" +
+        avail.map(function (n) { return '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + "</option>"; }).join("") +
+      "</select>";
+  }
+  function edPickRenderAll() {
+    edPickSet("authors", ED_PICK.authors);
+    edPickSet("tags", ED_PICK.tags);
+  }
+  // follow a rename / delete made in "Upravit filtry" while the editor is open
+  function edPickApply(req) {
+    var cur = ED_PICK[req.list], k = nameKey(req.name);
+    if (!cur) return;
+    if (req.action === "rename") ED_PICK[req.list] = cur.map(function (n) { return nameKey(n) === k ? req.to : n; });
+    else if (req.action === "delete") ED_PICK[req.list] = cur.filter(function (n) { return nameKey(n) !== k; });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".ed-picker"), function (box) {
+    var list = box.dataset.list;
+    box.addEventListener("change", function (e) {
+      if (e.target.tagName !== "SELECT" || !e.target.value) return;
+      edPickSet(list, ED_PICK[list].concat([e.target.value]));
+      var sel = box.querySelector("select");
+      if (sel && !sel.disabled) sel.focus();
+    });
+    box.addEventListener("click", function (e) {
+      var rm = e.target.closest("[data-remove]");
+      if (!rm) return;
+      var k = nameKey(rm.dataset.remove);
+      edPickSet(list, ED_PICK[list].filter(function (n) { return nameKey(n) !== k; }));
+    });
+  });
+
+  /* ============================================================
      VISUAL ARTICLE EDITOR (Canva + Google-Docs hybrid)
      ============================================================ */
   var EDITOR = {
@@ -1068,8 +1350,8 @@
       }
     }
     // load metadata into the left sidebar (mirrors the article form)
-    EDITOR.author.value = fAuthors.value || "";
-    EDITOR.tags.value = fTags.value || "";
+    edPickSet("authors", edNameList(fAuthors.value));
+    edPickSet("tags", edNameList(fTags.value));
     EDITOR.kind.value = fKind.value || "article";
     EDITOR.date.value = fDate.value || nowLocalInput();
     edUpdateSchedule();
@@ -1094,7 +1376,7 @@
   }
   // Everything Vydat would save — compared with the state at open time.
   function edStateSnapshot() {
-    return JSON.stringify([ED.elements, ED.background || null, EDITOR.author.value, EDITOR.tags.value,
+    return JSON.stringify([ED.elements, ED.background || null, ED_PICK.authors.join("\n"), ED_PICK.tags.join("\n"),
       EDITOR.kind.value, EDITOR.date.value, ED.thumbUrl || ""]);
   }
 
@@ -1250,8 +1532,8 @@
       .join("\n\n");
     fBody.value = bodyText;
     // commit metadata from the left sidebar back into the article form
-    fAuthors.value = EDITOR.author.value;
-    fTags.value = EDITOR.tags.value;
+    fAuthors.value = JSON.stringify(ED_PICK.authors);
+    fTags.value = JSON.stringify(ED_PICK.tags);
     fKind.value = EDITOR.kind.value;
     fDate.value = EDITOR.date.value || nowLocalInput();
   }
