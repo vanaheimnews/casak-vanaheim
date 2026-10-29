@@ -316,6 +316,7 @@
           var tagsHtml = (a.tags || []).map(function (t) {
             return '<span class="card-tag">' + escapeHtml(t) + "</span>";
           }).join("");
+          if (!tagsHtml && a.tagsUnspecified) tagsHtml = '<span class="card-tag card-tag--none">nespecifikováno</span>';
           var authors = (a.authors || []).join(", ");
           var metaHtml =
             '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +

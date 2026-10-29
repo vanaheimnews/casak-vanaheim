@@ -17,7 +17,10 @@
   var ARTICLES = [];
   var articlesFailed = false;    // last /api/articles load failed and nothing is cached
   var CONTENT = null;            // about/team/contact, loaded from /api/content
-  var selectedTags = new Set();
+  var TAXO = null;               // global tag / author lists, from /api/taxonomy
+  var selectedTags = new Set();  // ticked list entries, by nameKey()
+  var selectedAuthors = new Set();
+  var sortOrder = "new";         // "new" (newest first) | "old"
   var PAGES = ["home", "articles", "about", "contact"];
   var articlesReady = false;     // articles came from cache or the API (or it failed)
   var contentFailed = false;     // /api/content failed and nothing was cached
@@ -135,6 +138,8 @@
     var tagsHtml = (article.tags || []).map(function (t) {
       return '<span class="card-tag">' + escapeHtml(t) + "</span>";
     }).join("");
+    // its only tag was deleted: a placeholder, not a real (filterable) tag
+    if (!tagsHtml && article.tagsUnspecified) tagsHtml = '<span class="card-tag card-tag--none">nespecifikováno</span>';
     var authors = (article.authors || []).join(", ");
     var kindLabel = article.kind === "comic" ? "Komiks" : "Článek";
     var href = "./article.html?id=" + encodeURIComponent(article.id);
@@ -199,44 +204,74 @@
     applyPageBackground($("#home-frame"), home.background);
   }
 
-  function getAllTags() {
-    var set = new Set();
+  /* ============================================================
+     FILTER ("Filtrovat") + SORT ("Seřadit")
+     Lists come from the global tag / author lists (/api/taxonomy); the
+     number next to each entry is how many published posts use it.
+     Within a section the choice is OR (any ticked tag), between the
+     sections AND (a ticked tag AND a ticked author).
+     ============================================================ */
+  function nameKey(n) { return String(n == null ? "" : n).replace(/\s+/g, " ").trim().toLocaleLowerCase("cs"); }
+  function facetNames(list) {
+    if (TAXO && Array.isArray(TAXO[list])) return TAXO[list];
+    // lists not loaded (yet): the names the posts use
+    var seen = {}, out = [];
     ARTICLES.forEach(function (a) {
-      (a.tags || []).forEach(function (t) { set.add(t); });
+      (a[list] || []).forEach(function (n) { if (!seen[nameKey(n)]) { seen[nameKey(n)] = 1; out.push(n); } });
     });
-    return Array.from(set).sort(function (a, b) { return a.localeCompare(b); });
+    return out.sort(function (a, b) { return a.localeCompare(b, "cs"); });
   }
-
-  function renderTagFilter() {
-    var list = $("#tag-list");
-    if (!list) return;
-    var tags = getAllTags();
-    // Keep the user's ticks across re-renders (cache paint -> server data);
-    // drop selections whose tag no longer exists so no invisible filter stays.
-    selectedTags.forEach(function (t) { if (tags.indexOf(t) === -1) selectedTags.delete(t); });
-    list.innerHTML = tags.map(function (tag) {
+  function facetCounts(list) {
+    var counts = {};
+    ARTICLES.forEach(function (a) {
+      var seen = {};
+      (a[list] || []).forEach(function (n) {
+        var k = nameKey(n);
+        if (!seen[k]) { seen[k] = 1; counts[k] = (counts[k] || 0) + 1; }
+      });
+    });
+    return counts;
+  }
+  function renderFacet(listEl, list, selected) {
+    if (!listEl) return;
+    var names = facetNames(list), counts = facetCounts(list), known = {};
+    names.forEach(function (n) { known[nameKey(n)] = 1; });
+    // a ticked entry that no longer exists must not stay as an invisible filter
+    selected.forEach(function (k) { if (!known[k]) selected.delete(k); });
+    listEl.innerHTML = names.length ? names.map(function (n) {
+      var k = nameKey(n), c = counts[k] || 0, on = selected.has(k);
       return (
-        '<label class="tag-checkbox">' +
-          '<input type="checkbox" value="' + escapeHtml(tag) + '"' + (selectedTags.has(tag) ? " checked" : "") + ">" +
-          "<span>" + escapeHtml(tag) + "</span>" +
+        '<label class="tag-checkbox' + (c || on ? "" : " is-empty") + '">' +
+          '<input type="checkbox" value="' + escapeHtml(k) + '"' + (on ? " checked" : "") + (c || on ? "" : " disabled") + ">" +
+          "<span>" + escapeHtml(n) + ' <span class="tag-count">(' + c + ")</span></span>" +
         "</label>"
       );
-    }).join("");
+    }).join("") : '<span class="tag-list-empty">Zatím nic.</span>';
+  }
+  function renderFilters() {
+    renderFacet($("#tag-list"), "tags", selectedTags);
+    renderFacet($("#author-list"), "authors", selectedAuthors);
+  }
+  function matchesAny(a, list, selected) {
+    if (!selected.size) return true;
+    return (a[list] || []).some(function (n) { return selected.has(nameKey(n)); });
   }
 
   function renderArticles() {
     var grid = $("#articles-grid");
     var empty = $("#articles-empty");
     if (!grid) return;
-    var filtered = ARTICLES.slice().sort(byDateDesc).filter(function (a) {
-      if (selectedTags.size === 0) return true;
-      return (a.tags || []).some(function (t) { return selectedTags.has(t); });
-    });
+    var filtered = ARTICLES.filter(function (a) {
+      return matchesAny(a, "tags", selectedTags) && matchesAny(a, "authors", selectedAuthors);
+    }).sort(sortOrder === "old" ? function (a, b) { return byDateDesc(b, a); } : byDateDesc);
+    var active = selectedTags.size + selectedAuthors.size;
+    var badge = $("#filter-count");
+    if (badge) { badge.textContent = active ? String(active) : ""; badge.hidden = !active; }
     if (filtered.length === 0) {
       grid.innerHTML = "";
       if (empty) {
         empty.textContent = ARTICLES.length
-          ? "Žádné příspěvky neodpovídají vybraným štítkům."
+          ? "Žádné příspěvky neodpovídají vybraným filtrům."
           : (articlesFailed ? "Články se nepodařilo načíst. Zkuste stránku obnovit." : "Zatím žádné příspěvky.");
         empty.hidden = false;
       }
@@ -322,26 +357,59 @@
   }
 
   /* ============================================================
-     TAG FILTER EVENTS
+     FILTER + SORT EVENTS
      ============================================================ */
-  function wireTagFilter() {
-    var list = $("#tag-list");
-    var clearBtn = $("#clear-tags");
-    if (!list) return;
-    list.addEventListener("change", function (event) {
-      var input = event.target;
-      if (!(input instanceof HTMLInputElement)) return;
-      if (input.checked) selectedTags.add(input.value);
-      else selectedTags.delete(input.value);
-      renderArticles();
+  function wireFeedTools() {
+    var toggle = $("#filter-toggle"), panel = $("#filter-panel");
+    var sortBtn = $("#sort-toggle"), sortMenu = $("#sort-menu");
+    if (toggle && panel) {
+      toggle.addEventListener("click", function () {
+        panel.hidden = !panel.hidden;
+        toggle.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
+      });
+    }
+    [["#tag-list", selectedTags], ["#author-list", selectedAuthors]].forEach(function (pair) {
+      var list = $(pair[0]), selected = pair[1];
+      if (!list) return;
+      list.addEventListener("change", function (event) {
+        var input = event.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        if (input.checked) selected.add(input.value);
+        else selected.delete(input.value);
+        renderFilters();
+        renderArticles();
+      });
     });
+    var clearBtn = $("#clear-tags");
     if (clearBtn) {
       clearBtn.addEventListener("click", function () {
         selectedTags.clear();
-        $all("#tag-list input[type='checkbox']").forEach(function (cb) { cb.checked = false; });
+        selectedAuthors.clear();
+        renderFilters();
         renderArticles();
       });
     }
+    if (!sortBtn || !sortMenu) return;
+    function closeSort() { sortMenu.hidden = true; sortBtn.setAttribute("aria-expanded", "false"); }
+    sortBtn.addEventListener("click", function () {
+      sortMenu.hidden = !sortMenu.hidden;
+      sortBtn.setAttribute("aria-expanded", sortMenu.hidden ? "false" : "true");
+    });
+    sortMenu.addEventListener("click", function (e) {
+      var opt = e.target.closest("[data-sort]");
+      if (!opt) return;
+      sortOrder = opt.dataset.sort === "old" ? "old" : "new";
+      $all("[data-sort]", sortMenu).forEach(function (b) {
+        b.setAttribute("aria-checked", b === opt ? "true" : "false");
+      });
+      $("#sort-label").textContent = opt.textContent;
+      closeSort();
+      renderArticles();
+    });
+    document.addEventListener("click", function (e) {
+      if (!sortMenu.hidden && !sortMenu.contains(e.target) && !sortBtn.contains(e.target)) closeSort();
+    });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeSort(); });
   }
 
   /* ============================================================
@@ -351,6 +419,7 @@
           data instantly, with no flash of default content. ---- */
   var ARTICLES_CACHE_KEY = "vanaheim-articles-cache";
   var CONTENT_CACHE_KEY = "vanaheim-content-cache";
+  var TAXO_CACHE_KEY = "vanaheim-taxonomy-cache";
   function readCache(key) {
     try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
   }
@@ -373,6 +442,19 @@
         // API down: keep the cached articles if we painted any, else show an error.
         articlesFailed = ARTICLES.length === 0;
       });
+  }
+
+  function loadTaxonomy() {
+    return fetch("/api/taxonomy", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("API " + r.status);
+        return r.json();
+      })
+      .then(function (t) {
+        TAXO = t;
+        writeCache(TAXO_CACHE_KEY, t);
+      })
+      .catch(function () { /* keep the cached lists, else the names the posts use */ });
   }
 
   function loadContent() {
@@ -406,19 +488,21 @@
 
     wireNav();
     wireDrawer();
-    wireTagFilter();
+    wireFeedTools();
 
     // 1) Instant paint from cache (only what we actually have cached) so a
     //    refresh shows the correct content immediately — no flash of default,
     //    empty, or "no articles" states before the server responds.
     // (filter: older versions cached a built-in sample article)
+    var cachedTaxo = readCache(TAXO_CACHE_KEY);
+    if (cachedTaxo && Array.isArray(cachedTaxo.tags)) TAXO = cachedTaxo;
     var rawCached = readCache(ARTICLES_CACHE_KEY);
     var cachedArticles = Array.isArray(rawCached) ? rawCached.filter(function (a) { return a && a.id !== "sample-1"; }) : [];
     if (cachedArticles.length) {
       ARTICLES = cachedArticles;
       articlesReady = true;
       renderHome();
-      renderTagFilter();
+      renderFilters();
       renderArticles();
     }
     var cachedContent = readCache(CONTENT_CACHE_KEY);
@@ -435,10 +519,10 @@
     showPage(initial);
 
     // 3) Refresh from the server and re-render (updates cache too).
-    loadArticles().then(function () {
+    Promise.all([loadArticles(), loadTaxonomy()]).then(function () {
       articlesReady = true;
       renderHome();
-      renderTagFilter();
+      renderFilters();
       renderArticles();
     });
     loadContent();

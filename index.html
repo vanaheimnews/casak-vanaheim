@@ -83,23 +83,41 @@
     <section class="page" id="page-articles" aria-labelledby="articles-title" hidden>
       <header class="page-header">
         <h1 id="articles-title" class="page-title">Příspěvky</h1>
-        <p class="page-lead">Všechny vydané články a komiksy. Filtrujte podle štítků.</p>
+        <p class="page-lead">Všechny vydané články a komiksy. Filtrujte podle štítků a autorů.</p>
       </header>
 
-      <!-- Tag filter -->
-      <fieldset class="tag-filter" id="tag-filter" aria-label="Filtr štítků">
-        <legend>Filtr podle štítků</legend>
-        <div class="tag-list" id="tag-list">
-          <!-- Tag checkboxes injected by script.js -->
+      <!-- "Filtrovat" (tags + authors, counts) and "Seřadit" (by publish date) -->
+      <div class="feed-tools">
+        <button class="feed-tool" type="button" id="filter-toggle" aria-expanded="false" aria-controls="filter-panel">
+          Filtrovat <span class="feed-tool-badge" id="filter-count" hidden></span>
+        </button>
+        <div class="feed-sort">
+          <button class="feed-tool" type="button" id="sort-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="sort-menu">
+            Seřadit: <span id="sort-label">Od nejnovějších</span>
+          </button>
+          <div class="sort-menu" id="sort-menu" role="menu" hidden>
+            <button type="button" role="menuitemradio" data-sort="new" aria-checked="true">Od nejnovějších</button>
+            <button type="button" role="menuitemradio" data-sort="old" aria-checked="false">Od nejstarších</button>
+          </div>
         </div>
+      </div>
+      <div class="filter-panel" id="filter-panel" hidden>
+        <fieldset class="tag-filter">
+          <legend>Štítky</legend>
+          <div class="tag-list" id="tag-list"><!-- injected by script.js --></div>
+        </fieldset>
+        <fieldset class="tag-filter">
+          <legend>Autoři</legend>
+          <div class="tag-list" id="author-list"><!-- injected by script.js --></div>
+        </fieldset>
         <button class="btn btn-ghost" type="button" id="clear-tags">Zrušit filtr</button>
-      </fieldset>
+      </div>
 
       <div class="card-grid" id="articles-grid">
         <!-- Cards injected by script.js -->
       </div>
       <p class="empty-state" id="articles-empty" hidden>
-        Žádné příspěvky neodpovídají vybraným štítkům.
+        Žádné příspěvky neodpovídají vybraným filtrům.
       </p>
     </section>
 
