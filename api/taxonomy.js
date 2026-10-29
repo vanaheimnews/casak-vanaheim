@@ -4,12 +4,32 @@
  *   POST  { list, action: add|rename|delete, name, to }       (admin only)
  *         -> { taxonomy, changed }   changed = articles rewritten
  *         409 { error: "duplicate" }, 400 { error: "reserved" | "empty" | … }
- * Rename / delete cascade into every article in the same request.
+ * Rename / delete cascade into every article in the same request. Both
+ * files are written with updateArticles / updateTaxonomy, so a parallel
+ * save (another admin, another tab) is redone on top, never overwritten.
  * ============================================================ */
 import {
-  loadArticles, saveArticles, loadTaxonomy, saveTaxonomy, ensureTaxonomy, requireAdmin, readJsonBody, sendServerError
+  loadTaxonomy, ensureTaxonomy, updateArticles, updateTaxonomy, requireAdmin, readJsonBody, sendServerError
 } from "./_lib.js";
 import { applyTaxonomyAction, TaxonomyError } from "./_taxonomy.js";
+
+/* The list write failed after the articles were rewritten: put back the
+ * cascaded field of every post that is still exactly as the cascade left
+ * it (posts changed since then are left alone). */
+async function rollbackArticles(before, written, list) {
+  const orig = new Map(before.map((a) => [a.id, a]));
+  const ours = new Map(written.filter((a) => orig.get(a.id) !== a).map((a) => [a.id, a]));
+  try {
+    await updateArticles((items) => ({
+      value: items.map((a) => {
+        const w = ours.get(a.id);
+        if (!w || JSON.stringify(a[list]) !== JSON.stringify(w[list])) return a;
+        const o = orig.get(a.id);
+        return { ...a, [list]: o[list], tagsUnspecified: !!o.tagsUnspecified };
+      })
+    }));
+  } catch (e) { /* the caller reports the original error */ }
+}
 
 export default async function handler(req, res) {
   try {
@@ -22,26 +42,24 @@ export default async function handler(req, res) {
     if (req.method === "POST") {
       if (!(await requireAdmin(req, res))) return;
       const body = await readJsonBody(req);
-      const articles = await loadArticles();
-      const taxonomy = await ensureTaxonomy(articles);
       let result;
       try {
-        result = applyTaxonomyAction(taxonomy, articles, body);
+        // 1) articles (the cascade), computed on the newest articles + lists
+        result = await updateArticles(async (articles) => {
+          const r = applyTaxonomyAction(await ensureTaxonomy(articles), articles, body);
+          return r.changed ? { ...r, value: r.articles, before: articles } : r;
+        });
+        // 2) the lists: the same action on the newest lists
+        const saved = await updateTaxonomy((taxonomy) => {
+          const t = applyTaxonomyAction(taxonomy, [], body).taxonomy;
+          return { value: t, taxonomy: t };
+        });
+        return res.status(200).json({ taxonomy: saved.taxonomy, changed: result.changed });
       } catch (e) {
+        if (result && result.changed) await rollbackArticles(result.before, result.articles, body.list);
         if (e instanceof TaxonomyError) return res.status(e.status).json({ error: e.code });
         throw e;
       }
-      // Articles first; if the list write then fails they are rolled back.
-      if (result.changed) await saveArticles(result.articles);
-      let saved;
-      try {
-        saved = await saveTaxonomy(result.taxonomy);
-      } catch (e) {
-        // keep both files consistent: put the articles back as they were
-        if (result.changed) { try { await saveArticles(articles); } catch (e2) { /* report the first error */ } }
-        throw e;
-      }
-      return res.status(200).json({ taxonomy: saved, changed: result.changed });
     }
 
     res.setHeader("Allow", "GET, POST");

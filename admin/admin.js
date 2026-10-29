@@ -1105,6 +1105,7 @@
     loadTaxonomy();                    // fresh lists (another admin may have changed them)
   }
   function txClose() {
+    if (TX.busy) return;               // a change is still saving
     txDialog.hidden = true;
     txReset();
     Array.prototype.forEach.call(txDialog.querySelectorAll(".tx-add"), function (f) { f.reset(); txShowDup(f, false); });
@@ -3456,7 +3457,7 @@
   // editor closes only AFTER a successful save — on any failure (API error,
   // expired login, missing title) it stays open with the work intact.
   EDITOR.publish.addEventListener("click", function () {
-    if (uploadsBusy() || EDITOR.publish.disabled) return;
+    if (uploadsBusy() || EDITOR.publish.disabled || TX.busy) return;   // TX: a list change still saving
     edCommitLive();
     edExitEdit();
     edCommitToForm();

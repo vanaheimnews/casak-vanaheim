@@ -58,17 +58,44 @@ async function saveJson(baseName, value) {
  * exists yet. Every failure (Blob API down, network error, bad JSON) THROWS:
  * returning an empty list here made the next save overwrite the store with
  * just one article — i.e. a short outage could wipe the whole magazine. */
-async function loadJson(baseName, fallback) {
+// { value, url }: url identifies the version that was read (null: none yet).
+async function loadJsonVersion(baseName, fallback) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const versions = await listVersions(baseName);
-    if (!versions.length) return fallback;
+    if (!versions.length) return { value: fallback, url: null };
     const response = await fetch(versions[0].url, { cache: "no-store" });
     // 404: that version was cleaned up between list() and fetch() -> re-list.
     if (response.status === 404) continue;
     if (!response.ok) throw new Error("Blob read of " + baseName + " failed: HTTP " + response.status);
-    return await response.json();
+    return { value: await response.json(), url: versions[0].url };
   }
   throw new Error("Blob read of " + baseName + " failed: version disappeared while reading");
+}
+async function loadJson(baseName, fallback) {
+  return (await loadJsonVersion(baseName, fallback)).value;
+}
+
+/* Read -> change -> write without losing a parallel save (two admins, two
+ * tabs). Blob has no compare-and-swap, so: remember which version was read,
+ * and right before writing check it is still the newest; if another save
+ * landed meanwhile, redo the change on that newer data. `mutate(value)`
+ * returns { value: next, ...extra } to write, or an object without `value`
+ * to write nothing; the whole result is returned. */
+async function updateJson(baseName, fallback, mutate) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    // after a collision wait a little (random, growing) so parallel saves take turns
+    if (attempt) await new Promise((r) => setTimeout(r, Math.random() * 120 * attempt));
+    const read = await loadJsonVersion(baseName, fallback);
+    const result = await mutate(read.value);
+    if (!result || !("value" in result)) return result || {};
+    const newest = (await listVersions(baseName))[0];
+    if ((newest ? newest.url : null) !== read.url) continue;   // someone saved meanwhile
+    await saveJson(baseName, result.value);
+    return result;
+  }
+  const err = new Error("Data se právě měnila z jiného místa, zkuste to prosím znovu.");
+  err.status = 409;
+  throw err;
 }
 const COOKIE_NAME = "vn_admin";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 14; // 14 days
@@ -198,6 +225,8 @@ export async function requireAdmin(req, res) {
 /* 500 response. Internal details (useful: e.g. a missing Blob token) are
  * shown only to signed-in admins; the public gets a generic message. */
 export async function sendServerError(req, res, err, where, label = "Server error") {
+  // a save that kept colliding with parallel saves (updateJson): not a crash
+  if (err && err.status === 409) return res.status(409).json({ error: "busy", detail: String(err.message) });
   console.error(where + " error", err);
   let admin = false;
   try { admin = await isAdmin(req); } catch (e) { /* treat as public */ }
@@ -235,6 +264,11 @@ export async function saveArticles(articles) {
   await saveJson("articles", articles);
 }
 
+// Change the article list safely (see updateJson): mutate(items) -> { value, ... }.
+export async function updateArticles(mutate) {
+  return updateJson("articles", [], (data) => mutate(Array.isArray(data) ? data : []));
+}
+
 /* ---------------- tag / author lists (Blob) ----------------
  *  taxonomy.json holds the global lists (see _taxonomy.js). Until the
  *  first change is saved, the lists are the names the articles use.
@@ -258,6 +292,12 @@ export async function saveTaxonomy(taxonomy) {
   const shaped = shapeTaxonomy(taxonomy);
   await saveJson("taxonomy", shaped);
   return shaped;
+}
+
+// Change the lists safely: mutate(currentTaxonomy) -> { value, ... }.
+export async function updateTaxonomy(mutate, articles) {
+  return updateJson("taxonomy", null, (data) =>
+    mutate(data ? shapeTaxonomy(data) : seedTaxonomy(articles || [])));
 }
 
 /* An article may only use names from the global lists (spelled as there).
