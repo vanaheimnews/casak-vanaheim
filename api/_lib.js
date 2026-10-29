@@ -5,6 +5,7 @@
  * ============================================================ */
 import { list, put, del } from "@vercel/blob";
 import { webcrypto } from "node:crypto";
+import { shapeTaxonomy, seedTaxonomy, restrictNames } from "./_taxonomy.js";
 
 const ARTICLES_PATHNAME = "articles.json";
 const CONTENT_PATHNAME = "content.json";
@@ -234,6 +235,31 @@ export async function saveArticles(articles) {
   await saveJson("articles", articles);
 }
 
+/* ---------------- tag / author lists (Blob) ----------------
+ *  taxonomy.json holds the global lists (see _taxonomy.js). Until the
+ *  first change is saved, the lists are the names the articles use.
+ * ----------------------------------------------------------- */
+export async function loadTaxonomy(articles) {
+  const data = await loadJson("taxonomy", null);
+  if (data) return shapeTaxonomy(data);
+  return seedTaxonomy(articles || await loadArticles());
+}
+
+export async function saveTaxonomy(taxonomy) {
+  const shaped = shapeTaxonomy(taxonomy);
+  await saveJson("taxonomy", shaped);
+  return shaped;
+}
+
+/* An article may only use names from the global lists (spelled as there).
+ * Tags set again end the "nespecifikováno" fallback state. */
+export function restrictToTaxonomy(article, taxonomy) {
+  article.tags = restrictNames(article.tags, taxonomy.tags);
+  article.authors = restrictNames(article.authors, taxonomy.authors);
+  article.tagsUnspecified = !!article.tagsUnspecified && !article.tags.length;
+  return article;
+}
+
 /* ---------------- site content store (Blob) ----------------
  *  About text, team members, contact subtitle and contact items
  *  live as a single JSON file (content.json) in Blob.
@@ -441,17 +467,20 @@ export function compareNewest(a, b) {
 }
 
 export function shapeArticle(data) {
+  const tags = Array.isArray(data.tags)
+    ? data.tags.map((t) => String(t).trim()).filter(Boolean)
+    : String(data.tags || "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
   return {
     id:       data.id || uid(),
     title:    String(data.title || "").trim(),
     body:     String(data.body || "").trim(),
     image:    String(data.image || "").trim(),
-    tags:     Array.isArray(data.tags)
-                ? data.tags.map((t) => String(t).trim()).filter(Boolean)
-                : String(data.tags || "")
-                    .split(",")
-                    .map((t) => t.trim())
-                    .filter(Boolean),
+    tags,
+    // a deleted tag left the article with none: cards show "nespecifikováno"
+    tagsUnspecified: data.tagsUnspecified === true && !tags.length,
     authors:  Array.isArray(data.authors)
                 ? data.authors.map((a) => String(a).trim()).filter(Boolean)
                 : String(data.authors || "")
