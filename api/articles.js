@@ -11,6 +11,30 @@ import {
   isLive, compareNewest, sendServerError, setReadCache, ensureTaxonomy, restrictToTaxonomy
 } from "./_lib.js";
 
+/* The public list carries only what the cards and the homepage blocks
+ * use: no full text and no layout. The full article (article page, admin)
+ * comes from ?id=… or the admin host. Keeps the answer small as the
+ * magazine grows. */
+function plain(html) {
+  return String(html || "").replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ").trim();
+}
+function listItem(a) {
+  const els = Array.isArray(a.elements) ? a.elements : [];
+  const text = els.filter((e) => e && e.type === "text" && !e.isTitle).map((e) => plain(e.content)).join(" ");
+  const firstImage = els.find((e) => e && e.type === "image" && e.content);
+  return {
+    id: a.id, title: a.title, image: a.image, date: a.date, publishAt: a.publishAt, kind: a.kind,
+    tags: a.tags, authors: a.authors, tagsUnspecified: a.tagsUnspecified,
+    body: ((a.body || "") + " " + text).replace(/\s+/g, " ").trim().slice(0, 1200),   // excerpt
+    // card picture fallbacks (see home-layout.js thumb()): first image, video previews
+    elements: (firstImage ? [firstImage] : []).concat(els.filter((e) => e && e.type === "embed"))
+      .map((e) => ({ type: e.type, content: e.content }))
+  };
+}
+
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, "http://x");
@@ -34,7 +58,7 @@ export default async function handler(req, res) {
       // Newest first, filtered for scheduling
       const visible = items.filter(isPublished);
       visible.sort(compareNewest);
-      return res.status(200).json(visible);
+      return res.status(200).json(admin ? visible : visible.map(listItem));
     }
 
     if (req.method === "POST") {

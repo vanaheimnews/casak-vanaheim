@@ -27,6 +27,13 @@ import { shapeTaxonomy, seedTaxonomy, restrictNames } from "./_taxonomy.js";
  * the old copies stay as a backup.
  * ---------------------------------------------------------------- */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Parsed copy of each file per warm function instance, keyed by ETag: while
+// the file is unchanged, a read costs one head() and no download at all.
+const MEMORY = new Map();   // baseName -> { etag, value }
+function remember(baseName, etag, value) {
+  if (etag) MEMORY.set(baseName, { etag, value });
+  return structuredClone(value);   // callers get their own copy to change
+}
 
 async function headOrNull(pathname) {
   try {
@@ -56,7 +63,9 @@ async function saveJson(baseName, value, opts = {}) {
     cacheControlMaxAge: 60
   };
   if (opts.etag) options.ifMatch = opts.etag;
-  return put(baseName + ".json", JSON.stringify(value, null, 2), options);
+  const written = await put(baseName + ".json", JSON.stringify(value, null, 2), options);
+  remember(baseName, written.etag, value);
+  return written;
 }
 
 // Old format: the newest <base>-<random>.json (or a stray <base>.json listing).
@@ -77,7 +86,11 @@ async function readLegacy(baseName) {
 async function loadJsonVersion(baseName, fallback) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const meta = await headOrNull(baseName + ".json");
-    if (meta) return { value: await fetchJson(versionUrl(meta), baseName), etag: meta.etag };
+    if (meta) {
+      const hit = MEMORY.get(baseName);
+      if (hit && hit.etag === meta.etag) return { value: structuredClone(hit.value), etag: meta.etag };
+      return { value: remember(baseName, meta.etag, await fetchJson(versionUrl(meta), baseName)), etag: meta.etag };
+    }
     const legacy = await readLegacy(baseName);
     if (!legacy) {
       // never saved: create it from the default, so later reads need no list()
@@ -219,13 +232,14 @@ export function isAdminHost(req) {
   return requestHost(req) === adminHost();
 }
 
-/* Public GET answers may be cached by Vercel's CDN for a minute (then
- * refreshed in the background), so visitors don't each cost a Blob read.
+/* Public GET answers are cached by Vercel's CDN for 5 minutes (then
+ * refreshed in the background), so visitors don't each cost a Blob read;
+ * a new post shows up on the public site within about 5 minutes.
  * The admin host (scheduled posts, fresh data) is never cached. */
 export function setReadCache(req, res) {
   res.setHeader("Cache-Control", isAdminHost(req)
     ? "no-store, max-age=0"
-    : "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
+    : "public, max-age=0, s-maxage=300, stale-while-revalidate=600");
 }
 
 export async function isAdmin(req) {
