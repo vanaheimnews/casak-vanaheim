@@ -4,7 +4,8 @@
  * Accepts JPG, PNG, WEBP, GIF and PDF.
  * Returns: { url, mime }  — public Blob URL of the uploaded file.
  * ============================================================ */
-import { put } from "@vercel/blob";
+import { createHash } from "node:crypto";
+import { put, head, BlobNotFoundError } from "@vercel/blob";
 import { requireAdmin, readJsonBody, sendServerError } from "./_lib.js";
 
 // Whitelisted MIME types -> stored file extension.
@@ -54,16 +55,34 @@ export default async function handler(req, res) {
       .replace(/\.[^.]*$/, "")
       .replace(/[^a-zA-Z0-9._-]/g, "_")
       .slice(0, 64) || "file";
-    const folder = mime === "application/pdf" ? "files" : "images";
-    const pathname = `${folder}/${Date.now()}-${safeName}.${ext}`;
+    /* The stored name comes from the file's content (SHA-256), so uploading
+     * the same file again — a cover photo that is also in the text, a
+     * re-import — reuses the stored copy: one head() ("simple" operation)
+     * instead of a new upload ("advanced" operation, 2,000 a month on the
+     * Hobby plan). PDFs keep their readable name after the hash. */
+    const hash = createHash("sha256").update(buffer).digest("hex").slice(0, 32);
+    const pathname = mime === "application/pdf"
+      ? `files/${hash}-${safeName}.${ext}`
+      : `images/${hash}.${ext}`;
+    const existing = async () => {
+      try { return await head(pathname); } catch (e) { if (e instanceof BlobNotFoundError) return null; throw e; }
+    };
 
-    const result = await put(pathname, buffer, {
-      access: "public",
-      contentType: mime,
-      addRandomSuffix: true
-    });
-
-    return res.status(200).json({ url: result.url, mime });
+    let stored = await existing();
+    if (!stored) {
+      try {
+        stored = await put(pathname, buffer, {
+          access: "public",
+          contentType: mime,
+          addRandomSuffix: false,
+          allowOverwrite: false      // the same name is always the same content
+        });
+      } catch (e) {
+        stored = await existing();   // a parallel upload of the same file got there first
+        if (!stored) throw e;
+      }
+    }
+    return res.status(200).json({ url: stored.url, mime });
   } catch (err) {
     return sendServerError(req, res, err, "/api/upload", "Upload failed");
   }

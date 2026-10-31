@@ -167,8 +167,8 @@ Všechna data jsou ve Vercel Blob, nikde jinde. Žádná databáze není.
 
 | Akce | Advanced operací |
 |---|---|
-| Nahrání obrázku nebo PDF | 1 |
-| Uložení článku, domovské stránky nebo O nás | 1 |
+| Nahrání obrázku nebo PDF | 1 (stejný soubor podruhé: **0**, server ho pozná podle obsahu a použije znovu) |
+| Uložení článku, domovské stránky nebo O nás | 1 (bez změny: **0**, „Vydat“ jen zavře editor a „Uložit“ nic neodešle) |
 | Změna v Upravit filtry | 1–2 |
 | Čtení webu návštěvníkem | **0** |
 | **8 článků × asi 10 obrázků + uložení** | **asi 120 z 2 000** |

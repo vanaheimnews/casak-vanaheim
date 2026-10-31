@@ -663,6 +663,7 @@
     if (contentRequest) return contentRequest;
     contentRequest = api("/api/content").then(function (c) {
       CONTENT = c;
+      contentStored = JSON.stringify(c);
       contentLoaded = true;
       renderAbout();
       renderTeamTable();
@@ -677,9 +678,18 @@
   }
   // Persist the whole CONTENT object; returns the (shaped) saved content.
   var contentDirty = false;   // document edits flushed into CONTENT but not saved
+  var contentStored = "";     // JSON of CONTENT as last loaded / saved
+  // Every save is one paid storage operation: an unchanged CONTENT (Uložit
+  // without edits, a background set back to the same colour…) is not sent.
   function saveContent() {
+    var body = JSON.stringify(CONTENT);
+    if (contentStored && body === contentStored) {
+      contentDirty = false;
+      return Promise.resolve(CONTENT);
+    }
     return api("/api/content", { method: "PUT", body: CONTENT }).then(function (saved) {
       CONTENT = saved;
+      contentStored = JSON.stringify(saved);
       contentDirty = false;
       return saved;
     });
@@ -3460,6 +3470,13 @@
     if (uploadsBusy() || EDITOR.publish.disabled || TX.busy) return;   // TX: a list change still saving
     edCommitLive();
     edExitEdit();
+    // An existing post with nothing changed since the editor opened (text,
+    // layout, data, thumbnail): nothing to store, so no paid save.
+    if (fId.value && edStateSnapshot() === ED.snapshot) {
+      edClose();
+      toast("Beze změn — příspěvek zůstává, jak byl.");
+      return;
+    }
     edCommitToForm();
     var label = EDITOR.publish.textContent;
     EDITOR.publish.disabled = true;
