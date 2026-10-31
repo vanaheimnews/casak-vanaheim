@@ -5,7 +5,7 @@
  * Body for PUT = the whole content object; it is shaped/validated
  * server-side before saving.
  * ============================================================ */
-import { loadContent, saveContent, requireAdmin, readJsonBody, sendServerError } from "./_lib.js";
+import { loadContent, saveContent, requireAdmin, readJsonBody, sendServerError, setReadCache } from "./_lib.js";
 
 export const config = {
   api: { bodyParser: { sizeLimit: "2mb" } }
@@ -17,6 +17,7 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "no-store, max-age=0");
 
     if (req.method === "GET") {
+      setReadCache(req, res);
       const content = await loadContent();
       return res.status(200).json(content);
     }

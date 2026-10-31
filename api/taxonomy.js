@@ -9,7 +9,7 @@
  * save (another admin, another tab) is redone on top, never overwritten.
  * ============================================================ */
 import {
-  loadTaxonomy, ensureTaxonomy, updateArticles, updateTaxonomy, requireAdmin, readJsonBody, sendServerError
+  loadTaxonomy, ensureTaxonomy, updateArticles, updateTaxonomy, requireAdmin, readJsonBody, sendServerError, setReadCache
 } from "./_lib.js";
 import { applyTaxonomyAction, TaxonomyError } from "./_taxonomy.js";
 
@@ -36,6 +36,7 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "no-store, max-age=0");
 
     if (req.method === "GET") {
+      setReadCache(req, res);
       return res.status(200).json(await loadTaxonomy());
     }
 

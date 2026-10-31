@@ -3,95 +3,119 @@
  * Files prefixed with "_" are excluded from Vercel's route detection,
  * so this is import-only — not an HTTP endpoint.
  * ============================================================ */
-import { list, put, del } from "@vercel/blob";
+import { list, put, head, BlobNotFoundError, BlobPreconditionFailedError } from "@vercel/blob";
 import { webcrypto } from "node:crypto";
 import { shapeTaxonomy, seedTaxonomy, restrictNames } from "./_taxonomy.js";
 
-const ARTICLES_PATHNAME = "articles.json";
-const CONTENT_PATHNAME = "content.json";
-const KEEP_VERSIONS = 3;   // newest JSON versions never deleted (backup)
-
 /* ----------------------------------------------------------------
- * Mutable-JSON-in-Blob helper.
- * Vercel Blob serves public URLs through a CDN whose edge cache is
- * NOT purged when you overwrite the same pathname — so reads stay
- * stale for the cache TTL. The reliable fix is to write a NEW unique
- * URL every time (addRandomSuffix:true), read the most-recently
- * uploaded one, and delete the older copies.
+ * Mutable JSON in Blob, frugal with operations.
+ * The Hobby plan includes only 2,000 "advanced" operations (uploads and
+ * list() calls) a month; past that Vercel blocks the store for 30 days
+ * (every read answers 403). The old scheme wrote a new <base>-<random>.json
+ * on every save and called list() on EVERY read, which used them up.
+ * Now each file has one fixed pathname (articles.json, content.json,
+ * taxonomy.json), overwritten in place:
+ *   read   head() — a "simple" operation that always returns the current
+ *          version's ETag — then fetch <url>?v=<etag>. A new version is a
+ *          new URL, so the CDN never serves stale data, and reading the
+ *          same version again is a free cache hit.
+ *   write  put(allowOverwrite, ifMatch: <etag that was read>) — one
+ *          advanced operation, and a real compare-and-swap: if another
+ *          save landed in between it fails and the change is redone.
+ * The first read of a file that only exists in the old <base>-<random>.json
+ * form copies the newest of those (one list(), once) to the fixed name;
+ * the old copies stay as a backup.
  * ---------------------------------------------------------------- */
-// baseName is e.g. "articles" or "content" (the file is <base>.json).
-async function listVersions(baseName) {
-  const result = await list({ prefix: baseName, limit: 1000 });
-  const matches = (result.blobs || []).filter(function (b) {
-    return b.pathname === baseName + ".json" ||
-           b.pathname.startsWith(baseName + "-");
-  });
-  matches.sort(function (a, b) { return new Date(b.uploadedAt) - new Date(a.uploadedAt); });
-  return matches; // newest first
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function headOrNull(pathname) {
+  try {
+    return await head(pathname);
+  } catch (e) {
+    if (e instanceof BlobNotFoundError) return null;
+    throw e;
+  }
+}
+async function fetchJson(url, baseName) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error("Blob read of " + baseName + " failed: HTTP " + response.status);
+  return await response.json();
+}
+function versionUrl(meta) {
+  return meta.url + (meta.url.indexOf("?") > -1 ? "&" : "?") + "v=" + encodeURIComponent(meta.etag || meta.uploadedAt || "");
 }
 
-async function saveJson(baseName, value) {
-  const written = await put(baseName + ".json", JSON.stringify(value, null, 2), {
+// opts.etag: a string = only if still that version (compare-and-swap);
+// null = only if the file does not exist yet; undefined = overwrite.
+async function saveJson(baseName, value, opts = {}) {
+  const options = {
     access: "public",
     contentType: "application/json",
-    addRandomSuffix: true,     // brand-new URL each save -> never a stale CDN hit
-    cacheControlMaxAge: 0
-  });
-  // Best-effort cleanup. Only versions OLDER than the one we just wrote are
-  // removed (a parallel save that landed after ours must survive), and the
-  // newest KEEP_VERSIONS copies always stay as a safety net / backup.
-  try {
-    const versions = await listVersions(baseName);   // newest first
-    const mine = versions.find(function (b) { return b.url === written.url; });
-    if (mine) {
-      const myTime = new Date(mine.uploadedAt).getTime();
-      const stale = versions.slice(KEEP_VERSIONS)
-        .filter(function (b) { return new Date(b.uploadedAt).getTime() < myTime; })
-        .map(function (b) { return b.url; });
-      if (stale.length) await del(stale);
-    }
-  } catch (e) { /* cleanup is non-critical */ }
-  return written;
+    addRandomSuffix: false,
+    allowOverwrite: opts.etag !== null,
+    cacheControlMaxAge: 60
+  };
+  if (opts.etag) options.ifMatch = opts.etag;
+  return put(baseName + ".json", JSON.stringify(value, null, 2), options);
 }
 
-/* Read the newest version. `fallback` is returned ONLY when no version
- * exists yet. Every failure (Blob API down, network error, bad JSON) THROWS:
- * returning an empty list here made the next save overwrite the store with
- * just one article — i.e. a short outage could wipe the whole magazine. */
-// { value, url }: url identifies the version that was read (null: none yet).
+// Old format: the newest <base>-<random>.json (or a stray <base>.json listing).
+async function readLegacy(baseName) {
+  const result = await list({ prefix: baseName, limit: 1000 });
+  const versions = (result.blobs || []).filter(function (b) {
+    return b.pathname.startsWith(baseName + "-") && b.pathname.endsWith(".json");
+  });
+  if (!versions.length) return null;
+  versions.sort(function (a, b) { return new Date(b.uploadedAt) - new Date(a.uploadedAt); });
+  return { value: await fetchJson(versions[0].url, baseName) };
+}
+
+/* { value, etag } of the current version. `fallback` ONLY when the file
+ * has never existed. Every failure (Blob down, blocked store, bad JSON)
+ * THROWS: returning an empty list here would let the next save overwrite
+ * the whole magazine with one article. */
 async function loadJsonVersion(baseName, fallback) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const versions = await listVersions(baseName);
-    if (!versions.length) return { value: fallback, url: null };
-    const response = await fetch(versions[0].url, { cache: "no-store" });
-    // 404: that version was cleaned up between list() and fetch() -> re-list.
-    if (response.status === 404) continue;
-    if (!response.ok) throw new Error("Blob read of " + baseName + " failed: HTTP " + response.status);
-    return { value: await response.json(), url: versions[0].url };
+    const meta = await headOrNull(baseName + ".json");
+    if (meta) return { value: await fetchJson(versionUrl(meta), baseName), etag: meta.etag };
+    const legacy = await readLegacy(baseName);
+    if (!legacy) {
+      // never saved: create it from the default, so later reads need no list()
+      if (fallback === null) return { value: null, etag: null };
+      try { await saveJson(baseName, fallback, { etag: null }); continue; } catch (e) { return { value: fallback, etag: null }; }
+    }
+    try {
+      await saveJson(baseName, legacy.value, { etag: null });   // migrate once
+    } catch (e) {
+      if (attempt === 2) throw e;                                // (a parallel request may have migrated it)
+    }
   }
-  throw new Error("Blob read of " + baseName + " failed: version disappeared while reading");
+  throw new Error("Blob read of " + baseName + " failed: could not migrate the old copies");
 }
 async function loadJson(baseName, fallback) {
   return (await loadJsonVersion(baseName, fallback)).value;
 }
 
 /* Read -> change -> write without losing a parallel save (two admins, two
- * tabs). Blob has no compare-and-swap, so: remember which version was read,
- * and right before writing check it is still the newest; if another save
- * landed meanwhile, redo the change on that newer data. `mutate(value)`
- * returns { value: next, ...extra } to write, or an object without `value`
- * to write nothing; the whole result is returned. */
+ * tabs): the write only succeeds if the file is still the version that was
+ * read, otherwise the change is redone on the newer data. `mutate(value)`
+ * returns { value: next, ...extra } to write, or an object without
+ * `value` to write nothing; the whole result is returned. */
 async function updateJson(baseName, fallback, mutate) {
   for (let attempt = 0; attempt < 8; attempt++) {
     // after a collision wait a little (random, growing) so parallel saves take turns
-    if (attempt) await new Promise((r) => setTimeout(r, Math.random() * 120 * attempt));
+    if (attempt) await sleep(Math.random() * 120 * attempt);
     const read = await loadJsonVersion(baseName, fallback);
     const result = await mutate(read.value);
     if (!result || !("value" in result)) return result || {};
-    const newest = (await listVersions(baseName))[0];
-    if ((newest ? newest.url : null) !== read.url) continue;   // someone saved meanwhile
-    await saveJson(baseName, result.value);
-    return result;
+    try {
+      await saveJson(baseName, result.value, { etag: read.etag });
+      return result;
+    } catch (e) {
+      // someone saved in between (or created the file first): redo
+      if (e instanceof BlobPreconditionFailedError || (read.etag === null && /exist/i.test(String(e && e.message)))) continue;
+      throw e;
+    }
   }
   const err = new Error("Data se právě měnila z jiného místa, zkuste to prosím znovu.");
   err.status = 409;
@@ -195,6 +219,15 @@ export function isAdminHost(req) {
   return requestHost(req) === adminHost();
 }
 
+/* Public GET answers may be cached by Vercel's CDN for a minute (then
+ * refreshed in the background), so visitors don't each cost a Blob read.
+ * The admin host (scheduled posts, fresh data) is never cached. */
+export function setReadCache(req, res) {
+  res.setHeader("Cache-Control", isAdminHost(req)
+    ? "no-store, max-age=0"
+    : "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
+}
+
 export async function isAdmin(req) {
   if (!isAdminHost(req)) return false;
   return verifySessionToken(parseCookies(req)[COOKIE_NAME]);
@@ -273,20 +306,21 @@ export async function updateArticles(mutate) {
  *  taxonomy.json holds the global lists (see _taxonomy.js). Until the
  *  first change is saved, the lists are the names the articles use.
  * ----------------------------------------------------------- */
-export async function loadTaxonomy(articles) {
-  const data = await loadJson("taxonomy", null);
-  if (data) return shapeTaxonomy(data);
-  return seedTaxonomy(articles || await loadArticles());
-}
-
-/* Admin write paths call this BEFORE changing anything: the first time,
- * the lists seeded from the articles are saved, so an entry does not
- * vanish just because its last post was edited or deleted. */
+/* The first time (no taxonomy.json yet) the lists seeded from the articles
+ * are saved, once: an entry then never vanishes just because its last post
+ * was edited or deleted, and later reads need no list() call. */
 export async function ensureTaxonomy(articles) {
   const data = await loadJson("taxonomy", null);
   if (data) return shapeTaxonomy(data);
-  return saveTaxonomy(seedTaxonomy(articles));
+  const seeded = seedTaxonomy(articles || await loadArticles());
+  try {
+    await saveJson("taxonomy", seeded, { etag: null });      // create only
+  } catch (e) {
+    return shapeTaxonomy(await loadJson("taxonomy", seeded));  // a parallel request created it
+  }
+  return seeded;
 }
+export const loadTaxonomy = ensureTaxonomy;
 
 export async function saveTaxonomy(taxonomy) {
   const shaped = shapeTaxonomy(taxonomy);
@@ -469,7 +503,7 @@ export function shapeContent(d) {
 }
 
 export async function loadContent() {
-  const data = await loadJson("content", null);
+  const data = await loadJson("content", DEFAULT_CONTENT);   // never saved: created once from the defaults
   return data ? shapeContent(data) : DEFAULT_CONTENT;
 }
 

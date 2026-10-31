@@ -8,7 +8,7 @@
  * ============================================================ */
 import {
   loadArticles, updateArticles, requireAdmin, isAdmin, readJsonBody, shapeArticle, uid,
-  isLive, compareNewest, sendServerError, ensureTaxonomy, restrictToTaxonomy
+  isLive, compareNewest, sendServerError, setReadCache, ensureTaxonomy, restrictToTaxonomy
 } from "./_lib.js";
 
 export default async function handler(req, res) {
@@ -17,8 +17,8 @@ export default async function handler(req, res) {
     const id = url.searchParams.get("id");
 
     if (req.method === "GET") {
-      // Response varies by auth (admins see scheduled articles) — never cache it.
-      res.setHeader("Cache-Control", "no-store, max-age=0");
+      // admins (only on the admin host) see scheduled articles: that host is never cached
+      setReadCache(req, res);
       const items = await loadArticles();
       // Scheduling: an article with a future publish time is hidden from the
       // public until that moment; admins (signed-in) always see them.
