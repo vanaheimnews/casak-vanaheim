@@ -54,12 +54,13 @@ serverless functions.
 | GET    | `/api/login`               | public | check session state    |
 | POST   | `/api/logout`              | public | end admin session      |
 
-Articles are stored as a single JSON file (`articles.json`) inside the Blob
-store; uploaded images live under `images/`.
+Also: `GET /api/content` + `PUT` (admin), `GET /api/taxonomy` + `POST` (admin).
 
-Each save writes a new version of the JSON; the newest three versions are
-kept as backups (Vercel → Storage → Blob → `articles-*.json`). If a save ever
-goes wrong, the previous version can be restored by deleting the newest file.
+Articles are stored as a single JSON file (`articles.json`) inside the Blob
+store, overwritten in place; uploaded images live under `images/`.
+How storage works, the Hobby-plan limits, backups and the incident of
+31 Oct 2026: see **`DOKUMENTACE.md`** (Czech). The old `articles-*.json`
+copies are backups from before that date: keep them.
 
 ## Sessions & security
 
