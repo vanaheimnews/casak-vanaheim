@@ -32,7 +32,9 @@ export async function put(pathname, body, opts = {}) {
   if (cur && !opts.allowOverwrite) throw new BlobError("Vercel Blob: This blob already exists, use `allowOverwrite: true` if you want to overwrite it.");
   if (opts.ifMatch && (!cur || cur.etag !== opts.ifMatch)) throw new BlobPreconditionFailedError();
   const uploadedAt = new Date(Date.now() + ++seq).toISOString();
-  const rec = { pathname, url: base() + pathname, uploadedAt, etag: '"' + seq.toString(36) + Math.random().toString(36).slice(2, 8) + '"', body: String(body) };
+  // text stays text (JSON files); binary uploads (images, PDFs) keep their bytes
+  const rec = { pathname, url: base() + pathname, uploadedAt, etag: '"' + seq.toString(36) + Math.random().toString(36).slice(2, 8) + '"',
+                body: typeof body === "string" ? body : Buffer.from(body), contentType: opts.contentType || "application/json" };
   STORE.set(pathname, rec);
   return { pathname, url: rec.url, uploadedAt, etag: rec.etag };
 }

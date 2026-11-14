@@ -46,7 +46,7 @@ http.createServer(async (req, res) => {
     if (p.startsWith("/__blob/")) {
       const b = STORE.get(p.slice(8));
       if (!b) { res.statusCode = 404; return res.end("gone"); }
-      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Type", b.contentType || "application/json");
       return res.end(b.body);
     }
     if (p === "/__ops") { res.setHeader("Content-Type", "application/json"); return res.end(JSON.stringify(OPS)); }

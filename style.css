@@ -1316,6 +1316,53 @@ a.ac-file:hover, a.doc-file:hover { background: #eee; }
 .ed-handle[data-h="s"]  { bottom: -7px; left: 50%; margin-left: -6px; cursor: ns-resize; }
 .ed-handle[data-h="sw"] { bottom: -7px; left: -7px; cursor: nesw-resize; }
 .ed-handle[data-h="w"]  { top: 50%; left: -7px; margin-top: -6px; cursor: ew-resize; }
+
+/* ---- Undo / redo (bar 1) ---- */
+.ed-hist { display: inline-flex; gap: 4px; }
+.ed-btn--icon { display: inline-grid; place-items: center; min-width: 38px; padding: 0 9px; }
+.ed-btn:disabled { opacity: 0.4; cursor: default; }
+.ed-btn:disabled:hover { border-color: var(--content-rule); color: var(--content-fg); }
+
+/* ---- Crop („Oříznout") ---- */
+.ed-tool-text { width: auto; padding: 0 10px; gap: 6px; display: inline-flex; align-items: center; font-size: 0.88rem; }
+.ed-tool-text[hidden] { display: none; }
+.ed-bar2.is-docked #ed-crop { display: none; }            /* article canvas only */
+/* a cropped picture (editor block + public page): see VNSafe.croppedImage */
+svg.vn-crop { display: block; width: 100%; height: 100%; }
+.ed-el--image svg.vn-crop { pointer-events: none; }
+.ed-el.is-cropping { visibility: hidden; }                /* the crop layer stands in for the block */
+.ed-crop {
+  position: absolute; z-index: 60; overflow: hidden;      /* clips the dimming shadow to the picture */
+  user-select: none; touch-action: none;
+}
+.ed-crop > img { display: block; width: 100%; height: 100%; max-width: none; pointer-events: none; }
+.ed-crop-frame {
+  position: absolute; box-sizing: border-box; cursor: move;
+  border: 1px solid #fff; outline: 1px solid #000;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);            /* everything outside the frame is dimmed */
+}
+/* black handles like Word: corner brackets and side bars, inside the frame */
+.ed-crop-h { position: absolute; box-sizing: border-box; filter: drop-shadow(0 0 1px #fff); touch-action: none; }
+.ed-crop-h[data-h="nw"], .ed-crop-h[data-h="ne"], .ed-crop-h[data-h="sw"], .ed-crop-h[data-h="se"] {
+  width: 18px; height: 18px; border: 0 solid #000;
+}
+.ed-crop-h[data-h="nw"] { top: 0; left: 0; border-top-width: 5px; border-left-width: 5px; cursor: nwse-resize; }
+.ed-crop-h[data-h="ne"] { top: 0; right: 0; border-top-width: 5px; border-right-width: 5px; cursor: nesw-resize; }
+.ed-crop-h[data-h="sw"] { bottom: 0; left: 0; border-bottom-width: 5px; border-left-width: 5px; cursor: nesw-resize; }
+.ed-crop-h[data-h="se"] { bottom: 0; right: 0; border-bottom-width: 5px; border-right-width: 5px; cursor: nwse-resize; }
+/* side bars: a 5px bar drawn on the edge of a larger (easier to grab) area */
+.ed-crop-h[data-h="n"], .ed-crop-h[data-h="s"] {
+  left: 50%; width: 30px; height: 14px; margin-left: -15px;
+  background: linear-gradient(#000, #000) no-repeat; background-size: 100% 5px; cursor: ns-resize;
+}
+.ed-crop-h[data-h="e"], .ed-crop-h[data-h="w"] {
+  top: 50%; width: 14px; height: 30px; margin-top: -15px;
+  background: linear-gradient(#000, #000) no-repeat; background-size: 5px 100%; cursor: ew-resize;
+}
+.ed-crop-h[data-h="n"] { top: 0; background-position: top; }
+.ed-crop-h[data-h="s"] { bottom: 0; background-position: bottom; }
+.ed-crop-h[data-h="w"] { left: 0; background-position: left; }
+.ed-crop-h[data-h="e"] { right: 0; background-position: right; }
 .ed-el-delete {
   position: absolute; top: -14px; right: -14px;
   width: 24px; height: 24px; z-index: 61;
@@ -1499,6 +1546,7 @@ body.visual-editor-active .ed-bar2 { display: flex; }
   overflow-wrap: anywhere;
 }
 .article-canvas--flow .ac-el--image img { height: auto; }
+.article-canvas--flow .ac-el--image svg.vn-crop { height: auto; }   /* keeps the crop's shape */
 
 /* ============================================================
    ADMIN article list (cards) — header + scheduled badge

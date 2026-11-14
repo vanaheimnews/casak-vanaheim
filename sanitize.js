@@ -239,5 +239,47 @@
     return f;
   }
 
-  window.VNSafe = { html: html, url: url, cssUrl: cssUrl, embed: embed, embedFrame: embedFrame };
+
+  /* ---------- cropped images ----------
+     An image block may carry crop = { x, y, w, h, nw, nh }: the visible
+     rectangle in pixels of the original picture (nw × nh). The stored file
+     is never changed, so a crop costs no upload and can be redone any time.
+     cropRect() validates it (null = show the whole picture). */
+  function cropRect(c) {
+    if (!c || typeof c !== "object") return null;
+    var r = { x: +c.x, y: +c.y, w: +c.w, h: +c.h, nw: +c.nw, nh: +c.nh };
+    for (var k in r) if (!isFinite(r[k])) return null;
+    if (!(r.nw > 0 && r.nh > 0 && r.w >= 1 && r.h >= 1 && r.x >= 0 && r.y >= 0)) return null;
+    if (r.x + r.w > r.nw + 0.5 || r.y + r.h > r.nh + 0.5) return null;
+    if (r.w >= r.nw - 0.5 && r.h >= r.nh - 0.5) return null;      // the whole picture
+    return r;
+  }
+  /* The cropped picture as an inline <svg>: it fits its box like
+     object-fit: contain (never distorted) and shows exactly the crop
+     rectangle — the inner <svg> is the clipping viewport. */
+  function croppedImage(src, crop, alt) {
+    var NS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "vn-crop");
+    svg.setAttribute("viewBox", "0 0 " + crop.w + " " + crop.h);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", alt || "");
+    var view = document.createElementNS(NS, "svg");
+    view.setAttribute("width", crop.w);
+    view.setAttribute("height", crop.h);
+    view.setAttribute("viewBox", crop.x + " " + crop.y + " " + crop.w + " " + crop.h);
+    view.setAttribute("preserveAspectRatio", "none");
+    var im = document.createElementNS(NS, "image");
+    im.setAttribute("href", src);
+    im.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", src);   // older Safari
+    im.setAttribute("width", crop.nw);
+    im.setAttribute("height", crop.nh);
+    im.setAttribute("preserveAspectRatio", "none");
+    view.appendChild(im);
+    svg.appendChild(view);
+    return svg;
+  }
+  window.VNSafe = { html: html, url: url, cssUrl: cssUrl, embed: embed, embedFrame: embedFrame,
+                    cropRect: cropRect, croppedImage: croppedImage };
 })();

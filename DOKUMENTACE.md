@@ -92,6 +92,7 @@ Všechna data jsou ve Vercel Blob, nikde jinde. Žádná databáze není.
 
 - **Naplánování:** článek s `publishAt` v budoucnosti veřejnost nevidí, dokud ten čas nenastane. Žádný cron není potřeba, kontroluje se to při každém načtení.
 - **`elements`** je rozložení z vizuálního editoru: textové bloky, obrázky, PDF a videa s pozicí na stránce. Stránka je široká 820 px.
+- **Ořez obrázku** se ukládá u bloku jako `crop: { x, y, w, h, nw, nh }`: viditelný výřez v pixelech původního obrázku (`nw` × `nh`). Soubor v úložišti se nemění, takže ořez nestojí žádnou operaci a dá se kdykoli upravit. Vykresluje ho `VNSafe.croppedImage` v `sanitize.js`, stejně v editoru i na webu.
 
 ---
 
@@ -106,6 +107,12 @@ Všechna data jsou ve Vercel Blob, nikde jinde. Žádná databáze není.
 - **Karta článku** ukazuje štítky. Když článku zmizel poslední štítek, protože ho admin smazal, karta ukáže šedé **„nespecifikováno“**. Není to skutečný štítek a ve filtrech se nikdy neobjeví.
 - Prohlížeč si poslední data pamatuje (localStorage), takže se stránka při dalším otevření zobrazí hned a pak se obnoví ze serveru.
 - Nový článek se na veřejném webu objeví **nejpozději zhruba za 5 minut**. Tolik trvá cache na Vercelu. V adminu je vidět hned.
+- **Stránka článku** (`article.html`):
+  - Sloupec článku je široký 820 px, stejně jako stránka v editoru, a je vždy uprostřed obrazovky.
+  - Na širokých monitorech (od 1280 px) jsou po stranách karty **příspěvků umístěných na domovské stránce** (náhled a titulek). Panel zůstává při rolování na očích.
+  - Do čtyř příspěvků jsou karty vpravo, při více se rozdělí na obě strany (nejvýš 8). Aktuálně čtený článek se vynechá.
+  - Na užších obrazovkách a mobilech se karty přesunou pod článek.
+  - Zdroj je stejný jako u domovské stránky: bloky s příspěvky z „Správa domovské stránky“.
 
 ---
 
@@ -119,6 +126,8 @@ Všechna data jsou ve Vercel Blob, nikde jinde. Žádná databáze není.
   - Bloky (text, obrázek nebo PDF, video či příspěvek ze sociální sítě) se přetahují a mění jim velikost. Zarovnávací vodítka pomáhají s umístěním.
   - Formátování textu: písmo, velikost, B/I/U, barva, zarovnání, seznamy, odsazení. Nové formátování platí pro označený text, a to hned napoprvé.
   - Kopírování bloku: Ctrl+C a Ctrl+V.
+  - **Krok zpět a vpřed:** šipky v horní liště, Ctrl+Z a Ctrl+Y. Krokem je každé vložení, smazání, přesun, změna velikosti, ořez a změna formátu. Souvislé psaní je jeden krok, který končí klávesou Enter, kliknutím jinam nebo jinou akcí. Pamatuje se posledních 100 kroků, po zavření editoru se historie zahodí.
+  - **Oříznout:** po kliknutí na obrázek se v liště objeví tlačítko „Oříznout“. Kolem obrázku se zobrazí černé úchyty a část mimo rám ztmavne. Rám jde táhnout za úchyty i celý. Potvrzení: znovu „Oříznout“, Enter nebo klik vedle. Esc ořez zruší. Ořez jde kdykoli změnit, původní obrázek zůstává celý.
   - Stránka se sama prodlužuje dolů jako ve Wordu.
   - Klik mimo blok výběr zruší.
   - Vlevo je panel **Data**: autoři, štítky (výběr ze seznamu), typ, datum a čas vydání (budoucí čas = naplánováno), náhledový obrázek.

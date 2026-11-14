@@ -1411,6 +1411,7 @@
     ED.pageH = 0;                        // a new article starts from one sheet + its content
     edAutoHeight();
     ED.snapshot = edStateSnapshot();     // compared by the leave-page warning
+    histReset();                         // undo / redo starts from the opened state
   }
   // Everything Vydat would save — compared with the state at open time.
   function edStateSnapshot() {
@@ -1540,6 +1541,8 @@
   });
 
   function edClose() {
+    edCropEnd(false);
+    histClear();
     edThumbRevoke();
     edCloseColorPanel();
     // Leave no editing state behind: a stale editingId kept the global
@@ -1592,6 +1595,10 @@
       if (edResizeObs) edResizeObs.observe(node);   // typing / image load -> page grows
     });
     edRestoreKeptSelection(keep);
+    if (CROP.el) {                       // a crop in progress survives the re-render
+      if (edFind(CROP.el.id)) edCropMount();
+      else { CROP.el = CROP.layer = CROP.frame = null; if (cropBtn) cropBtn.classList.remove("is-active"); }
+    }
     edScheduleAutoHeight();
   }
 
@@ -1693,10 +1700,15 @@
     var content = document.createElement("div");
     content.className = "ed-el-content";
     if (el.type === "image") {
-      var img = document.createElement("img");
-      img.src = el.content;
-      img.alt = "";
-      content.appendChild(img);
+      var crop = el.uploading ? null : VNSafe.cropRect(el.crop);
+      if (crop) {
+        content.appendChild(VNSafe.croppedImage(el.content, crop, ""));   // same renderer as the public page
+      } else {
+        var img = document.createElement("img");
+        img.src = el.content;
+        img.alt = "";
+        content.appendChild(img);
+      }
     } else if (el.type === "file") {
       var fileLink = document.createElement("span");   // not a live link inside the editor
       fileLink.className = "ed-file";
@@ -1752,8 +1764,9 @@
     });
     // keep state in sync while editing
     if (el.type === "text") {
-      content.addEventListener("input", function () {
+      content.addEventListener("input", function (e) {
         el.content = content.innerHTML;
+        histTyped(e);                      // typing is one undo step until Enter / paste / a click elsewhere
       });
     }
     return node;
@@ -2273,19 +2286,22 @@
     ED.elements.push(el);
     edSelect(el.id);
     uploadFile(file, { allowPdf: true })
+      // (undo / redo replace the block objects, so the block is found by its
+      // temporary address — in the canvas and in every recorded step)
       .then(function (r) {
-        el.content = r.url;
-        delete el.uploading;
+        histResolveUpload(localUrl, r.url);
         toast(kind === "pdf" ? "PDF přidáno." : "Obrázek přidán.");
       })
       .catch(function (err) {
-        ED.elements = ED.elements.filter(function (x) { return x !== el; });
-        if (ED.selectedId === el.id) ED.selectedId = null;
+        histResolveUpload(localUrl, null);
+        if (!edFind(ED.selectedId)) ED.selectedId = null;
         toast("Nahrání selhalo: " + err.message);
       })
       .finally(function () {
         URL.revokeObjectURL(localUrl);
+        if (EDITOR.overlay.hidden) return;
         edRenderCanvas();
+        edSetLayerVisible(!!edFind(ED.selectedId));   // „Oříznout" appears once the picture is uploaded
       });
   }
 
@@ -2365,6 +2381,7 @@
     if (EDITOR.overlay.hidden || !t || !t.closest) return false;
     if (t.closest(ED_AWAY_KEEP)) return false;                             // toolbars, panels, dialogs
     if (EDITOR.canvas.contains(t) && t.closest(".ed-el")) return false;    // a block handles its own press
+    if (t.closest(".ed-crop")) return false;                               // the crop frame too
     return !edOnScrollbar(t, x, y);                                        // scrollbar = just scrolling
   }
   function edClickAway(t) {
@@ -2921,9 +2938,11 @@
     var content = edEditingContent();
     if (!content || !(content === document.activeElement || content.contains(document.activeElement))) return;
     var k = e.key.toLowerCase();
-    if (k === "l") { e.preventDefault(); edAlign("left"); }
-    else if (k === "e") { e.preventDefault(); edAlign("center"); }
-    else if (k === "r") { e.preventDefault(); edAlign("right"); }
+    if (k !== "l" && k !== "e" && k !== "r") return;
+    e.preventDefault();
+    histCommit();                          // typing so far, then the alignment as its own step
+    edAlign(k === "l" ? "left" : k === "e" ? "center" : "right");
+    histCommit();
   });
 
   /* ---------- live styling (Google-Docs style, no Enter needed) ----------
@@ -3321,6 +3340,7 @@
     if (wrap) wrap.hidden = !on;
     var menu = document.querySelector("#ed-layer-menu");
     if (menu && !on) menu.hidden = true;
+    edCropSync();
   }
   function edUpdateToolbar() {
     var el = edFind(ED.selectedId);
@@ -3375,6 +3395,332 @@
     if (EDITOR.ul)     EDITOR.ul.classList.toggle("btn-active", inUL);
     if (EDITOR.ol)     EDITOR.ol.classList.toggle("btn-active", inOL);
   }
+
+  /* ============================================================
+     UNDO / REDO — history of the article canvas
+     HIST.stack holds the whole canvas (blocks + page background) as JSON,
+     one entry per step; HIST.index is the step shown. histCommit() adds a
+     step only when the canvas differs from the current one, so calling it
+     too often is harmless. It runs
+       - right AFTER every action: capture-phase pointerup / click / change /
+         keyup / drop on the document (insert, delete, drag or resize end,
+         formatting, crop, layers, background…);
+       - right BEFORE an action (pointerdown outside the text being typed),
+         so typing so far becomes its own step.
+     Typing is grouped: keystrokes inside a text box add no step until
+     Enter, paste / cut, a click elsewhere or another action.
+     ============================================================ */
+  var HIST = { stack: [], index: -1, LIMIT: 100, timer: 0 };
+  var histUndoBtn = document.querySelector("#ed-undo");
+  var histRedoBtn = document.querySelector("#ed-redo");
+
+  function histState() {
+    // the text being typed is the newest in the DOM
+    var content = !DOC.root && ED.editingId ? edEditingContent() : null, el = edFind(ED.editingId);
+    if (content && el) el.content = content.innerHTML;
+    return JSON.stringify({ e: ED.elements, b: ED.background || { color: "", image: "" } });
+  }
+  function histButtons() {
+    if (!histUndoBtn || !histRedoBtn) return;
+    histUndoBtn.disabled = HIST.index <= 0;
+    histRedoBtn.disabled = HIST.index >= HIST.stack.length - 1;
+  }
+  function histReset() {
+    clearTimeout(HIST.timer);
+    HIST.stack = [histState()];
+    HIST.index = 0;
+    histButtons();
+  }
+  function histClear() {
+    clearTimeout(HIST.timer);
+    HIST.stack = [];
+    HIST.index = -1;
+    histButtons();
+  }
+  // Record the canvas as a new step, if it changed since the current step.
+  function histCommit() {
+    if (EDITOR.overlay.hidden || HIST.index < 0) return;
+    var s = histState();
+    if (s === HIST.stack[HIST.index]) return;
+    HIST.stack.length = HIST.index + 1;          // a new action drops the "forward" branch
+    HIST.stack.push(s);
+    if (HIST.stack.length > HIST.LIMIT) HIST.stack.shift();
+    HIST.index = HIST.stack.length - 1;
+    histButtons();
+  }
+  function histCommitSoon() {                    // after the handlers of the current event
+    clearTimeout(HIST.timer);
+    HIST.timer = setTimeout(histCommit, 0);
+  }
+  // Text input in a block: only Enter, paste, drop and cut end the typing group.
+  function histTyped(e) {
+    var t = e && e.inputType;
+    if (t === "insertParagraph" || t === "insertLineBreak" || t === "insertFromPaste" ||
+        t === "insertFromDrop" || t === "deleteByCut") { histCommit(); return; }
+    if (histUndoBtn) histUndoBtn.disabled = false;   // typing not recorded yet can be undone
+    if (histRedoBtn) histRedoBtn.disabled = true;
+  }
+  function histApply(index) {
+    var editing = ED.editingId;
+    edCropEnd(false);
+    edCloseColorPanel();
+    ED.editingId = null;                         // the DOM is replaced, not saved back
+    ED.savedRange = null;
+    ED.liveSpan = null;
+    ED.playingId = null;
+    HIST.index = index;
+    var s = JSON.parse(HIST.stack[index]);
+    ED.elements = s.e;
+    ED.background = s.b;
+    fBackground.value = JSON.stringify(s.b);
+    edApplyBackground(EDITOR.canvas, ED.background);
+    var sel = edFind(ED.selectedId);
+    if (!sel) ED.selectedId = null;
+    edRenderCanvas();
+    if (sel && sel.type === "text" && editing === sel.id) {
+      edEnterEdit(sel.id);                       // keep typing where the user was: caret at the end
+      var content = edEditingContent();
+      if (content) {
+        var r = document.createRange();
+        r.selectNodeContents(content);
+        r.collapse(false);
+        var ws = window.getSelection();
+        ws.removeAllRanges(); ws.addRange(r);
+        ED.savedRange = r.cloneRange();
+      }
+    }
+    edSetToolsVisible(!!sel && sel.type === "text");
+    edSetLayerVisible(!!sel);
+    edUpdateToolbar();
+    edAutoHeight(null, { shrink: true });
+    histButtons();
+  }
+  function histUndo() {
+    if (EDITOR.overlay.hidden || HIST.index < 0) return;
+    if (CROP.el) { edCropEnd(false); return; }   // while cropping: cancel the crop
+    histCommit();                                // unrecorded typing becomes a step ("forward" can bring it back)
+    if (HIST.index > 0) histApply(HIST.index - 1);
+  }
+  function histRedo() {
+    if (EDITOR.overlay.hidden || HIST.index < 0 || CROP.el) return;
+    histCommit();
+    if (HIST.index < HIST.stack.length - 1) histApply(HIST.index + 1);
+  }
+  /* An upload finished (url) or failed (url = null). Steps recorded while it
+     ran hold the temporary blob: address, so the block is fixed (or removed)
+     in the canvas AND in every step; a step that thereby equals its
+     neighbour (the insertion of a failed upload) is dropped. */
+  function histResolveUpload(localUrl, url) {
+    function fix(list) {
+      return list.filter(function (e) {
+        if (e.content !== localUrl) return true;
+        if (!url) return false;
+        e.content = url;
+        delete e.uploading;
+        return true;
+      });
+    }
+    ED.elements = fix(ED.elements);
+    var stack = [], index = HIST.index;
+    HIST.stack.forEach(function (json, i) {
+      var s = JSON.parse(json);
+      s.e = fix(s.e);
+      json = JSON.stringify(s);
+      if (stack.length && stack[stack.length - 1] === json) { if (i <= HIST.index) index--; return; }
+      stack.push(json);
+    });
+    HIST.stack = stack;
+    HIST.index = stack.length ? Math.max(0, Math.min(index, stack.length - 1)) : -1;
+    histButtons();
+  }
+
+  [histUndoBtn, histRedoBtn].forEach(function (b) {
+    if (b) b.addEventListener("mousedown", function (e) { e.preventDefault(); });   // keep the caret
+  });
+  if (histUndoBtn) histUndoBtn.addEventListener("click", histUndo);
+  if (histRedoBtn) histRedoBtn.addEventListener("click", histRedo);
+
+  // Ctrl+Z / Ctrl+Y (also Ctrl+Shift+Z). Form fields keep their own undo.
+  document.addEventListener("keydown", function (e) {
+    if (EDITOR.overlay.hidden || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+    var k = e.key.toLowerCase();
+    var undo = k === "z" && !e.shiftKey, redo = k === "y" || (k === "z" && e.shiftKey);
+    if (!undo && !redo) return;
+    var a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    if (document.querySelector(".ed-confirm:not([hidden])")) return;   // a dialog is open
+    e.preventDefault();
+    if (undo) histUndo(); else histRedo();
+  }, true);
+  // Before an action: what was typed so far is its own step.
+  document.addEventListener("pointerdown", function (e) {
+    if (EDITOR.overlay.hidden) return;
+    var content = edEditingContent();
+    if (content && content.contains(e.target)) return;       // still in the text: typing goes on
+    histCommit();
+  }, true);
+  // After an action (capture phase: some handlers stop the event from bubbling).
+  ["pointerup", "click", "change", "keyup", "drop"].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      if (EDITOR.overlay.hidden) return;
+      var t = e.target, content = edEditingContent();
+      if (content && t && t.nodeType && content.contains(t)) return;                    // typing, caret moves
+      if (type === "keyup" && t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;   // a field records on `change`
+      histCommitSoon();
+    }, true);
+  });
+
+  /* ============================================================
+     CROP — „Oříznout" for a selected picture (like Word / Google Docs)
+     The whole original picture is shown at its current scale with the part
+     outside the crop frame dimmed; the frame has eight black handles and
+     can be dragged as a whole. Confirm: „Oříznout" again, Enter or a press
+     anywhere else. Esc cancels. The crop is stored on the block as
+     crop = { x, y, w, h, nw, nh } in pixels of the original (see
+     VNSafe.cropRect) — the file itself is untouched, so cropping costs no
+     upload and can be changed later. On confirm the block takes the place
+     and size of the frame.
+     ============================================================ */
+  var CROP = { el: null, layer: null, frame: null, s: 1, nw: 0, nh: 0, img: null, f: null };
+  var cropBtn = document.querySelector("#ed-crop");
+
+  function edCropStart() {
+    var el = edFind(ED.selectedId);
+    if (!el || el.type !== "image" || el.uploading) return;
+    if (ED.editingId) edExitEdit();
+    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"]');
+    var crop = VNSafe.cropRect(el.crop);
+    var im = node && node.querySelector("img");
+    var nw = crop ? crop.nw : (im && im.naturalWidth), nh = crop ? crop.nh : (im && im.naturalHeight);
+    if (!nw || !nh) { toast("Obrázek se ještě načítá — zkuste to za chvilku."); return; }
+    var c = crop || { x: 0, y: 0, w: nw, h: nh };
+    var bw = +el.width || (node ? node.offsetWidth : 0), bh = +el.height || (node ? node.offsetHeight : 0);
+    if (!bw || !bh) return;
+    var s = Math.min(bw / c.w, bh / c.h);                     // the picture sits "contain" in its box
+    var vx = el.x + (bw - c.w * s) / 2, vy = el.y + (bh - c.h * s) / 2;   // its visible part on the page
+    CROP.el = el; CROP.s = s; CROP.nw = nw; CROP.nh = nh;
+    CROP.img = { x: vx - c.x * s, y: vy - c.y * s, w: nw * s, h: nh * s };   // the whole picture on the page
+    CROP.f = { x: c.x * s, y: c.y * s, w: c.w * s, h: c.h * s };             // frame, relative to the picture
+    edCropMount();
+  }
+  // (Re)build the crop layer from CROP — also after a canvas re-render.
+  function edCropMount() {
+    var el = CROP.el;
+    if (!el) return;
+    if (CROP.layer) CROP.layer.remove();
+    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"]');
+    if (node) node.classList.add("is-cropping");
+    var layer = document.createElement("div");
+    layer.className = "ed-crop";
+    layer.style.left = CROP.img.x + "px";
+    layer.style.top = CROP.img.y + "px";
+    layer.style.width = CROP.img.w + "px";
+    layer.style.height = CROP.img.h + "px";
+    var img = document.createElement("img");
+    img.src = el.content;
+    img.alt = "";
+    img.draggable = false;
+    layer.appendChild(img);
+    var frame = document.createElement("div");
+    frame.className = "ed-crop-frame";
+    frame.addEventListener("pointerdown", function (ev) { edCropDrag(ev, "move"); });
+    ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (h) {
+      var hd = document.createElement("div");
+      hd.className = "ed-crop-h";
+      hd.dataset.h = h;
+      hd.addEventListener("pointerdown", function (ev) { edCropDrag(ev, h); });
+      frame.appendChild(hd);
+    });
+    layer.appendChild(frame);
+    EDITOR.canvas.appendChild(layer);
+    CROP.layer = layer;
+    CROP.frame = frame;
+    edCropPaint();
+    if (cropBtn) cropBtn.classList.add("is-active");
+  }
+  function edCropPaint() {
+    var f = CROP.f, st = CROP.frame.style;
+    st.left = f.x + "px"; st.top = f.y + "px"; st.width = f.w + "px"; st.height = f.h + "px";
+  }
+  // Drag a handle (h = "nw" … "w") or the whole frame ("move"); the frame stays inside the picture.
+  function edCropDrag(ev, h) {
+    if (ev.button !== 0 || !CROP.el) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var f0 = CROP.f, sx = ev.clientX, sy = ev.clientY;
+    var W = CROP.img.w, H = CROP.img.h, MIN = Math.min(24, W, H);
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    function move(e) {
+      var dx = e.clientX - sx, dy = e.clientY - sy;
+      var f = { x: f0.x, y: f0.y, w: f0.w, h: f0.h };
+      if (h === "move") {
+        f.x = clamp(f0.x + dx, 0, W - f0.w);
+        f.y = clamp(f0.y + dy, 0, H - f0.h);
+      } else {
+        if (h.indexOf("w") > -1) { f.x = clamp(f0.x + dx, 0, f0.x + f0.w - MIN); f.w = f0.w + f0.x - f.x; }
+        if (h.indexOf("e") > -1) f.w = clamp(f0.w + dx, MIN, W - f0.x);
+        if (h.indexOf("n") > -1) { f.y = clamp(f0.y + dy, 0, f0.y + f0.h - MIN); f.h = f0.h + f0.y - f.y; }
+        if (h.indexOf("s") > -1) f.h = clamp(f0.h + dy, MIN, H - f0.y);
+      }
+      CROP.f = f;
+      if (CROP.frame) edCropPaint();
+    }
+    function up() {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
+    }
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
+  }
+  // apply: the frame becomes the visible part and the block takes its place and size. Otherwise cancel.
+  function edCropEnd(apply) {
+    var el = CROP.el;
+    if (!el) return;
+    var f = CROP.f, s = CROP.s, img = CROP.img, nw = CROP.nw, nh = CROP.nh;
+    if (CROP.layer) CROP.layer.remove();
+    CROP.el = CROP.layer = CROP.frame = null;
+    if (cropBtn) cropBtn.classList.remove("is-active");
+    var live = edFind(el.id);
+    if (apply && live) {
+      var r2 = function (v) { return Math.round(v * 100) / 100; };
+      var c = { x: r2(Math.max(0, f.x / s)), y: r2(Math.max(0, f.y / s)), nw: nw, nh: nh };
+      c.w = r2(Math.min(f.w / s, nw - c.x));
+      c.h = r2(Math.min(f.h / s, nh - c.y));
+      if (VNSafe.cropRect(c)) live.crop = c; else delete live.crop;     // the whole picture = no crop
+      var w = f.w, h = f.h;
+      if (w > ED_CANVAS_W) { h = h * ED_CANVAS_W / w; w = ED_CANVAS_W; }   // never wider than the page
+      live.width = Math.max(1, Math.round(w));
+      live.height = Math.max(1, Math.round(h));
+      live.x = Math.round(Math.min(Math.max(0, img.x + f.x), Math.max(0, ED_CANVAS_W - live.width)));
+      live.y = Math.max(0, Math.round(img.y + f.y));
+    }
+    edRenderCanvas();
+    if (apply) histCommit();
+  }
+  function edCropSync() {                       // button only for a selected, uploaded picture
+    var el = edFind(ED.selectedId);
+    var can = !!el && el.type === "image" && !el.uploading && !DOC.root && !EDITOR.overlay.hidden;
+    if (cropBtn) cropBtn.hidden = !can;
+    if (CROP.el && (!can || el.id !== CROP.el.id)) edCropEnd(true);   // the selection moved on: confirm
+  }
+  if (cropBtn) cropBtn.addEventListener("click", function () {
+    if (CROP.el) edCropEnd(true); else edCropStart();
+  });
+  // Enter confirms, Esc cancels.
+  document.addEventListener("keydown", function (e) {
+    if (!CROP.el || (e.key !== "Enter" && e.key !== "Escape")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    edCropEnd(e.key === "Enter");
+  }, true);
+  // A press anywhere outside the crop frame (and not on „Oříznout") confirms.
+  document.addEventListener("pointerdown", function (e) {
+    if (!CROP.el || !e.target || !e.target.closest) return;
+    if (e.target.closest(".ed-crop, #ed-crop") || edOnScrollbar(e.target, e.clientX, e.clientY)) return;
+    edCropEnd(true);
+  }, true);
 
   /* ---------- Bar 1: confirm-gated actions ---------- */
   function edOpenConfirm(action, title, text) {
