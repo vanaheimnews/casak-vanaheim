@@ -1377,7 +1377,7 @@
         id: edUid(), type: "text", isTitle: true,
         content: escapeHtml(fTitle.value || "Nadpis článku"),
         x: 40, y: 24, width: 640, height: "auto",
-        styles: defaultStyles({ fontSize: "34px", bold: true })
+        styles: defaultStyles({ fontSize: "34px", bold: true, color: "#ffffff" })   // white on the black hero
       });
       // 3) seed a body text element from the plain-text body, if any and no other text exists
       var bodyText = (fBody.value || "").trim();

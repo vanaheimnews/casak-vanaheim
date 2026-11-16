@@ -32,7 +32,6 @@
   var W = 820;             // page width
   var PAD = 40;            // margin of the default hero layout
   var HERO_MIN = 120;
-  var TITLE_DARK = /^(#1a1a1a|#000|#000000|#111|#111111|black|rgb\(26,\s*26,\s*26\)|rgb\(0,\s*0,\s*0\))$/i;
   var MONTHS = ["ledna", "února", "března", "dubna", "května", "června",
                 "července", "srpna", "září", "října", "listopadu", "prosince"];
 
@@ -165,8 +164,18 @@
     title.y = y;
     title.width = colW + 16;
     title.height = "auto";
-    title.styles = title.styles || textStyles({ fontSize: "34px", bold: true });
-    if (!title.styles.color || TITLE_DARK.test(String(title.styles.color).trim())) title.styles.color = "#ffffff";
+    title.styles = title.styles || textStyles({ fontSize: "34px", bold: true, color: "#ffffff" });
+    // the title on the black hero is white by default — also colours set
+    // inside its text (imported articles) give way, or it would be unreadable
+    title.styles.color = "#ffffff";
+    var t = document.createElement("template");
+    t.innerHTML = title.content || "";
+    Array.prototype.forEach.call(t.content.querySelectorAll("[style], font[color]"), function (n) {
+      if (n.style) n.style.color = "";
+      n.removeAttribute("color");
+      if (n.getAttribute("style") === "") n.removeAttribute("style");
+    });
+    title.content = t.innerHTML;
     y += measureText(title.content, title.styles, title.width) + 2;
     if (meta.date) {
       var d = makeMeta("date", meta.date);
@@ -244,7 +253,7 @@
     if (!title) {
       // no layout at all (plain-text article): title + one text block
       title = { id: uid(), type: "text", isTitle: true, content: esc(a.title || "Nadpis článku"),
-                x: 40, y: 24, width: 640, height: "auto", styles: textStyles({ fontSize: "34px", bold: true }) };
+                x: 40, y: 24, width: 640, height: "auto", styles: textStyles({ fontSize: "34px", bold: true, color: "#ffffff" }) };
       els.unshift(title);
       var bodyText = String(a.body || "").trim();
       var hasText = els.some(function (el) { return el.type === "text" && !el.isTitle; });
