@@ -161,7 +161,7 @@
   function excerpt(a) {
     var t = document.createElement("template");
     t.innerHTML = (Array.isArray(a.elements) ? a.elements : [])
-      .filter(function (el) { return el.type === "text" && !el.isTitle; })
+      .filter(function (el) { return el.type === "text" && !el.isTitle && !el.role; })
       .map(function (el) { return "<p>" + VNSafe.html(el.content) + "</p>"; }).join(" ");
     return ((a.body || "") + " " + t.content.textContent).replace(/\s+/g, " ").trim().slice(0, 1200);
   }

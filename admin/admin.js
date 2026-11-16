@@ -299,6 +299,7 @@
     fId.value = "";
     fElements.value = "";
     fBackground.value = "";
+    formHero = 0;
     fDate.value = nowLocalInput();
     fTags.dataset.unspecified = "";
     pendingImageUrl = "";
@@ -310,6 +311,7 @@
     fId.value       = article.id;
     fElements.value = (article.elements && article.elements.length) ? JSON.stringify(article.elements) : "";
     fBackground.value = article.background ? JSON.stringify(article.background) : "";
+    formHero = +article.heroHeight > 0 ? Math.round(+article.heroHeight) : 0;
     fTitle.value    = article.title || "";
     fBody.value     = article.body || "";
     fAuthors.value  = JSON.stringify(article.authors || []);
@@ -356,7 +358,8 @@
       publishAt: when.toISOString(),
       kind:    fKind.value === "comic" ? "comic" : "article",
       elements: elements,
-      background: edParseJson(fBackground.value, {})
+      background: edParseJson(fBackground.value, {}),
+      heroHeight: formHero                 // height of the black top zone (0 = none yet)
     };
 
     articleSaving = true;
@@ -1202,6 +1205,7 @@
     });
     ED_PICK[list] = out;
     edPickRender(list);
+    edHeroSync();                      // the hero's authors box / tag badges follow
   }
   function edPickRender(list) {
     var box = document.querySelector('.ed-picker[data-list="' + list + '"]');
@@ -1352,6 +1356,7 @@
 
   /* ---------- open / close / seed ---------- */
   function edOpen() {
+    ED.heroReady = false;
     ED.elements = [];
     ED.background = edParseJson(fBackground.value, { color: "", image: "" });
     // 1) try to load an existing layout from the hidden form field
@@ -1381,7 +1386,7 @@
         ED.elements.push({
           id: edUid(), type: "text", isTitle: false,
           content: escapeHtml(bodyText).replace(/\n/g, "<br>"),
-          x: 40, y: 120, width: 640, height: "auto",
+          x: 40, y: 120, width: 740, height: "auto",
           styles: defaultStyles()
         });
       }
@@ -1394,6 +1399,15 @@
     EDITOR.date.value = fDate.value || nowLocalInput();
     edUpdateSchedule();
     edThumbLoad(pendingImageUrl || fImageUrl.value.trim());
+
+    // Two zones. An article saved before they existed gets the default black
+    // hero from its data — exactly what the reader page shows for it.
+    var prep = VNArticle.prepare({
+      elements: ED.elements, heroHeight: formHero, title: fTitle.value, body: fBody.value,
+      image: ED.thumbUrl, date: EDITOR.date.value, authors: ED_PICK.authors, tags: ED_PICK.tags
+    });
+    ED.elements = prep.elements;
+    ED.heroH = prep.heroHeight;
 
     ED.session = (ED.session || 0) + 1;  // lets late async results detect a new editor session
     ED.selectedId = null;
@@ -1408,6 +1422,8 @@
     edSetToolsVisible(false);
     edSetLayerVisible(false);
     EDITOR.overlay.hidden = false;
+    ED.heroReady = true;
+    edHeroSync();                        // the hero mirrors the Data panel
     ED.pageH = 0;                        // a new article starts from one sheet + its content
     edAutoHeight();
     ED.snapshot = edStateSnapshot();     // compared by the leave-page warning
@@ -1415,7 +1431,7 @@
   }
   // Everything Vydat would save — compared with the state at open time.
   function edStateSnapshot() {
-    return JSON.stringify([ED.elements, ED.background || null, ED_PICK.authors.join("\n"), ED_PICK.tags.join("\n"),
+    return JSON.stringify([ED.elements, ED.heroH, ED.background || null, ED_PICK.authors.join("\n"), ED_PICK.tags.join("\n"),
       EDITOR.kind.value, EDITOR.date.value, ED.thumbUrl || ""]);
   }
 
@@ -1505,12 +1521,14 @@
         edThumbRender(url, false);
         edThumbRevoke();
         toast("Náhled nahrán.");
+        edHeroSync();                             // shows up in the black hero right away
       })
       .catch(function (err) {
         if (token !== ED.thumbToken) return;
         edThumbRevoke();
         ED.thumbUrl = previousUrl;                // keep the previous thumbnail
         edThumbRender(previousUrl, false);
+        edHeroSync();
         toast("Nahrání náhledu selhalo: " + err.message);
       })
       .finally(function () { THUMB.file.value = ""; });  // same file can be re-picked
@@ -1521,6 +1539,7 @@
     ED.thumbUrl = "";
     THUMB.file.value = "";
     edThumbRender("", false);
+    edHeroSync();
   }
   THUMB.drop.addEventListener("click", function () { THUMB.file.click(); });
   THUMB.change.addEventListener("click", function () { THUMB.file.click(); });
@@ -1541,6 +1560,7 @@
   });
 
   function edClose() {
+    ED.heroReady = false;
     edCropEnd(false);
     histClear();
     edThumbRevoke();
@@ -1563,11 +1583,12 @@
     fImageUrl.value = "";
     updatePreview(pendingImageUrl);
     fElements.value = JSON.stringify(ED.elements);
+    formHero = ED.heroH;
     fBackground.value = JSON.stringify(ED.background || { color: "", image: "" });
     var titleEl = ED.elements.filter(function (el) { return el.isTitle; })[0];
     if (titleEl) fTitle.value = edStripHtml(titleEl.content);
     var bodyText = ED.elements
-      .filter(function (el) { return el.type === "text" && !el.isTitle; })
+      .filter(function (el) { return el.type === "text" && !el.isTitle && !el.role; })
       .map(function (el) { return edStripHtml(el.content); })
       .filter(Boolean)
       .join("\n\n");
@@ -1583,6 +1604,7 @@
   function edRenderCanvas() {
     var keep = edKeepSelection();
     EDITOR.canvas.innerHTML = "";
+    edBuildZones();                      // black hero + the dividing line
     if (edResizeObs) edResizeObs.disconnect();
     // Elements created before layering existed (or newly added, which are
     // pushed last) get a z by array order — so new blocks land on top.
@@ -1686,11 +1708,13 @@
 
   function edBuildNode(el) {
     var node = document.createElement("div");
-    node.className = "ed-el ed-el--" + el.type + (el.isTitle ? " is-title" : "");
+    node.className = "ed-el ed-el--" + el.type + (el.isTitle ? " is-title" : "") +
+      (edIsHero(el) ? " is-hero" : "") + (el.role ? " ed-role-" + el.role : "");
     node.dataset.id = el.id;
     node.style.left = el.x + "px";
     node.style.top = el.y + "px";
     node.style.width = el.width + "px";
+    if (el.role === "tag") node.style.width = "auto";       // a badge is as wide as its text
     node.style.height = (el.height === "auto" || el.height == null) ? "auto" : (el.height + "px");
     node.style.zIndex = el.z || 1;   // page background stays behind (z:0 on the canvas)
     if (ED.selectedId === el.id) node.classList.add("is-selected");
@@ -1717,9 +1741,17 @@
     } else if (el.type === "embed") {
       edBuildEmbedContent(content, el);
     } else {
-      content.innerHTML = el.content || "";
-      edApplyContentStyles(content, el);
-      content.contentEditable = (ED.editingId === el.id) ? "true" : "false";
+      if (el.role === "tag") {                  // a tag badge: fixed look, only moved / deleted
+        var pill = document.createElement("span");
+        pill.className = "vn-badge";
+        pill.textContent = el.tag || "";
+        content.appendChild(pill);
+      } else {
+        content.innerHTML = el.content || "";
+        edApplyContentStyles(content, el);
+        content.contentEditable = (ED.editingId === el.id) ? "true" : "false";
+        if (VNArticle.isLocked(el)) content.title = "Text se řídí panelem Data — lze ho formátovat a přesouvat.";
+      }
     }
     node.appendChild(content);
 
@@ -1732,7 +1764,7 @@
 
     // selection chrome: handles + delete
     if (ED.selectedId === el.id) {
-      ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (h) {
+      (el.role === "tag" ? [] : ["nw", "n", "ne", "e", "se", "s", "sw", "w"]).forEach(function (h) {
         var hd = document.createElement("div");
         hd.className = "ed-handle";
         hd.dataset.h = h;
@@ -1766,6 +1798,7 @@
     if (el.type === "text") {
       content.addEventListener("input", function (e) {
         el.content = content.innerHTML;
+        if (edIsHero(el)) edHeroFit();     // a longer title makes the black zone taller at once
         histTyped(e);                      // typing is one undo step until Enter / paste / a click elsewhere
       });
     }
@@ -1856,6 +1889,7 @@
   function edAutoHeight(near, opts) {
     if (EDITOR.overlay.hidden) return;
     opts = opts || {};
+    edHeroFit();                         // the black zone grows around its content first
     var base = Math.max(ED_PAGE_MIN, edContentBottom() + ED_PAGE_STEP);
     var h = Math.max(ED.pageH || 0, base);
     // (the kept margin below the visible bottom stops a shrink from landing in the grow zone)
@@ -1938,7 +1972,7 @@
       if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       if (moved) {
         var w = node.offsetWidth, hgt = node.offsetHeight, maxX = Math.max(0, ED_CANVAS_W - w);
-        var x = Math.min(Math.max(0, origX + dx), maxX), y = Math.max(0, origY + dy);
+        var x = Math.min(Math.max(0, origX + dx), maxX), y = edZoneClampY(el, origY + dy, hgt);   // stays in its zone
         // smart guides: edges/centre snap to other blocks (Alt = move freely)
         var gx = null, gy = null;
         if (!e2.altKey) {
@@ -1946,7 +1980,7 @@
           gx = edSnap([x, x + w / 2, x + w], guides.v);
           gy = edSnap([y, y + hgt / 2, y + hgt], guides.h);
           if (gx) x = Math.min(Math.max(0, x + gx.delta), maxX);
-          if (gy) y = Math.max(0, y + gy.delta);
+          if (gy) y = edZoneClampY(el, y + gy.delta, hgt);
         }
         el.x = Math.round(x);
         el.y = Math.round(y);
@@ -2021,6 +2055,9 @@
       // keep the box inside the page — the public article is exactly ED_CANVAS_W wide
       if (x < 0) { if (h.indexOf("w") > -1) w += x; x = 0; }
       if (x + w > ED_CANVAS_W) w = Math.max(40, ED_CANVAS_W - x);
+      // never across the line between the black and the white zone
+      if (edIsHero(el)) { y = Math.max(0, y); ht = Math.min(ht, Math.max(24, ED.heroH - y)); }
+      else if (y < ED.heroH) { ht = Math.max(24, ht - (ED.heroH - y)); y = ED.heroH; }
       el.x = x; el.y = Math.max(0, y);
       el.width = Math.round(w); el.height = Math.round(ht);
       node.style.left = el.x + "px"; node.style.top = el.y + "px";
@@ -2049,7 +2086,7 @@
     ED.selectedId = id;
     edRenderCanvas();
     var el = edFind(id);
-    edSetToolsVisible(!!el && el.type === "text");
+    edSetToolsVisible(edWantsTools(el));
     edSetLayerVisible(!!el);       // layers work for every block type
     edUpdateToolbar();
   }
@@ -2076,6 +2113,7 @@
     edAutoHeight(null, { shrink: true });
     edSetToolsVisible(false);
     edSetLayerVisible(false);
+    if (el.role) edHeroDeleted(el);    // the Data panel follows the canvas
   }
 
   /* ---------- inline editing ---------- */
@@ -2105,7 +2143,7 @@
   // word: it was a double-click, so the word there gets selected.
   function edEnterEdit(id, x, y, word) {
     var el = edFind(id);
-    if (!el || el.type !== "text") return;
+    if (!el || el.type !== "text" || VNArticle.isLocked(el)) return;   // date / authors / tags: text from the Data panel
     if (ED.editingId === id) { edSetToolsVisible(true); edUpdateToolbar(); return; }   // never rebuild the box being edited
     ED.editingId = id;
     ED.selectedId = id;
@@ -2159,7 +2197,7 @@
   }
   function edVisibleTop() {
     var wrap = EDITOR.canvas.parentNode;
-    return (wrap ? wrap.scrollTop : 0) + 80;
+    return Math.max((wrap ? wrap.scrollTop : 0) + 80, ED.heroH + 16);   // new blocks go to the white body
   }
   EDITOR.addText.addEventListener("click", function () {
     var w = 300;
@@ -2276,7 +2314,7 @@
     var localUrl = URL.createObjectURL(file);
     var w = kind === "pdf" ? 300 : 360;
     var x = pos ? Math.min(Math.max(0, Math.round(pos.x - w / 2)), ED_CANVAS_W - w) : edCanvasCenterX(w);
-    var y = pos ? Math.max(0, Math.round(pos.y - 20)) : edVisibleTop();
+    var y = pos ? Math.max(ED.heroH + 8, Math.round(pos.y - 20)) : edVisibleTop();
     var el = {
       id: edUid(), type: kind === "pdf" ? "file" : "image", isTitle: false,
       content: localUrl, name: file.name, uploading: true,
@@ -2765,6 +2803,14 @@
 
   /* ---------- alignment ---------- */
   function edAlign(value) {
+    var locked = DOC.root ? null : edFind(ED.selectedId);
+    if (VNArticle.isLocked(locked)) {          // its text comes from the Data panel: align the whole box
+      locked.styles.align = value;
+      var lockedNode = edNodeOf(locked);
+      if (lockedNode) edApplyContentStyles(lockedNode.querySelector(".ed-el-content"), locked);
+      edUpdateToolbar();
+      return;
+    }
     var blocks = edSelectedBlocks();
     if (!blocks.length) return;
     blocks.forEach(function (b) { b.style.textAlign = value; });
@@ -2793,6 +2839,7 @@
     return tail;
   }
   function edToggleList(tag) {
+    if (!DOC.root && VNArticle.isLocked(edFind(ED.selectedId))) return;   // no lists in data boxes
     var content = edActiveContentEl();
     if (!content) return;
     var blocks = edSelectedBlocks();   // („Téma" is an ordinary text block now)
@@ -2878,6 +2925,7 @@
 
   /* ---------- indent ---------- */
   function edIndent(delta) {
+    if (!DOC.root && VNArticle.isLocked(edFind(ED.selectedId))) return;
     var blocks = edSelectedBlocks();
     if (!blocks.length) return;
     blocks.forEach(function (b) {
@@ -2909,6 +2957,7 @@
       var el = edFind(ED.selectedId);
       if (!el) return;
       e.preventDefault();
+      if (VNArticle.isLocked(el)) { toast("Tento prvek se řídí panelem Data a nejde kopírovat."); return; }
       edExitEdit();
       ED_CLIP = { data: JSON.parse(JSON.stringify(el)), pastes: 0 };
       toast("Blok zkopírován — Ctrl+V vloží kopii.");
@@ -2922,7 +2971,8 @@
     copy.isTitle = false;                                      // only one title per article
     var w = +copy.width || 0;
     copy.x = Math.min(Math.max(0, (+copy.x || 0) + off), Math.max(0, ED_CANVAS_W - w));
-    copy.y = Math.max(0, (+copy.y || 0) + off);
+    delete copy.role;                                          // a copy of the thumbnail is an ordinary picture
+    copy.y = edZoneClampY(copy, (+copy.y || 0) + off, typeof copy.height === "number" ? copy.height : 0);
     copy.z = ED.elements.reduce(function (m, x) { return Math.max(m, x.z || 0); }, 0) + 1;   // on top
     if (copy.type === "text") copy.content = VNSafe.html(copy.content);
     ED.elements.push(copy);
@@ -3388,13 +3438,183 @@
       }
       node = node.parentNode;
     }
-    if (!alignVal) alignVal = "left";
+    if (!alignVal) alignVal = (VNArticle.isLocked(el) && el.styles.align) || "left";
     if (EDITOR.alignL) EDITOR.alignL.classList.toggle("btn-active", alignVal === "left");
     if (EDITOR.alignC) EDITOR.alignC.classList.toggle("btn-active", alignVal === "center");
     if (EDITOR.alignR) EDITOR.alignR.classList.toggle("btn-active", alignVal === "right");
     if (EDITOR.ul)     EDITOR.ul.classList.toggle("btn-active", inUL);
     if (EDITOR.ol)     EDITOR.ol.classList.toggle("btn-active", inOL);
   }
+
+  /* ============================================================
+     TWO ZONES — the black hero on top, the white body below
+     (data model and defaults: article-layout.js, shared with the reader
+     page so both look 1:1). A block belongs to one zone (el.zone ===
+     "hero" or none) and can be moved / resized only inside it.
+     Hero blocks with a role mirror the Data panel, both ways:
+       thumb   <-> Náhledový obrázek      date    <-> Datum a čas vydání
+       authors <-> Autoři                 tag     <-> one badge per Štítek
+     edHeroSync()  Data panel -> canvas (after every change in the panel)
+     edHeroPull()  canvas -> Data panel (after undo / redo)
+     Deleting such a block clears its value in the panel; the text of the
+     date / authors / tag blocks cannot be typed, only formatted and moved.
+     ============================================================ */
+  ED.heroH = 0;              // height of the black zone (px)
+  ED.heroReady = false;      // the open article's canvas is prepared: sync may run
+  var formHero = 0;          // heroHeight of the article in the form (0 = saved before the zones existed)
+
+  function edIsHero(el) { return !!el && el.zone === "hero"; }
+  function edRole(role) { return ED.elements.filter(function (e) { return e.role === role; })[0] || null; }
+  function edNodeOf(el) { return el ? EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"]') : null; }
+  function edWantsTools(el) { return !!el && el.type === "text" && el.role !== "tag"; }   // a badge has a fixed look
+  // Top of a block of height h, kept inside its own zone — never across the dividing line.
+  function edZoneClampY(el, y, h) {
+    if (edIsHero(el)) return Math.max(0, Math.min(y, ED.heroH - (h || 0)));
+    return Math.max(ED.heroH, y);
+  }
+  function edBuildZones() {
+    var zone = document.createElement("div");
+    zone.className = "ed-hero-zone";
+    zone.style.height = ED.heroH + "px";
+    var line = document.createElement("div");
+    line.className = "ed-hero-divider";
+    line.title = "Tažením změníte výšku černé části";
+    line.style.top = ED.heroH + "px";
+    line.addEventListener("pointerdown", edHeroDrag);
+    EDITOR.canvas.appendChild(zone);
+    EDITOR.canvas.appendChild(line);
+  }
+  // New height of the hero; the body moves with the line.
+  function edSetHeroHeight(h) {
+    h = Math.max(VNArticle.HERO_MIN, Math.round(h));
+    var delta = h - ED.heroH;
+    if (!delta) return;
+    ED.heroH = h;
+    ED.elements.forEach(function (el) {
+      if (edIsHero(el)) return;
+      el.y = (+el.y || 0) + delta;
+      var n = edNodeOf(el);
+      if (n) n.style.top = el.y + "px";
+    });
+    var zone = EDITOR.canvas.querySelector(":scope > .ed-hero-zone");
+    var line = EDITOR.canvas.querySelector(":scope > .ed-hero-divider");
+    if (zone) zone.style.height = h + "px";
+    if (line) line.style.top = h + "px";
+  }
+  function edHeroContentBottom() {
+    var bottom = 0;
+    ED.elements.forEach(function (el) {
+      if (!edIsHero(el)) return;
+      var n = edNodeOf(el);
+      bottom = Math.max(bottom, (+el.y || 0) + (n ? n.offsetHeight : VNArticle.heightOf(el)));
+    });
+    return bottom;
+  }
+  // The hero grows when its content no longer fits (a longer title, a bigger font, a new badge…).
+  function edHeroFit() {
+    if (!ED.heroReady) return;
+    var bottom = edHeroContentBottom();
+    if (bottom > ED.heroH) edSetHeroHeight(Math.ceil(bottom) + 12);
+  }
+  // Drag the dividing line: taller / shorter hero (never shorter than its content).
+  function edHeroDrag(ev) {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    var startY = ev.clientY, startH = ED.heroH, wrap = EDITOR.canvas.parentNode, sy0 = wrap.scrollTop;
+    var min = Math.max(VNArticle.HERO_MIN, Math.ceil(edHeroContentBottom()) + 4);
+    function move(e) {
+      edSetHeroHeight(Math.max(min, startH + e.clientY - startY + (wrap.scrollTop - sy0)));
+      edAutoHeight();
+    }
+    function up() {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
+      edAutoHeight(null, { shrink: true });
+    }
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
+  }
+
+  function edHeroMeta() {                      // the Data panel as article data
+    return { image: ED.thumbUrl || "", date: EDITOR.date.value || "",
+             authors: ED_PICK.authors.slice(), tags: ED_PICK.tags.slice() };
+  }
+  /* Data panel -> canvas: missing blocks are added (under the hero's content,
+     a badge next to the last badge), texts / the picture are updated, blocks
+     whose value is gone are removed. A deleted date block stays away until
+     the date is edited again (opts.showDate) — the publish date itself is
+     always kept in the panel. */
+  function edHeroSync(opts) {
+    if (!ED.heroReady || EDITOR.overlay.hidden) return;
+    opts = opts || {};
+    var meta = edHeroMeta(), before = JSON.stringify(ED.elements);
+    function add(role, data) {
+      var el = VNArticle.makeMeta(role, data);
+      VNArticle.placeNew(ED.elements, el);
+      ED.elements.push(el);
+    }
+    if (meta.image && !edRole("thumb")) add("thumb", meta.image);
+    if (meta.date && opts.showDate && !edRole("date")) add("date", meta.date);
+    if (meta.authors.length && !edRole("authors")) add("authors", meta.authors);
+    ED.elements = VNArticle.reconcile(ED.elements, meta);      // update, rename, remove; add missing badges
+    if (JSON.stringify(ED.elements) === before) return;
+    var sel = edFind(ED.selectedId);
+    if (!sel) ED.selectedId = null;
+    edRenderCanvas();
+    edSetToolsVisible(edWantsTools(sel));
+    edSetLayerVisible(!!sel);
+    edAutoHeight();                              // (also grows the hero around the new blocks)
+  }
+  /* Canvas -> Data panel, after undo / redo: the panel shows what the
+     restored canvas holds. */
+  function edHeroPull() {
+    var au = edRole("authors"), th = edRole("thumb"), d = edRole("date");
+    var ready = ED.heroReady;
+    ED.heroReady = false;                        // the panel follows the canvas: no echo back
+    edPickSet("tags", ED.elements.filter(function (e) { return e.role === "tag"; }).map(function (e) { return e.tag; }));
+    edPickSet("authors", au && au.names ? au.names : []);
+    ED.heroReady = ready;
+    var url = th ? String(th.content || "") : "";
+    if (url !== ED.thumbUrl && !/^blob:/i.test(url)) {
+      ED.thumbToken++;                           // an upload still running no longer applies
+      edThumbRevoke();
+      ED.thumbUrl = url;
+      THUMB.file.value = "";
+      edThumbRender(url, false);
+    }
+    if (d && d.value && d.value !== EDITOR.date.value) {
+      EDITOR.date.value = d.value;
+      edUpdateSchedule();
+    }
+  }
+  // A data-driven block was deleted on the canvas: clear its value in the Data panel.
+  function edHeroDeleted(el) {
+    if (el.role === "thumb") edThumbClear();
+    else if (el.role === "authors") edPickSet("authors", []);
+    else if (el.role === "tag") {
+      var k = nameKey(el.tag);
+      edPickSet("tags", ED_PICK.tags.filter(function (t) { return nameKey(t) !== k; }));
+    } else if (el.role === "date") {
+      toast("Datum se v článku nezobrazí. Vrátíte ho změnou data v panelu Data.");
+    }
+  }
+  EDITOR.date.addEventListener("input", function () { edHeroSync({ showDate: true }); });
+  EDITOR.date.addEventListener("change", function () { edHeroSync({ showDate: true }); });
+
+  // Delete / Backspace removes the selected block (not while typing, cropping or in a field).
+  document.addEventListener("keydown", function (e) {
+    if (EDITOR.overlay.hidden || (e.key !== "Delete" && e.key !== "Backspace")) return;
+    if (ED.editingId || CROP.el || !ED.selectedId) return;
+    var a = document.activeElement;
+    if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+    if (document.querySelector(".ed-confirm:not([hidden])")) return;
+    var el = edFind(ED.selectedId);
+    if (!el || el.isTitle) return;               // the title cannot be deleted
+    e.preventDefault();
+    edDeleteElement(el.id);
+  });
 
   /* ============================================================
      UNDO / REDO — history of the article canvas
@@ -3418,7 +3638,7 @@
     // the text being typed is the newest in the DOM
     var content = !DOC.root && ED.editingId ? edEditingContent() : null, el = edFind(ED.editingId);
     if (content && el) el.content = content.innerHTML;
-    return JSON.stringify({ e: ED.elements, b: ED.background || { color: "", image: "" } });
+    return JSON.stringify({ e: ED.elements, h: ED.heroH, b: ED.background || { color: "", image: "" } });
   }
   function histButtons() {
     if (!histUndoBtn || !histRedoBtn) return;
@@ -3472,6 +3692,7 @@
     var s = JSON.parse(HIST.stack[index]);
     ED.elements = s.e;
     ED.background = s.b;
+    if (s.h) ED.heroH = s.h;
     fBackground.value = JSON.stringify(s.b);
     edApplyBackground(EDITOR.canvas, ED.background);
     var sel = edFind(ED.selectedId);
@@ -3489,10 +3710,11 @@
         ED.savedRange = r.cloneRange();
       }
     }
-    edSetToolsVisible(!!sel && sel.type === "text");
+    edSetToolsVisible(edWantsTools(sel));
     edSetLayerVisible(!!sel);
     edUpdateToolbar();
     edAutoHeight(null, { shrink: true });
+    edHeroPull();                                // the Data panel shows what the canvas holds
     histButtons();
   }
   function histUndo() {
@@ -3694,7 +3916,7 @@
       live.width = Math.max(1, Math.round(w));
       live.height = Math.max(1, Math.round(h));
       live.x = Math.round(Math.min(Math.max(0, img.x + f.x), Math.max(0, ED_CANVAS_W - live.width)));
-      live.y = Math.max(0, Math.round(img.y + f.y));
+      live.y = edZoneClampY(live, Math.round(img.y + f.y), live.height);   // stays in its zone
     }
     edRenderCanvas();
     if (apply) histCommit();

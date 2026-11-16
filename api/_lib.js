@@ -596,6 +596,9 @@ export function shapeArticle(data) {
     // behind all of them and is stored separately.
     elements: Array.isArray(data.elements) ? data.elements : [],
     background: shapeBackground(data.background),
+    // Height (px) of the black top zone of the page; 0 = saved before the two
+    // zones existed (the client then builds a default one, see article-layout.js).
+    heroHeight: Number(data.heroHeight) > 0 ? Math.min(4000, Math.round(Number(data.heroHeight))) : 0,
     updatedAt: new Date().toISOString()
   };
 }

@@ -38,6 +38,7 @@ Web nemá žádný build ani framework. Je to čisté HTML, CSS a JavaScript plu
 | `index.html`, `script.js` | Veřejný web: Domů (bloky z editoru), Příspěvky (Filtrovat / Seřadit), O nás, Kontakt |
 | `article.html` | Detail článku (`/article?id=…`), vykresluje rozložení z vizuálního editoru |
 | `home-layout.js` | Vykreslování domovské stránky z bloků (sdílí ho web i admin) |
+| `article-layout.js` | `VNArticle`: dvě zóny stránky článku (černá hlavička a bílé tělo), výchozí rozložení hlavičky a převod starších článků. Sdílí ho editor i stránka článku, proto vypadají stejně |
 | `sanitize.js` | `VNSafe`: čištění HTML a odkazů a rozpoznání videí (YouTube, Vimeo, Instagram, TikTok, Spotify) |
 | `style.css` | Styly webu i administrace |
 | `admin/index.html`, `admin/admin.js` | Administrace a vizuální editor článků (velký soubor, rozdělený do sekcí s nadpisy) |
@@ -93,6 +94,9 @@ Všechna data jsou ve Vercel Blob, nikde jinde. Žádná databáze není.
 - **Naplánování:** článek s `publishAt` v budoucnosti veřejnost nevidí, dokud ten čas nenastane. Žádný cron není potřeba, kontroluje se to při každém načtení.
 - **`elements`** je rozložení z vizuálního editoru: textové bloky, obrázky, PDF a videa s pozicí na stránce. Stránka je široká 820 px.
 - **Ořez obrázku** se ukládá u bloku jako `crop: { x, y, w, h, nw, nh }`: viditelný výřez v pixelech původního obrázku (`nw` × `nh`). Soubor v úložišti se nemění, takže ořez nestojí žádnou operaci a dá se kdykoli upravit. Vykresluje ho `VNSafe.croppedImage` v `sanitize.js`, stejně v editoru i na webu.
+- **Dvě zóny stránky:** `heroHeight` je výška černé hlavičky v pixelech. Blok s `zone: "hero"` patří do hlavičky, ostatní do bílého těla (jejich `y` je vždy aspoň `heroHeight`).
+- **Bloky řízené daty** mají v hlavičce `role`: `thumb` (náhledový obrázek), `date` (datum), `authors` (autoři) a `tag` (jeden blok na štítek, název v `tag`). Text těchto bloků se vždy bere z dat článku, blok si pamatuje jen polohu a vzhled. Titulek je blok s `isTitle`.
+- Článek uložený před zavedením zón má `heroHeight: 0`. Editor i stránka článku mu výchozí hlavičku sestaví samy (`VNArticle.prepare`), stejným kódem. Do úložiště se nový tvar zapíše až při prvním uložení v editoru.
 
 ---
 
@@ -108,6 +112,8 @@ Všechna data jsou ve Vercel Blob, nikde jinde. Žádná databáze není.
 - Prohlížeč si poslední data pamatuje (localStorage), takže se stránka při dalším otevření zobrazí hned a pak se obnoví ze serveru.
 - Nový článek se na veřejném webu objeví **nejpozději zhruba za 5 minut**. Tolik trvá cache na Vercelu. V adminu je vidět hned.
 - **Stránka článku** (`article.html`):
+  - Nahoře je pod bílou linkou **černá hlavička** přes celou šířku: titulek, náhledový obrázek, datum, autoři a štítky jako modré pilulky, přesně tak, jak je admin rozmístil v editoru. Pod ní hned navazuje bílé tělo článku. Starý výpis data, autorů a štítků nad článkem už není.
+  - Na mobilu se bloky hlavičky seřadí pod sebe v černém pruhu.
   - Sloupec článku je široký 820 px, stejně jako stránka v editoru, a je vždy uprostřed obrazovky.
   - Na širokých monitorech (od 1280 px) jsou po stranách karty **příspěvků umístěných na domovské stránce** (náhled a titulek). Panel zůstává při rolování na očích.
   - Do čtyř příspěvků jsou karty vpravo, při více se rozdělí na obě strany (nejvýš 8). Aktuálně čtený článek se vynechá.
@@ -128,6 +134,15 @@ Všechna data jsou ve Vercel Blob, nikde jinde. Žádná databáze není.
   - Kopírování bloku: Ctrl+C a Ctrl+V.
   - **Krok zpět a vpřed:** šipky v horní liště, Ctrl+Z a Ctrl+Y. Krokem je každé vložení, smazání, přesun, změna velikosti, ořez a změna formátu. Souvislé psaní je jeden krok, který končí klávesou Enter, kliknutím jinam nebo jinou akcí. Pamatuje se posledních 100 kroků, po zavření editoru se historie zahodí.
   - **Oříznout:** po kliknutí na obrázek se v liště objeví tlačítko „Oříznout“. Kolem obrázku se zobrazí černé úchyty a část mimo rám ztmavne. Rám jde táhnout za úchyty i celý. Potvrzení: znovu „Oříznout“, Enter nebo klik vedle. Esc ořez zruší. Ořez jde kdykoli změnit, původní obrázek zůstává celý.
+  - **Dvě zóny plátna:** nahoře černá hlavička, pod ní bílé tělo. Blok nejde přetáhnout ani zvětšit přes čáru mezi nimi. Výška hlavičky se mění tažením čáry a sama naroste, když se do ní obsah nevejde (delší titulek, nový štítek).
+  - **Hlavička je propojená s panelem Data, oběma směry:**
+    - Náhledový obrázek nahraný v panelu se hned objeví v hlavičce jako obrázek, který jde přesouvat, zvětšovat a ořezávat.
+    - Datum a autoři jsou textové boxy. Jejich text nejde přepsat (řídí se panelem), ale jde měnit písmo, velikost, barvu a zarovnání a boxy jdou přesouvat.
+    - Každý štítek je samostatná modrá pilulka, kterou jde přesunout.
+    - Smazání bloku na plátně (křížkem nebo klávesou Delete) smaže hodnotu i v panelu: náhled, autory nebo daný štítek.
+    - Výjimka je datum: smazáním boxu se datum v článku jen skryje, datum vydání v panelu zůstává (řídí vydání a řazení). Box se vrátí, když datum v panelu změníš.
+    - Krok zpět a vpřed vrací i hodnoty v panelu.
+  - Nové bloky (text, obrázek, video) se vkládají do bílého těla.
   - Stránka se sama prodlužuje dolů jako ve Wordu.
   - Klik mimo blok výběr zruší.
   - Vlevo je panel **Data**: autoři, štítky (výběr ze seznamu), typ, datum a čas vydání (budoucí čas = naplánováno), náhledový obrázek.

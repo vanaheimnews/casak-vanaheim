@@ -31,6 +31,17 @@
       padding-bottom: 32px;
     }
     .article-page { max-width: 820px; width: 100%; margin: 0 auto; }
+    /* Two zones, as in the editor: the black hero band (full width, its
+       canvas in the same 820px column) and right under it the white body. */
+    .article-heroband { background: #000; border-top: 2px solid #fff; }
+    .article-heroband[hidden] { display: none; }
+    .article-hero-wrap { position: relative; box-sizing: content-box; max-width: 820px; margin: 0 auto; padding: 0 20px; }
+    @media (max-width: 720px) { .article-hero-wrap { padding: 0 16px; } }   /* = the page's side padding there */
+    .article-shell { padding-top: 0; }
+    .article-page .article-canvas-wrap { margin: 0 0 20px; }
+    .article-canvas--body { background-color: #fff; }
+    .article-canvas--hero.article-canvas--flow { padding: 20px 0 8px; }
+    .article-page .loading-state, .article-page .error-state { margin-top: 32px; }
     .reco { width: 100%; max-width: 820px; margin: 0 auto 14px; }
     .reco[hidden] { display: none; }
     .reco-heading {
@@ -56,7 +67,7 @@
       .article-shell { grid-template-columns: minmax(0, 1fr) 820px minmax(0, 1fr); }
       .article-page { grid-column: 2; grid-row: 1; }
       .reco {
-        position: sticky; top: 20px; max-width: 240px; margin: 44px 0 24px;
+        position: sticky; top: 20px; max-width: 240px; margin: 24px 0 24px;
         max-height: calc(100vh - 40px); overflow-y: auto; scrollbar-width: thin;
       }
       .reco--right { grid-column: 3; grid-row: 1; justify-self: start; }
@@ -128,9 +139,14 @@
   </header>
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
+  <!-- Black hero of the article (filled by the loader script); the white
+       line on its top edge separates it from the black site header -->
+  <div class="article-heroband" id="article-heroband" hidden>
+    <div class="article-hero-wrap" id="article-hero-wrap"></div>
+  </div>
+
   <main id="main" class="content article-shell">
     <article class="page is-active article-page" id="article-root">
-      <a class="article-back" href="./#articles">← Zpět na příspěvky</a>
       <p class="loading-state" id="loading">Načítám článek…</p>
     </article>
     <!-- Posts placed on the homepage (filled by the loader script) -->
@@ -140,6 +156,7 @@
 
   <script src="/sanitize.js"></script>
   <script src="/home-layout.js"></script>
+  <script src="/article-layout.js"></script>
   <script>
     /* Reuse only the burger/drawer logic from the main script. */
     (function () {
@@ -190,31 +207,25 @@
          column in reading order instead — scaling would make text tiny. */
       var EDITOR_W = 820;
       var FLOW_BELOW = 560;
-      function renderElements(wrap, a) {
-        var elements = a.elements;
-        var canvasW = EDITOR_W;
-        elements.forEach(function (el) {
-          var right = (+el.x || 0) + (+el.width || 0);
-          if (right > canvasW) canvasW = right;
-        });
+      /* One zone as a canvas: its blocks positioned exactly as in the
+         editor (y measured from offsetY, the top of the zone). */
+      function buildCanvas(els, a, canvasW, offsetY, zoneClass, imgNo) {
         var canvas = document.createElement("div");
-        canvas.className = "article-canvas";
+        canvas.className = "article-canvas " + zoneClass;
         canvas.style.width = canvasW + "px";
-        applyBackground(canvas, a.background);
         // DOM in reading order (top->bottom, left->right) for the flow layout
         // and screen readers; z-index reproduces the editor's layers.
-        var ordered = elements.map(function (el, i) { return { el: el, i: i }; })
+        var ordered = els.map(function (el, i) { return { el: el, i: i }; })
           .sort(function (p, q) {
             return ((+p.el.y || 0) - (+q.el.y || 0)) || ((+p.el.x || 0) - (+q.el.x || 0));
           });
-        var imgNo = 0;
         ordered.forEach(function (p) {
-          var el = p.el;
+          var el = p.el, badge = el.role === "tag";
           var node = document.createElement(el.isTitle ? "h1" : "div");
-          node.className = "ac-el ac-el--" + el.type + (el.isTitle ? " ac-title" : "");
+          node.className = "ac-el ac-el--" + el.type + (el.isTitle ? " ac-title" : "") + (badge ? " ac-el--badge" : "");
           node.style.left = (+el.x || 0) + "px";
-          node.style.top = (+el.y || 0) + "px";
-          node.style.width = (+el.width || 0) + "px";
+          node.style.top = ((+el.y || 0) - offsetY) + "px";
+          if (!badge) node.style.width = (+el.width || 0) + "px";
           node.style.zIndex = typeof el.z === "number" ? el.z : p.i + 1;
           if (el.height && el.height !== "auto") {
             node.style.height = el.height + "px";
@@ -223,14 +234,15 @@
           if (el.type === "image") {
             var src = VNSafe.url(el.content, { image: true });
             if (!src) return;
-            imgNo++;
-            var alt = (a.title ? a.title + " — " : "") + "obrázek " + imgNo;
+            imgNo.n++;
+            var alt = (a.title ? a.title + " — " : "") + (el.role === "thumb" ? "náhledový obrázek" : "obrázek " + imgNo.n);
             var crop = VNSafe.cropRect(el.crop);      // „Oříznout" in the editor
             if (crop) {
               node.appendChild(VNSafe.croppedImage(src, crop, alt));
             } else {
               var img = document.createElement("img");
-              img.src = src; img.loading = "lazy";
+              img.src = src;
+              if (offsetY) img.loading = "lazy";       // the hero is on screen at once
               img.alt = alt;
               node.appendChild(img);
             }
@@ -251,6 +263,11 @@
             link.href = href; link.target = "_blank"; link.rel = "noopener noreferrer";
             link.textContent = "📄 " + (el.name || "Dokument PDF");
             node.appendChild(link);
+          } else if (badge) {
+            var pill = document.createElement("span");
+            pill.className = "vn-badge";
+            pill.textContent = el.tag || "";
+            node.appendChild(pill);
           } else {
             node.innerHTML = VNSafe.html(el.content);
             var s = el.styles || {};
@@ -264,33 +281,71 @@
           }
           canvas.appendChild(node);
         });
-        wrap.innerHTML = "";
-        wrap.appendChild(canvas);
-        var doLayout = function () { layoutCanvas(wrap, canvas, canvasW); };
+        return canvas;
+      }
+      /* The article as the editor shows it: the black hero (title, thumbnail,
+         date, authors, tag badges) and under it the white body. Articles
+         saved before the two zones existed get the default hero from
+         VNArticle.prepare — the same one the editor shows for them. */
+      function renderArticle(a, heroWrap, bodyWrap) {
+        var lay = VNArticle.prepare(a);
+        var canvasW = EDITOR_W;
+        lay.elements.forEach(function (el) {
+          var right = (+el.x || 0) + (+el.width || 0);
+          if (right > canvasW) canvasW = right;      // older, wider layouts
+        });
+        var imgNo = { n: 0 };
+        var hero = buildCanvas(lay.elements.filter(function (el) { return el.zone === "hero"; }),
+                               a, canvasW, 0, "article-canvas--hero", imgNo);
+        var body = buildCanvas(lay.elements.filter(function (el) { return el.zone !== "hero"; }),
+                               a, canvasW, lay.heroHeight, "article-canvas--body", imgNo);
+        applyBackground(body, a.background);
+        heroWrap.innerHTML = "";
+        heroWrap.appendChild(hero);
+        bodyWrap.innerHTML = "";
+        bodyWrap.appendChild(body);
+        var doLayout = function () { layoutZones(heroWrap, hero, lay.heroHeight, bodyWrap, body, canvasW); };
         doLayout();
         window.addEventListener("resize", doLayout);
-        // re-measure once images have loaded (their height can change auto rows)
-        Array.prototype.forEach.call(canvas.querySelectorAll("img"), function (im) {
+        // the column itself changing width (rotation, split screen) re-lays out too
+        if (window.ResizeObserver) new ResizeObserver(doLayout).observe(bodyWrap);
+        // re-measure once pictures and fonts have loaded (auto-height blocks may change)
+        Array.prototype.forEach.call(document.querySelectorAll(".article-canvas img"), function (im) {
           if (!im.complete) im.addEventListener("load", doLayout);
         });
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(doLayout);
       }
-      function layoutCanvas(wrap, canvas, canvasW) {
-        var avail = wrap.clientWidth || canvasW;
-        var flow = avail < FLOW_BELOW;
-        canvas.classList.toggle("article-canvas--flow", flow);
-        canvas.style.transform = "none";
-        if (flow) { canvas.style.height = ""; wrap.style.height = ""; return; }
+      function contentBottom(canvas) {
         var h = 0;
         Array.prototype.forEach.call(canvas.children, function (n) {
           var b = n.offsetTop + n.offsetHeight;
           if (b > h) h = b;
         });
-        h += 40;
-        canvas.style.height = h + "px";
+        return h;
+      }
+      // Both zones share one scale (the column's width); phones get one readable column.
+      function layoutZones(heroWrap, hero, heroH, bodyWrap, body, canvasW) {
+        var avail = bodyWrap.clientWidth || canvasW;
+        var flow = avail < FLOW_BELOW;
+        [hero, body].forEach(function (c) {
+          c.classList.toggle("article-canvas--flow", flow);
+          c.style.transform = "none";
+        });
+        if (flow) {
+          hero.style.height = ""; heroWrap.style.height = "";
+          body.style.height = ""; bodyWrap.style.height = "";
+          return;
+        }
         var scale = Math.min(1, avail / canvasW);
-        canvas.style.transformOrigin = "top left";
-        canvas.style.transform = "scale(" + scale + ")";
-        wrap.style.height = (h * scale) + "px";
+        // hero: the height set in the editor (taller only if its text needs it here)
+        var hh = Math.max(heroH, contentBottom(hero) + 8);
+        var bh = contentBottom(body) + 40;
+        [[hero, heroWrap, hh], [body, bodyWrap, bh]].forEach(function (z) {
+          z[0].style.height = z[2] + "px";
+          z[0].style.transformOrigin = "top left";
+          z[0].style.transform = "scale(" + scale + ")";
+          z[1].style.height = (z[2] * scale) + "px";
+        });
       }
       // Page background from the editor: image (wins) or a hex colour.
       function applyBackground(node, bg) {
@@ -313,7 +368,7 @@
       function setSeo(a) {
         var url = location.origin + "/article?id=" + encodeURIComponent(a.id);
         var tmp = document.createElement("template");
-        tmp.innerHTML = (a.elements || []).filter(function (el) { return el.type === "text" && !el.isTitle; })
+        tmp.innerHTML = (a.elements || []).filter(function (el) { return el.type === "text" && !el.isTitle && !el.role; })
           .map(function (el) { return VNSafe.html(el.content); }).join(" ");
         var text = ((a.body || "") + " " + tmp.content.textContent).replace(/\s+/g, " ").trim();
         var desc = text ? (text.length > 155 ? text.slice(0, 152).replace(/\s+\S*$/, "") + "…" : text)
@@ -427,38 +482,11 @@
           document.title = (a.title || "Článek") + " — Vanaheim News";
           setSeo(a);
           loadReco(a.id);
-          var tagsHtml = (a.tags || []).map(function (t) {
-            return '<span class="card-tag">' + escapeHtml(t) + "</span>";
-          }).join("");
-          if (!tagsHtml && a.tagsUnspecified) tagsHtml = '<span class="card-tag card-tag--none">nespecifikováno</span>';
-          var authors = (a.authors || []).join(", ");
-          var metaHtml =
-            '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
-            '<div class="article-meta">' +
-              '<time datetime="' + escapeHtml(a.date) + '">' + escapeHtml(formatDate(a.date)) + "</time>" +
-              (authors ? "<span>" + escapeHtml(authors) + "</span>" : "") +
-              "<span>" + (a.kind === "comic" ? "Komiks" : "Článek") + "</span>" +
-            "</div>" +
-            (tagsHtml ? '<div class="article-tags">' + tagsHtml + "</div>" : "");
-
-          if (a.elements && a.elements.length) {
-            // Render the exact positioned layout from the visual editor.
-            root.innerHTML = metaHtml + '<div class="article-canvas-wrap" id="article-canvas-wrap"></div>';
-            renderElements(document.querySelector("#article-canvas-wrap"), a);
-          } else {
-            var heroSrc = VNSafe.url(a.image, { image: true });
-            var heroHtml = heroSrc
-              ? '<div class="article-hero"><img src="' + escapeHtml(heroSrc) + '" alt=""></div>'
-              : "";
-            // blank line = new paragraph, single newline = line break
-            var paras = String(a.body || "").split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
-            root.innerHTML = metaHtml +
-              heroHtml +
-              '<h1 class="article-title">' + escapeHtml(a.title) + "</h1>" +
-              '<div class="article-body">' + paras.map(function (p) {
-                return "<p>" + escapeHtml(p).replace(/\n/g, "<br>") + "</p>";
-              }).join("") + "</div>";
-          }
+          var band = document.querySelector("#article-heroband");
+          root.innerHTML = '<div class="article-canvas-wrap" id="article-canvas-wrap"></div>' +
+                           '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>';
+          band.hidden = false;
+          renderArticle(a, document.querySelector("#article-hero-wrap"), document.querySelector("#article-canvas-wrap"));
         })
         .catch(function (err) {
           noIndex();

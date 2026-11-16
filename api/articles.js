@@ -23,7 +23,7 @@ function plain(html) {
 }
 function listItem(a) {
   const els = Array.isArray(a.elements) ? a.elements : [];
-  const text = els.filter((e) => e && e.type === "text" && !e.isTitle).map((e) => plain(e.content)).join(" ");
+  const text = els.filter((e) => e && e.type === "text" && !e.isTitle && !e.role).map((e) => plain(e.content)).join(" ");
   const firstImage = els.find((e) => e && e.type === "image" && e.content);
   return {
     id: a.id, title: a.title, image: a.image, date: a.date, publishAt: a.publishAt, kind: a.kind,

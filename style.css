@@ -1549,6 +1549,43 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 .article-canvas--flow .ac-el--image svg.vn-crop { height: auto; }   /* keeps the crop's shape */
 
 /* ============================================================
+   ARTICLE PAGE — two zones (editor canvas + reader page, 1:1)
+   The black hero on top (title, thumbnail, date, authors, tag
+   badges), the white body below. See article-layout.js.
+   ============================================================ */
+/* a tag in the hero: light-blue pill, dark-blue letters */
+.vn-badge {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid #a8dcf3;
+  background: #d6effa;
+  color: #0a5f8a;
+  font-size: 0.72rem; font-weight: 700; line-height: 1.2;
+  letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap;
+}
+/* ---- editor ---- */
+.ed-hero-zone {
+  position: absolute; left: 0; top: 0; width: 100%; z-index: 0;
+  box-sizing: border-box; background: #000;
+  border-top: 2px solid #fff;                     /* the white line under the site header */
+  border-radius: 4px 4px 0 0;
+}
+.ed-hero-divider {                                /* drag to make the black zone taller / shorter */
+  position: absolute; left: 0; width: 100%; height: 12px; margin-top: -6px;
+  z-index: 55; cursor: ns-resize; touch-action: none;
+}
+.ed-hero-divider::after {
+  content: ""; position: absolute; left: 50%; top: 4px; width: 64px; height: 4px; margin-left: -32px;
+  border-radius: 2px; background: var(--brand); opacity: 0.35; transition: opacity 120ms ease;
+}
+.ed-hero-divider:hover::after { opacity: 1; }
+.ed-role-tag .ed-el-content { display: flex; padding: 0; overflow: visible; white-space: nowrap; }
+/* ---- reader ---- */
+.ac-el.ac-el--badge { display: flex; width: auto !important; padding: 0; white-space: nowrap; }
+.article-canvas--flow .ac-el.ac-el--badge { display: inline-flex; margin: 0 6px 8px 0; }
+
+/* ============================================================
    ADMIN article list (cards) — header + scheduled badge
    ============================================================ */
 .admin-list-head {
