@@ -23,16 +23,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&family=Inter:wght@400;700&family=JetBrains+Mono:wght@400;700&family=Merriweather:ital,wght@0,400;0,700;1,400;1,700&family=Montserrat:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Roboto:wght@400;700&display=swap">
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=2026-11-17">
 </head>
 <body>
   <a class="skip-link" href="#main">Přejít k obsahu</a>
 
   <!-- ============================================================
        HEADER — full-width, two black rows + Scio-blue divider.
-       Keeps id="sidebar"/#burger/#sidebar-backdrop for the JS hooks.
        ============================================================ -->
-  <header class="site-header" id="sidebar">
+  <header class="site-header">
     <div class="header-top">
       <!-- Split divider: single line from the right, vertically centered,
            splitting symmetrically into top + bottom branches framing the logo -->
@@ -42,7 +41,7 @@
       </svg>
 
       <!-- Logo: left, vertically centered -->
-      <a class="site-logo" href="#home" data-page="home" aria-label="Vanaheim News — domů">
+      <a class="site-logo" href="#home" aria-label="Vanaheim News — domů">
         <img src="/logo.png" alt="Vanaheim News — By Expediční Střední ScioŠkola">
       </a>
 
@@ -53,17 +52,8 @@
         <a href="#about"    class="nav-link"           data-page="about">O nás</a>
         <a href="#contact"  class="nav-link"           data-page="contact">Kontakt</a>
       </nav>
-
-      <!-- Kept for JS drawer hooks; hidden by CSS -->
-      <button class="burger" id="burger" type="button"
-              aria-controls="sidebar" aria-expanded="false" aria-label="Menu">
-        <span></span><span></span><span></span>
-      </button>
     </div>
   </header>
-
-  <!-- Kept for JS compatibility -->
-  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
   <!-- ============================================================
        MAIN CONTENT
@@ -116,9 +106,7 @@
       <div class="card-grid" id="articles-grid">
         <!-- Cards injected by script.js -->
       </div>
-      <p class="empty-state" id="articles-empty" hidden>
-        Žádné příspěvky neodpovídají vybraným filtrům.
-      </p>
+      <p class="empty-state" id="articles-empty" hidden></p>
     </section>
 
     <!-- ===== C. ABOUT ===== -->
@@ -155,8 +143,10 @@
     </footer>
   </main>
 
-  <script src="/sanitize.js"></script>
-  <script src="/home-layout.js"></script>
-  <script src="./script.js"></script>
+  <!-- ?v= : raise it whenever a shared .js / .css file changes (DOKUMENTACE.md, chapter 10) -->
+  <script src="/vn-core.js?v=2026-11-17"></script>
+  <script src="/sanitize.js?v=2026-11-17"></script>
+  <script src="/home-layout.js?v=2026-11-17"></script>
+  <script src="./script.js?v=2026-11-17"></script>
 </body>
 </html>

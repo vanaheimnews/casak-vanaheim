@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>Článek — Vanaheim News</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- SEO tags below are filled per article by the loader script -->
+  <!-- SEO tags below are filled per article by article.js -->
   <meta name="description" content="Článek ze školního magazínu Vanaheim News.">
   <link rel="canonical" href="https://www.vanaheim-news.cz/">
   <link rel="icon" href="/logo.png">
@@ -17,106 +17,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&family=Inter:wght@400;700&family=JetBrains+Mono:wght@400;700&family=Merriweather:ital,wght@0,400;0,700;1,400;1,700&family=Montserrat:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Roboto:wght@400;700&display=swap">
-  <link rel="stylesheet" href="./style.css">
-  <style>
-    /* Page-specific overrides — keeps the design system from style.css. */
-    /* Reader layout. The article column is exactly the editor's page (820px)
-       and sits in the middle of the screen, like in the editor. On wide
-       screens the free space beside it shows the posts placed on the
-       homepage (sticky); on narrower ones they move under the article. */
-    .article-shell {
-      max-width: 1400px;
-      display: grid; grid-template-columns: minmax(0, 1fr);
-      gap: 0 28px; align-items: start; align-content: start;   /* rows keep their own height */
-      padding-bottom: 32px;
-    }
-    .article-page { max-width: 820px; width: 100%; margin: 0 auto; }
-    /* Two zones, as in the editor: the black hero band (full width, its
-       canvas in the same 820px column) and right under it the white body. */
-    .article-heroband { background: #000; border-top: 2px solid #fff; }
-    .article-heroband[hidden] { display: none; }
-    .article-hero-wrap { position: relative; box-sizing: content-box; max-width: 820px; margin: 0 auto; padding: 0 20px; }
-    @media (max-width: 720px) { .article-hero-wrap { padding: 0 16px; } }   /* = the page's side padding there */
-    .article-shell { padding-top: 0; }
-    .article-page .article-canvas-wrap { margin: 0 0 20px; }
-    .article-canvas--body { background-color: #fff; }
-    .article-canvas--hero.article-canvas--flow { padding: 20px 0 8px; }
-    .article-page .loading-state, .article-page .error-state { margin-top: 32px; }
-    .reco { width: 100%; max-width: 820px; margin: 0 auto 14px; }
-    .reco[hidden] { display: none; }
-    .reco-heading {
-      margin: 0 0 12px; font-size: 0.78rem; font-weight: 700;
-      letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
-    }
-    .reco--left .reco-heading { display: none; }          /* stacked: one list under one heading */
-    .reco-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
-    .reco-card {
-      display: block; overflow: hidden; text-decoration: none; color: var(--content-fg);
-      background: var(--surface); border: 1px solid var(--content-rule); border-radius: 8px;
-      box-shadow: var(--card-shadow); transition: box-shadow 160ms ease, transform 160ms ease;
-    }
-    .reco-card:hover { box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
-    .reco-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-    .reco-thumb { display: block; aspect-ratio: 16 / 10; background: #eaeaea; }
-    .reco-thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .reco-name {
-      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-      margin: 10px 12px 12px; font-size: 0.9rem; font-weight: 600; line-height: 1.3;
-    }
-    @media (min-width: 1280px) {
-      .article-shell { grid-template-columns: minmax(0, 1fr) 820px minmax(0, 1fr); }
-      .article-page { grid-column: 2; grid-row: 1; }
-      .reco {
-        position: sticky; top: 20px; max-width: 240px; margin: 24px 0 24px;
-        max-height: calc(100vh - 40px); overflow-y: auto; scrollbar-width: thin;
-      }
-      .reco--right { grid-column: 3; grid-row: 1; justify-self: start; }
-      .reco--left { grid-column: 1; grid-row: 1; justify-self: end; }
-      .reco--left .reco-heading { display: block; }
-      .reco-list { grid-template-columns: minmax(0, 1fr); }
-    }
-    @media (prefers-reduced-motion: reduce) { .reco-card:hover { transform: none; } }
-    .article-hero {
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      background: #eaeaea;
-      border: 1px solid var(--content-rule);
-      border-radius: 4px;
-      overflow: hidden;
-      position: relative;
-      margin-bottom: 24px;
-    }
-    .article-hero img {
-      position: absolute; inset: 0;
-      width: 100%; height: 100%;
-      object-fit: cover;
-    }
-    .article-title { font-size: clamp(1.8rem, 3.4vw, 2.4rem); margin: 0 0 12px; line-height: 1.2; }
-    .article-meta {
-      display: flex; flex-wrap: wrap; gap: 8px 16px;
-      color: var(--muted); font-size: 0.92rem; margin-bottom: 24px;
-    }
-    .article-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }
-    .article-body { font-size: 1.05rem; line-height: 1.7; }
-    .article-body p { margin: 0 0 1em; white-space: pre-wrap; }
-    .article-back {
-      display: inline-flex; align-items: center; gap: 8px;
-      margin-bottom: 24px;
-      color: var(--muted); text-decoration: none; font-size: 0.9rem;
-    }
-    .article-back:hover { color: var(--content-fg); }
-    .loading-state, .error-state {
-      padding: 40px; text-align: center; color: var(--muted);
-      border: 1px dashed var(--content-rule); border-radius: 4px;
-      background: var(--surface);
-    }
-  </style>
+  <link rel="stylesheet" href="./style.css?v=2026-11-17">
 </head>
 <body>
   <a class="skip-link" href="#main">Přejít k obsahu</a>
 
   <!-- ===== Header (same layout as index) ===== -->
-  <header class="site-header" id="sidebar">
+  <header class="site-header">
     <div class="header-top">
       <svg class="header-divider" width="100%" height="220" aria-hidden="true" focusable="false">
         <path class="hd-line" d="M4000 110 L480 110 L394 24 L0 24" vector-effect="non-scaling-stroke"/>
@@ -131,369 +38,29 @@
         <a href="./#about"    class="nav-link">O nás</a>
         <a href="./#contact"  class="nav-link">Kontakt</a>
       </nav>
-      <button class="burger" id="burger" type="button"
-              aria-controls="sidebar" aria-expanded="false" aria-label="Menu">
-        <span></span><span></span><span></span>
-      </button>
     </div>
   </header>
-  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
-  <!-- Black hero of the article (filled by the loader script); the white
+  <!-- Black hero of the article (filled by article.js); the white
        line on its top edge separates it from the black site header -->
   <div class="article-heroband" id="article-heroband" hidden>
     <div class="article-hero-wrap" id="article-hero-wrap"></div>
   </div>
 
   <main id="main" class="content article-shell">
-    <article class="page is-active article-page" id="article-root">
-      <p class="loading-state" id="loading">Načítám článek…</p>
+    <article class="article-page" id="article-root">
+      <p class="loading-state">Načítám článek…</p>
     </article>
-    <!-- Posts placed on the homepage (filled by the loader script) -->
+    <!-- Posts placed on the homepage (filled by article.js) -->
     <aside class="reco reco--right" id="reco-right" aria-label="Doporučené příspěvky" hidden></aside>
     <aside class="reco reco--left" id="reco-left" aria-label="Další doporučené příspěvky" hidden></aside>
   </main>
 
-  <script src="/sanitize.js"></script>
-  <script src="/home-layout.js"></script>
-  <script src="/article-layout.js"></script>
-  <script>
-    /* Reuse only the burger/drawer logic from the main script. */
-    (function () {
-      var sidebar = document.querySelector("#sidebar");
-      var burger = document.querySelector("#burger");
-      var backdrop = document.querySelector("#sidebar-backdrop");
-      function close() {
-        sidebar.classList.remove("is-open");
-        burger.setAttribute("aria-expanded", "false");
-        backdrop.hidden = true;
-      }
-      burger.addEventListener("click", function () {
-        var open = sidebar.classList.contains("is-open");
-        if (open) close();
-        else {
-          sidebar.classList.add("is-open");
-          burger.setAttribute("aria-expanded", "true");
-          backdrop.hidden = false;
-        }
-      });
-      backdrop.addEventListener("click", close);
-      document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
-    })();
-
-    /* Article loader. */
-    (function () {
-      function escapeHtml(value) {
-        return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
-          return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
-        });
-      }
-      // "YYYY-MM-DD" is a calendar date — build it in LOCAL time. new Date(iso)
-      // means UTC midnight, which showed the previous day west of UTC.
-      function formatDate(iso) {
-        if (!iso) return "";
-        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-        var d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(iso);
-        if (isNaN(d.getTime())) return iso;
-        var months = ["ledna","února","března","dubna","května","června",
-                      "července","srpna","září","října","listopadu","prosince"];
-        return d.getDate() + ". " + months[d.getMonth()] + " " + d.getFullYear();
-      }
-
-      /* Visual-editor layout. The editor canvas is 820px wide; older articles
-         may hold blocks placed further right (the editor used to be wider), so
-         the public canvas grows to include every block, then scales to fit the
-         column. Below FLOW_BELOW px the blocks are shown as one readable
-         column in reading order instead — scaling would make text tiny. */
-      var EDITOR_W = 820;
-      var FLOW_BELOW = 560;
-      /* One zone as a canvas: its blocks positioned exactly as in the
-         editor (y measured from offsetY, the top of the zone). */
-      function buildCanvas(els, a, canvasW, offsetY, zoneClass, imgNo) {
-        var canvas = document.createElement("div");
-        canvas.className = "article-canvas " + zoneClass;
-        canvas.style.width = canvasW + "px";
-        // DOM in reading order (top->bottom, left->right) for the flow layout
-        // and screen readers; z-index reproduces the editor's layers.
-        var ordered = els.map(function (el, i) { return { el: el, i: i }; })
-          .sort(function (p, q) {
-            return ((+p.el.y || 0) - (+q.el.y || 0)) || ((+p.el.x || 0) - (+q.el.x || 0));
-          });
-        ordered.forEach(function (p) {
-          var el = p.el, badge = el.role === "tag";
-          var node = document.createElement(el.isTitle ? "h1" : "div");
-          node.className = "ac-el ac-el--" + el.type + (el.isTitle ? " ac-title" : "") + (badge ? " ac-el--badge" : "");
-          node.style.left = (+el.x || 0) + "px";
-          node.style.top = ((+el.y || 0) - offsetY) + "px";
-          if (!badge) node.style.width = (+el.width || 0) + "px";
-          node.style.zIndex = typeof el.z === "number" ? el.z : p.i + 1;
-          if (el.height && el.height !== "auto") {
-            node.style.height = el.height + "px";
-            node.classList.add("has-fixed-h");
-          }
-          if (el.type === "image") {
-            var src = VNSafe.url(el.content, { image: true });
-            if (!src) return;
-            imgNo.n++;
-            var alt = (a.title ? a.title + " — " : "") + (el.role === "thumb" ? "náhledový obrázek" : "obrázek " + imgNo.n);
-            var crop = VNSafe.cropRect(el.crop);      // „Oříznout" in the editor
-            if (crop) {
-              node.appendChild(VNSafe.croppedImage(src, crop, alt));
-            } else {
-              var img = document.createElement("img");
-              img.src = src;
-              if (offsetY) img.loading = "lazy";       // the hero is on screen at once
-              img.alt = alt;
-              node.appendChild(img);
-            }
-          } else if (el.type === "embed") {
-            // video / social post: the stored link is re-validated and the
-            // player URL rebuilt by VNSafe.embed — plays inline in the article
-            var info = VNSafe.embed(el.content);
-            if (!info) return;
-            node.appendChild(VNSafe.embedFrame(info, (a.title ? a.title + " — " : "") + info.label));
-            // keeps the block's shape in the one-column phone layout
-            var w = +el.width || info.w, h = +el.height || info.h;
-            node.style.aspectRatio = w + " / " + h;
-          } else if (el.type === "file") {
-            var href = VNSafe.url(el.content);
-            if (!href) return;
-            var link = document.createElement("a");
-            link.className = "ac-file";
-            link.href = href; link.target = "_blank"; link.rel = "noopener noreferrer";
-            link.textContent = "📄 " + (el.name || "Dokument PDF");
-            node.appendChild(link);
-          } else if (badge) {
-            var pill = document.createElement("span");
-            pill.className = "vn-badge";
-            pill.textContent = el.tag || "";
-            node.appendChild(pill);
-          } else {
-            node.innerHTML = VNSafe.html(el.content);
-            var s = el.styles || {};
-            if (s.fontFamily) node.style.fontFamily = String(s.fontFamily);   // CSSOM: a bad value is just ignored
-            node.style.fontSize = s.fontSize || "16px";
-            node.style.color = s.color || "#1a1a1a";
-            node.style.fontWeight = s.bold ? "700" : "400";
-            node.style.fontStyle = s.italic ? "italic" : "normal";
-            node.style.textDecoration = s.underline ? "underline" : "none";
-            node.style.textAlign = s.align || "left";
-          }
-          canvas.appendChild(node);
-        });
-        return canvas;
-      }
-      /* The article as the editor shows it: the black hero (title, thumbnail,
-         date, authors, tag badges) and under it the white body. Articles
-         saved before the two zones existed get the default hero from
-         VNArticle.prepare — the same one the editor shows for them. */
-      function renderArticle(a, heroWrap, bodyWrap) {
-        var lay = VNArticle.prepare(a);
-        var canvasW = EDITOR_W;
-        lay.elements.forEach(function (el) {
-          var right = (+el.x || 0) + (+el.width || 0);
-          if (right > canvasW) canvasW = right;      // older, wider layouts
-        });
-        var imgNo = { n: 0 };
-        var hero = buildCanvas(lay.elements.filter(function (el) { return el.zone === "hero"; }),
-                               a, canvasW, 0, "article-canvas--hero", imgNo);
-        var body = buildCanvas(lay.elements.filter(function (el) { return el.zone !== "hero"; }),
-                               a, canvasW, lay.heroHeight, "article-canvas--body", imgNo);
-        applyBackground(body, a.background);
-        heroWrap.innerHTML = "";
-        heroWrap.appendChild(hero);
-        bodyWrap.innerHTML = "";
-        bodyWrap.appendChild(body);
-        var doLayout = function () { layoutZones(heroWrap, hero, lay.heroHeight, bodyWrap, body, canvasW); };
-        doLayout();
-        window.addEventListener("resize", doLayout);
-        // the column itself changing width (rotation, split screen) re-lays out too
-        if (window.ResizeObserver) new ResizeObserver(doLayout).observe(bodyWrap);
-        // re-measure once pictures and fonts have loaded (auto-height blocks may change)
-        Array.prototype.forEach.call(document.querySelectorAll(".article-canvas img"), function (im) {
-          if (!im.complete) im.addEventListener("load", doLayout);
-        });
-        if (document.fonts && document.fonts.ready) document.fonts.ready.then(doLayout);
-      }
-      function contentBottom(canvas) {
-        var h = 0;
-        Array.prototype.forEach.call(canvas.children, function (n) {
-          var b = n.offsetTop + n.offsetHeight;
-          if (b > h) h = b;
-        });
-        return h;
-      }
-      // Both zones share one scale (the column's width); phones get one readable column.
-      function layoutZones(heroWrap, hero, heroH, bodyWrap, body, canvasW) {
-        var avail = bodyWrap.clientWidth || canvasW;
-        var flow = avail < FLOW_BELOW;
-        [hero, body].forEach(function (c) {
-          c.classList.toggle("article-canvas--flow", flow);
-          c.style.transform = "none";
-        });
-        if (flow) {
-          hero.style.height = ""; heroWrap.style.height = "";
-          body.style.height = ""; bodyWrap.style.height = "";
-          return;
-        }
-        var scale = Math.min(1, avail / canvasW);
-        // hero: the height set in the editor (taller only if its text needs it here)
-        var hh = Math.max(heroH, contentBottom(hero) + 8);
-        var bh = contentBottom(body) + 40;
-        [[hero, heroWrap, hh], [body, bodyWrap, bh]].forEach(function (z) {
-          z[0].style.height = z[2] + "px";
-          z[0].style.transformOrigin = "top left";
-          z[0].style.transform = "scale(" + scale + ")";
-          z[1].style.height = (z[2] * scale) + "px";
-        });
-      }
-      // Page background from the editor: image (wins) or a hex colour.
-      function applyBackground(node, bg) {
-        if (!bg) return;
-        var img = bg.image ? VNSafe.cssUrl(bg.image) : "";
-        if (img) {
-          node.style.backgroundImage = img;
-          node.style.backgroundSize = "cover";
-          node.style.backgroundPosition = "center";
-        }
-        if (/^#[0-9a-f]{3,8}$/i.test(bg.color || "")) node.style.backgroundColor = bg.color;
-      }
-
-      /* SEO for this article: description, canonical URL, link-preview tags and
-         schema.org data. Google runs this script when it indexes the page. */
-      function setMeta(selector, attr, value) {
-        var el = document.head.querySelector(selector);
-        if (el && value) el.setAttribute(attr, value);
-      }
-      function setSeo(a) {
-        var url = location.origin + "/article?id=" + encodeURIComponent(a.id);
-        var tmp = document.createElement("template");
-        tmp.innerHTML = (a.elements || []).filter(function (el) { return el.type === "text" && !el.isTitle && !el.role; })
-          .map(function (el) { return VNSafe.html(el.content); }).join(" ");
-        var text = ((a.body || "") + " " + tmp.content.textContent).replace(/\s+/g, " ").trim();
-        var desc = text ? (text.length > 155 ? text.slice(0, 152).replace(/\s+\S*$/, "") + "…" : text)
-                        : "Článek ze školního magazínu Vanaheim News.";
-        var firstImg = (a.elements || []).filter(function (el) { return el.type === "image"; })[0];
-        var image = VNSafe.url(a.image || (firstImg && firstImg.content), { image: true });
-        if (!/^https?:/i.test(image)) image = "";
-        setMeta('meta[name="description"]', "content", desc);
-        setMeta('link[rel="canonical"]', "href", url);
-        setMeta('meta[property="og:title"]', "content", a.title);
-        setMeta('meta[property="og:description"]', "content", desc);
-        setMeta('meta[property="og:image"]', "content", image);
-        var og = document.createElement("meta");
-        og.setAttribute("property", "og:url"); og.setAttribute("content", url);
-        document.head.appendChild(og);
-        var ld = document.createElement("script");
-        ld.type = "application/ld+json";
-        ld.textContent = JSON.stringify({
-          "@context": "https://schema.org", "@type": "Article",
-          headline: a.title, description: desc, url: url, inLanguage: "cs",
-          datePublished: a.publishAt || a.date, dateModified: a.updatedAt || a.publishAt || a.date,
-          image: image || undefined,
-          author: (a.authors || []).map(function (n) { return { "@type": "Person", name: n }; }),
-          publisher: { "@type": "Organization", name: "Vanaheim News" }
-        });
-        document.head.appendChild(ld);
-      }
-      // Missing / unpublished article: tell search engines not to index the error page.
-      function noIndex() {
-        var m = document.createElement("meta");
-        m.name = "robots"; m.content = "noindex";
-        document.head.appendChild(m);
-      }
-
-      /* Posts the editors placed on the homepage ("pinned"), as compact cards
-         beside the article. Same data and rules as the homepage itself:
-         content.home.layout, or the default layout (pinned first, then the
-         newest) until one is saved. Never blocks or breaks the article. */
-      function loadReco(currentId) {
-        var json = function (r) { if (!r.ok) throw new Error("API " + r.status); return r.json(); };
-        Promise.all([fetch("/api/content").then(json), fetch("/api/articles").then(json)])
-          .then(function (res) {
-            var content = res[0] || {}, list = Array.isArray(res[1]) ? res[1] : [];
-            var layout = VNHome.normalize((content.home || {}).layout) || VNHome.defaultLayout(content, list);
-            var byId = {}, seen = {}, picks = [];
-            list.forEach(function (a) { byId[a.id] = a; });
-            layout.rows.forEach(function (row) {
-              row.blocks.forEach(function (b) {
-                var a = b.kind === "post" ? byId[b.articleId] : null;     // only published posts are in the list
-                if (!a || a.id === currentId || seen[a.id]) return;
-                seen[a.id] = 1;
-                picks.push(a);
-              });
-            });
-            picks = picks.slice(0, 8);
-            // up to four go right; more are split between both sides
-            var right = picks.length <= 4 ? picks : picks.slice(0, Math.ceil(picks.length / 2));
-            fillReco(document.querySelector("#reco-right"), right, "Doporučujeme");
-            fillReco(document.querySelector("#reco-left"), picks.slice(right.length), "Další příspěvky");
-          })
-          .catch(function () { /* no side panel; the article is unaffected */ });
-      }
-      function fillReco(box, items, heading) {
-        if (!box || !items.length) return;
-        var h = document.createElement("h2");
-        h.className = "reco-heading";
-        h.textContent = heading;
-        var listEl = document.createElement("div");
-        listEl.className = "reco-list";
-        items.forEach(function (a) {
-          var card = document.createElement("a");
-          card.className = "reco-card";
-          card.href = "/article?id=" + encodeURIComponent(a.id);
-          var src = VNHome.thumb(a);
-          if (src) {
-            var t = document.createElement("span");
-            t.className = "reco-thumb";
-            var im = document.createElement("img");
-            im.src = src; im.alt = ""; im.loading = "lazy"; im.decoding = "async";
-            t.appendChild(im);
-            card.appendChild(t);
-          }
-          var name = document.createElement("span");
-          name.className = "reco-name";
-          name.textContent = a.title || "(bez názvu)";
-          card.appendChild(name);
-          listEl.appendChild(card);
-        });
-        box.appendChild(h);
-        box.appendChild(listEl);
-        box.hidden = false;
-      }
-
-      var params = new URLSearchParams(location.search);
-      var id = params.get("id");
-      var root = document.querySelector("#article-root");
-
-      if (!id) {
-        root.innerHTML = '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
-                         '<p class="error-state">Chybí ID článku.</p>';
-        noIndex();
-        return;
-      }
-
-      fetch("/api/articles?id=" + encodeURIComponent(id))
-        .then(function (r) {
-          if (!r.ok) throw new Error("Článek nenalezen.");
-          return r.json();
-        })
-        .then(function (a) {
-          document.title = (a.title || "Článek") + " — Vanaheim News";
-          setSeo(a);
-          loadReco(a.id);
-          var band = document.querySelector("#article-heroband");
-          root.innerHTML = '<div class="article-canvas-wrap" id="article-canvas-wrap"></div>' +
-                           '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>';
-          band.hidden = false;
-          renderArticle(a, document.querySelector("#article-hero-wrap"), document.querySelector("#article-canvas-wrap"));
-        })
-        .catch(function (err) {
-          noIndex();
-          root.innerHTML = '<a class="article-back" href="./#articles">← Zpět na příspěvky</a>' +
-                           '<p class="error-state">' + escapeHtml(err.message || "Chyba při načítání.") + "</p>";
-        });
-    })();
-  </script>
+  <!-- ?v= : raise it whenever a shared .js / .css file changes (DOKUMENTACE.md, chapter 10) -->
+  <script src="/vn-core.js?v=2026-11-17"></script>
+  <script src="/sanitize.js?v=2026-11-17"></script>
+  <script src="/home-layout.js?v=2026-11-17"></script>
+  <script src="/article-layout.js?v=2026-11-17"></script>
+  <script src="/article.js?v=2026-11-17"></script>
 </body>
 </html>

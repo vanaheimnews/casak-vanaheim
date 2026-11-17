@@ -1,4 +1,4 @@
-// In-memory stand-in for @vercel/blob 2.x (list / put / head / del + errors), served by devserver.mjs at /__blob/.
+// In-memory stand-in for @vercel/blob 2.x (list / put / head + errors), served by devserver.mjs at /__blob/.
 export const STORE = new Map();   // pathname -> { pathname, url, uploadedAt, etag, body }
 export const OPS = { advanced: 0, simple: 0 };
 let seq = 0;
@@ -37,7 +37,4 @@ export async function put(pathname, body, opts = {}) {
                 body: typeof body === "string" ? body : Buffer.from(body), contentType: opts.contentType || "application/json" };
   STORE.set(pathname, rec);
   return { pathname, url: rec.url, uploadedAt, etag: rec.etag };
-}
-export async function del(urls) {
-  for (const u of [].concat(urls)) for (const [k, v] of STORE) if (v.url === u || k === u) STORE.delete(k);
 }

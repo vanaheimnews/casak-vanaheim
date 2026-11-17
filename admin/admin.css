@@ -1,0 +1,134 @@
+/* Admin page styles: panels, forms, tables, login screen, toast. Loaded by admin/index.html
+   right after /style.css, which holds the admin layout, the article list, dialogs and editors. */
+
+/* The [hidden] attribute must always win over any display rule below. */
+[hidden] { display: none !important; }
+
+/* Small "Admin" tag, sitting just above the centered blue line, aligned
+   to the right with the nav (within the content width). */
+.admin-tag {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 70px;
+  width: 100%;
+  max-width: var(--max-content);
+  padding: 0 22px;
+  text-align: right;
+  color: var(--brand);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  z-index: 2;
+}
+/* Admin has 5 wider buttons, so stack the header earlier (<=900px) to
+   avoid the nav colliding with the logo. */
+@media (max-width: 900px) {
+  .header-top { height: auto; overflow: visible; }
+  .header-divider { display: none; }
+  .site-logo { position: static; transform: none; padding: 14px 0 14px 16px; }
+  .site-logo img { height: 64px; }
+  .admin-tag {
+    position: static; transform: none; max-width: none; top: auto;
+    display: block; text-align: left; padding: 12px 0 4px 16px;
+  }
+  .site-nav {
+    position: static; transform: none; width: 100%; max-width: none;
+    padding: 8px 8px; justify-content: flex-start; flex-wrap: wrap;
+    border-top: 3px solid var(--brand);
+  }
+  .admin-nav-link { padding: 10px 10px; font-size: 0.9rem; }
+}
+
+.panel {
+  background: var(--surface); border: 1px solid var(--content-rule);
+  border-radius: 4px; padding: 24px;
+}
+.panel + .panel { margin-top: 24px; }
+.panel h2 {
+  margin: 0 0 16px; padding-bottom: 10px; border-bottom: 1px solid var(--content-rule);
+  font-size: 1.1rem; font-weight: 600;
+}
+
+.form-grid { display: flex; flex-direction: column; gap: 14px; }
+.form-grid label {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--content-fg);
+}
+.form-grid input[type="text"],
+.form-grid select {
+  min-height: 40px; padding: 8px 12px;
+  border: 1px solid var(--content-rule); border-radius: 2px;
+  background: var(--surface); color: var(--content-fg);
+  font: inherit; font-size: 1rem; text-transform: none; letter-spacing: 0;
+}
+.help { color: var(--muted); font-size: 0.78rem; font-style: italic; text-transform: none; letter-spacing: 0; }
+
+.image-preview {
+  margin-top: 4px; width: 100%; max-width: 220px;
+  aspect-ratio: 16 / 10;
+  background: #eaeaea center / cover no-repeat;
+  border: 1px solid var(--content-rule); border-radius: 2px;
+}
+.image-preview.round { aspect-ratio: 1 / 1; max-width: 120px; border-radius: 50%; }
+
+.form-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+
+.table-wrap { overflow-x: auto; }
+.article-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; min-width: 420px; }
+.article-table th, .article-table td {
+  text-align: left; padding: 12px 10px; vertical-align: top;
+  border-bottom: 1px solid var(--content-rule);
+}
+.article-table th {
+  font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+  border-bottom: 1px solid var(--accent);
+}
+.article-table .thumb {
+  display: block; width: 64px; height: 48px;
+  background: #eaeaea center / cover no-repeat;
+  border: 1px solid var(--content-rule); border-radius: 2px;
+}
+.article-table .thumb.round { width: 48px; height: 48px; border-radius: 50%; }
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.row-actions button {
+  min-height: 30px; padding: 0 10px;
+  border: 1px solid var(--accent); background: var(--surface); color: var(--content-fg);
+  font-size: 0.72rem; border-radius: 2px;
+}
+.row-actions button:hover { background: var(--accent); color: #fff; }
+.row-actions button.danger:hover { background: #b00020; border-color: #b00020; color: #fff; }
+.empty-row td { color: var(--muted); text-align: center; font-style: italic; padding: 28px 10px; }
+
+/* Login screen */
+.login-screen { min-height: 60vh; display: grid; place-items: center; padding: 40px 24px; }
+/* session expired while the editor is open: login floats above it */
+.login-screen.is-modal { position: fixed; inset: 0; z-index: 400; min-height: 0; background: rgba(10, 16, 20, 0.6); }
+.login-card {
+  width: min(420px, 100%);
+  background: var(--surface); border: 1px solid var(--content-rule);
+  border-radius: 4px; padding: 32px;
+}
+.login-card h1 { margin: 0 0 6px; font-size: 1.4rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.login-card p { margin: 0 0 18px; color: var(--muted); font-size: 0.9rem; }
+.login-card form { display: flex; flex-direction: column; gap: 12px; }
+.login-card input {
+  min-height: 42px; padding: 8px 12px;
+  border: 1px solid var(--content-rule); border-radius: 2px;
+  background: var(--surface); color: var(--content-fg); font: inherit;
+}
+.login-card .error { margin: 0; color: #b00020; font-size: 0.88rem; min-height: 1em; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  padding: 12px 20px; background: var(--accent); color: #fff;
+  font-size: 0.88rem; letter-spacing: 0.04em; border-radius: 2px;
+  opacity: 0; pointer-events: none; transition: opacity 180ms ease; z-index: 1000; /* above the editor (200) and its dialogs */
+}
+.toast.is-visible { opacity: 1; }
+@media (max-width: 700px) {
+  .toast { left: 16px; right: 16px; transform: none; text-align: center; }
+}

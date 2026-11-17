@@ -5,8 +5,8 @@
  * Returns: { url, mime }  — public Blob URL of the uploaded file.
  * ============================================================ */
 import { createHash } from "node:crypto";
-import { put, head, BlobNotFoundError } from "@vercel/blob";
-import { requireAdmin, readJsonBody, sendServerError } from "./_lib.js";
+import { put } from "@vercel/blob";
+import { requireAdmin, readJsonBody, sendServerError, headOrNull, methodNotAllowed } from "./_lib.js";
 
 // Whitelisted MIME types -> stored file extension.
 const ALLOWED = {
@@ -18,19 +18,18 @@ const ALLOWED = {
   "application/pdf": "pdf"
 };
 
-// NOTE: Vercel caps the whole request at 4.5 MB regardless of sizeLimit,
-// so the admin client compresses images and rejects files > ~3.2 MB
-// (base64 adds ~33 %).
+/* bodyParser.sizeLimit is Next.js API-route syntax; plain Vercel functions
+ * are not known to honour it (kept until a deployment test proves it inert).
+ * The real limit: Vercel caps the whole request at 4.5 MB, so the admin
+ * client compresses images and rejects files over ~3.2 MB (UPLOAD_MAX_BYTES
+ * in admin/admin.js; base64 adds ~33 %). */
 export const config = {
   api: { bodyParser: { sizeLimit: "8mb" } }
 };
 
 export default async function handler(req, res) {
   try {
-    if (req.method !== "POST") {
-      res.setHeader("Allow", "POST");
-      return res.status(405).json({ error: "Method not allowed" });
-    }
+    if (req.method !== "POST") return methodNotAllowed(res, "POST");
     if (!(await requireAdmin(req, res))) return;
 
     const body = await readJsonBody(req);
@@ -64,11 +63,8 @@ export default async function handler(req, res) {
     const pathname = mime === "application/pdf"
       ? `files/${hash}-${safeName}.${ext}`
       : `images/${hash}.${ext}`;
-    const existing = async () => {
-      try { return await head(pathname); } catch (e) { if (e instanceof BlobNotFoundError) return null; throw e; }
-    };
 
-    let stored = await existing();
+    let stored = await headOrNull(pathname);
     if (!stored) {
       try {
         stored = await put(pathname, buffer, {
@@ -78,7 +74,7 @@ export default async function handler(req, res) {
           allowOverwrite: false      // the same name is always the same content
         });
       } catch (e) {
-        stored = await existing();   // a parallel upload of the same file got there first
+        stored = await headOrNull(pathname);   // a parallel upload of the same file got there first
         if (!stored) throw e;
       }
     }

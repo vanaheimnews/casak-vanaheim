@@ -9,7 +9,7 @@
  * save (another admin, another tab) is redone on top, never overwritten.
  * ============================================================ */
 import {
-  loadTaxonomy, ensureTaxonomy, updateArticles, updateTaxonomy, requireAdmin, readJsonBody, sendServerError, setReadCache
+  ensureTaxonomy, updateArticles, updateTaxonomy, requireAdmin, readJsonBody, sendServerError, setReadCache, methodNotAllowed
 } from "./_lib.js";
 import { applyTaxonomyAction, TaxonomyError } from "./_taxonomy.js";
 
@@ -33,11 +33,13 @@ async function rollbackArticles(before, written, list) {
 
 export default async function handler(req, res) {
   try {
+    // Not cached by default (POST, 405); a GET replaces this with
+    // setReadCache() below (public reads: CDN-cached for 5 minutes).
     res.setHeader("Cache-Control", "no-store, max-age=0");
 
     if (req.method === "GET") {
       setReadCache(req, res);
-      return res.status(200).json(await loadTaxonomy());
+      return res.status(200).json(await ensureTaxonomy());   // creates taxonomy.json if it is missing
     }
 
     if (req.method === "POST") {
@@ -63,8 +65,7 @@ export default async function handler(req, res) {
       }
     }
 
-    res.setHeader("Allow", "GET, POST");
-    return res.status(405).json({ error: "Method not allowed" });
+    return methodNotAllowed(res, "GET, POST");
   } catch (err) {
     return sendServerError(req, res, err, "/api/taxonomy");
   }

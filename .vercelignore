@@ -1,7 +1,5 @@
-# Old prototypes — not part of the live site. Without this, Vercel serves
-# every committed file statically (incl. a hardcoded demo password).
-editorial-news-feed-layout/
-school-magazine/
-vanaheim-news/
+# Not deployed (Vercel would serve them as static files), as they are not
+# part of the live site: the local dev tools (dev server, fake Blob, tests,
+# regression check) and the docs.
 tools/
 *.md

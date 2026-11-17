@@ -24,7 +24,7 @@
  *     default hero built from its data, its old blocks become the body;
  *   - an article saved with zones is only reconciled with its current
  *     data (a tag renamed or deleted in „Upravit filtry", …).
- * Requires a browser (it measures text) and sanitize.js for nothing.
+ * Requires a browser (it measures text) and vn-core.js (VN).
  * ============================================================ */
 (function () {
   "use strict";
@@ -32,18 +32,10 @@
   var W = 820;             // page width
   var PAD = 40;            // margin of the default hero layout
   var HERO_MIN = 120;
-  var MONTHS = ["ledna", "února", "března", "dubna", "května", "června",
-                "července", "srpna", "září", "října", "listopadu", "prosince"];
+  var MONTHS = VN.MONTHS;
+  var esc = VN.escapeHtml, nameKey = VN.nameKey;
 
-  function esc(value) {
-    return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
-      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
-    });
-  }
-  function uid() { return "el-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7); }
-  function nameKey(n) {
-    return String(n == null ? "" : n).normalize("NFC").replace(/\s+/g, " ").trim().toLocaleLowerCase("cs");
-  }
+  function uid() { return VN.uid("el"); }
   // "2026-10-30" or "2026-10-30T08:00" -> "30. října 2026" (a calendar date, no time zone maths)
   function formatDate(v) {
     var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ""));
@@ -54,6 +46,18 @@
     var s = { fontSize: "16px", color: "#1a1a1a", bold: false, italic: false, underline: false, align: "left" };
     for (var k in (over || {})) s[k] = over[k];
     return s;
+  }
+  // The look of a text block (font, size, colour, B / I / U, alignment) —
+  // one function for the editor and the reader page, so both draw it the same.
+  function applyTextStyles(node, styles) {
+    var s = styles || {};
+    node.style.fontFamily = s.fontFamily ? String(s.fontFamily) : "";   // CSSOM: a bad value is just ignored
+    node.style.fontSize = s.fontSize || "16px";
+    node.style.color = s.color || "#1a1a1a";
+    node.style.fontWeight = s.bold ? "700" : "400";
+    node.style.fontStyle = s.italic ? "italic" : "normal";
+    node.style.textDecoration = s.underline ? "underline" : "none";
+    node.style.textAlign = s.align || "left";
   }
   function isLocked(el) { return !!el && (el.role === "date" || el.role === "authors" || el.role === "tag"); }
 
@@ -289,16 +293,14 @@
   }
 
   window.VNArticle = {
-    W: W, PAD: PAD, HERO_MIN: HERO_MIN,
+    W: W, HERO_MIN: HERO_MIN,
     prepare: prepare,
     reconcile: reconcile,
     makeMeta: makeMeta,
-    fillMeta: fillMeta,
     placeNew: placeNew,
-    heroBottom: heroBottom,
     heightOf: heightOf,
     isLocked: isLocked,
-    formatDate: formatDate,
-    nameKey: nameKey
+    textStyles: textStyles,
+    applyTextStyles: applyTextStyles
   };
 })();

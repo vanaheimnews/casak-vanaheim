@@ -1,32 +1,64 @@
 /* ============================================================
    SCHOOL MAGAZINE — DESIGN SYSTEM
+   One stylesheet for index.html (public site), article.html (reader
+   page) and admin/index.html (admin + article editor).
    ------------------------------------------------------------
-   Palette
-     --header-bg    #000000  Pure black header rows
-     --header-fg    #FFFFFF  White text on header
-     --brand        #009EE0  Scio light blue accent (divider, hover)
-     --content-bg   #EBF0F3  Soft slate gray content background
-     --surface      #FFFFFF  Card / panel surface (floats on the gray)
-     --content-fg   #1A1A1A  Dark charcoal body text
-     --content-rule #DDDDDD  Subtle divider in content
-     --accent       #000000  Black buttons
+   Palette (defined in :root below)
+     --brand        #16a9e0  Scio light blue accent (divider, hover, active)
+     --header-bg    #000000  Black header
+     --header-fg    #ffffff  White text in the header
+     --content-bg   #ebf0f3  Soft slate gray content background
+     --surface      #ffffff  Card / panel surface (floats on the gray)
+     --content-fg   #1a1a1a  Dark charcoal body text
+     --muted        #5b6770  Secondary text (dates, labels, hints)
+     --content-rule #e2e6ea  Subtle borders and dividers
+     --line         #d9dee5  Borders of the admin page editors and popovers
+     --accent       #000000  Black buttons, ticked filters
    Spacing scale: 4 / 8 / 12 / 16 / 24 / 32 / 48
-   Typography: system stack, body 16px, h1 ~2rem, h2 1.4rem
+   Typography: system font stack (--font-body), body 16px / 1.55
    ============================================================ */
+
+/* CONTENTS — sections in file order and the pages that use them
+   (public = index.html, reader = article.html, admin = admin/index.html,
+   shared = all three)
+     Tokens, reset / base ........................ shared
+     SITE HEADER ................................. shared
+     CONTENT (wrapper, page titles, switching) ... public + reader
+     CARD GRID ................................... public + admin
+     BUTTONS ..................................... public + admin
+     ARTICLES (tag filter, Filtrovat / Seřadit) .. public + admin
+     ABOUT (prose, team grid) .................... public
+     CONTACT ..................................... public
+     FOOTER ...................................... public
+     RESPONSIVE (tablet, mobile, small phones) ... shared
+     ADMIN DASHBOARD ............................. admin
+     Reduced motion .............................. shared
+     VISUAL ARTICLE EDITOR (+ continued) ......... admin; its block lists,
+                                                   paragraphs, file links and
+                                                   cropped pictures also reader
+     PUBLIC render of the editor layout .......... reader
+     ARTICLE PAGE — two zones .................... reader + admin
+     ARTICLE PAGE — reader layout, side panels ... reader
+     ADMIN article list, „Upravit filtry" ........ admin
+     ADMIN PAGE EDITORS (homepage + „O nás") ..... admin; „Téma" block and
+                                                   page background also public
+     VIDEO / SOCIAL POST BLOCKS .................. reader + admin
+     HOMEPAGE LAYOUT GRID ........................ public + admin
+       editor chrome, article picker ............. admin */
 
 :root {
   --brand:        #16a9e0;   /* Scio light blue — matches the logo cyan */
 
-  /* header rows (kept under the old --sidebar-* names for compatibility) */
-  --sidebar-bg:   #000000;
-  --sidebar-fg:   #ffffff;
-  --sidebar-rule: #333333;
+  /* header */
+  --header-bg:    #000000;
+  --header-fg:    #ffffff;
 
   --content-bg:   #ebf0f3;   /* soft slate gray (alt: #f4f4f6) */
   --surface:      #ffffff;
   --content-fg:   #1a1a1a;
   --muted:        #5b6770;
   --content-rule: #e2e6ea;
+  --line:         #d9dee5;   /* admin page editors + toolbar popovers */
   --accent:       #000000;
 
   --card-shadow:  0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.05);
@@ -77,13 +109,13 @@ button { font: inherit; cursor: pointer; }
 
 /* ============================================================
    SITE HEADER — full-width, two black rows + Scio-blue divider.
-   Element keeps id="sidebar" plus #burger / #sidebar-backdrop so the
-   existing JavaScript (nav switching, drawer hooks) works unchanged.
+   Same markup on all three pages; the admin puts its own tab
+   buttons (.admin-nav-link) into the nav.
    ============================================================ */
 .site-header {
   width: 100%;
-  background: var(--sidebar-bg);
-  color: var(--sidebar-fg);
+  background: var(--header-bg);
+  color: var(--header-fg);
   position: relative;
   z-index: 30;
 }
@@ -134,41 +166,6 @@ button { font: inherit; cursor: pointer; }
   z-index: 2;
 }
 
-/* Brand */
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.brand-logo {
-  flex: 0 0 auto;
-  width: 46px;
-  height: 46px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 2px solid var(--brand);
-  color: var(--brand);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  font-size: 1rem;
-}
-.brand-logo img { width: 100%; height: 100%; object-fit: contain; }  /* drop a logo PNG here */
-.brand-text { min-width: 0; text-align: left; }
-.brand-title {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-.brand-subtitle {
-  margin: 2px 0 0;
-  font-size: 0.78rem;
-  color: rgba(255, 255, 255, 0.6);
-  text-transform: lowercase;
-  letter-spacing: 0.04em;
-}
-
 /* Logo image — left, vertically centered in the whole header, framed by the
    bracket. Fixed size so the fixed SVG geometry always clears it. */
 .site-logo {
@@ -185,13 +182,16 @@ button { font: inherit; cursor: pointer; }
   height: 128px;       /* bigger logo */
   width: auto;
 }
-.nav-link {
+/* Nav links: public pages (.nav-link) and the admin tab buttons
+   (.admin-nav-link, a little tighter — see ADMIN DASHBOARD). */
+.nav-link,
+.admin-nav-link {
   display: inline-block;
   padding: 14px 16px;
   background: transparent;
   border: 0;
   border-bottom: 3px solid transparent;
-  color: var(--sidebar-fg);
+  color: var(--header-fg);
   text-decoration: none;
   font: inherit;
   font-size: 0.95rem;
@@ -199,40 +199,13 @@ button { font: inherit; cursor: pointer; }
   cursor: pointer;
   transition: color 0.3s ease, border-color 0.3s ease;
 }
-.nav-link:hover { color: var(--brand); }
-.nav-link.is-active {
+.nav-link:hover,
+.admin-nav-link:hover { color: var(--brand); }
+.nav-link.is-active,
+.admin-nav-link.is-active {
   color: var(--brand);
   border-bottom-color: var(--brand);
 }
-
-/* Burger kept in the DOM for the JS drawer hooks; the header simply
-   wraps its nav on small screens, so the burger stays hidden. */
-.burger {
-  display: none;
-  margin-left: auto;
-  width: 40px;
-  height: 40px;
-  background: transparent;
-  border: 1px solid var(--sidebar-fg);
-  border-radius: 2px;
-  padding: 0;
-}
-.burger span {
-  display: block;
-  width: 18px;
-  height: 2px;
-  margin: 4px auto;
-  background: var(--sidebar-fg);
-}
-
-/* Backdrop kept for JS compatibility (unused by the header layout) */
-.sidebar-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 20;
-}
-.sidebar-backdrop[hidden] { display: none; }
 
 /* ============================================================
    CONTENT
@@ -275,7 +248,7 @@ button { font: inherit; cursor: pointer; }
 .page[hidden] { display: none !important; }
 
 /* ============================================================
-   CARD GRID (Home + Articles)
+   CARD GRID (Příspěvky page + admin article list)
    Fixed rows / aspect ratios so layout never jumps as images load
    ============================================================ */
 .card-grid {
@@ -303,6 +276,7 @@ button { font: inherit; cursor: pointer; }
 
 .card-media {
   position: relative;
+  display: block;                 /* the public card's picture is an <a> */
   width: 100%;
   aspect-ratio: 16 / 10;          /* locks image height regardless of source */
   background: #eaeaea;            /* placeholder colour while image loads */
@@ -331,7 +305,6 @@ button { font: inherit; cursor: pointer; }
 }
 .card-title a { color: inherit; text-decoration: none; }
 .card-title a:hover { text-decoration: underline; }
-.card-media { display: block; }
 .card-meta {
   display: flex;
   flex-wrap: wrap;
@@ -339,16 +312,14 @@ button { font: inherit; cursor: pointer; }
   color: var(--muted);
   font-size: 0.82rem;
 }
-.card-meta time::before { content: ""; }
 .card-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   padding: 0 16px 16px;
 }
-/* Badges (article tags + sidebar quick-tags) — soft branded pills */
-.card-tag,
-.badge {
+/* Article tags on the cards — soft branded pills */
+.card-tag {
   display: inline-block;
   font-size: 0.68rem;
   font-weight: 700;
@@ -362,16 +333,8 @@ button { font: inherit; cursor: pointer; }
 }
 
 /* ============================================================
-   PAGINATION — static, anchored, never reflows on image load
+   BUTTONS
    ============================================================ */
-.pagination {
-  display: flex;
-  justify-content: center;
-  /* Top margin is a fixed value (not "auto") so the button doesn't jump
-     when grid items finish loading. */
-  margin: 40px 0 48px;
-}
-
 .btn {
   min-height: 42px;
   padding: 0 24px;
@@ -393,14 +356,16 @@ button { font: inherit; cursor: pointer; }
 .btn-ghost:hover { background: var(--accent); color: #ffffff; }
 
 /* ============================================================
-   ARTICLES — Tag filter
+   ARTICLES — Tag filter, "Filtrovat" / "Seřadit", empty state
+   (the admin article list uses the same filter)
    ============================================================ */
 .tag-filter {
   margin: 0 0 32px;
   padding: 16px 20px;
   border: 1px solid var(--content-rule);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--surface);
+  box-shadow: var(--card-shadow);
 }
 .tag-filter legend {
   padding: 0 8px;
@@ -478,7 +443,6 @@ button { font: inherit; cursor: pointer; }
   line-height: 1.2;
   text-align: center;
 }
-.feed-tool-badge[hidden] { display: none; }
 .feed-sort { position: relative; }
 .sort-menu {
   position: absolute;
@@ -494,6 +458,9 @@ button { font: inherit; cursor: pointer; }
   background: var(--surface);
   box-shadow: var(--card-shadow-hover, 0 8px 24px rgba(16, 24, 40, 0.16));
 }
+/* The public pages have no global [hidden] rule: an element whose rule sets a
+   display value needs its own [hidden] override (the others are hidden by the
+   browser's built-in [hidden] style). */
 .sort-menu[hidden] { display: none; }
 .sort-menu button {
   padding: 9px 12px;
@@ -509,7 +476,6 @@ button { font: inherit; cursor: pointer; }
 .sort-menu button[aria-checked="true"] { font-weight: 700; color: var(--accent); }
 .sort-menu button[aria-checked="true"]::before { content: "✓ "; }
 .filter-panel { margin: 0 0 24px; }
-.filter-panel[hidden] { display: none; }
 .filter-panel .tag-filter { margin-bottom: 12px; }
 .tag-count { opacity: 0.7; font-weight: 400; }
 .tag-checkbox.is-empty { opacity: 0.45; cursor: default; }
@@ -530,6 +496,7 @@ button { font: inherit; cursor: pointer; }
   text-align: center;
   color: var(--muted);
   background: var(--surface);
+  box-shadow: var(--card-shadow);
 }
 
 /* ============================================================
@@ -539,8 +506,9 @@ button { font: inherit; cursor: pointer; }
   max-width: 70ch;
   background: var(--surface);
   border: 1px solid var(--content-rule);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 24px 28px;
+  box-shadow: var(--card-shadow);
 }
 .prose p { margin: 0 0 14px; }
 .prose p:last-child { margin-bottom: 0; }
@@ -554,7 +522,8 @@ button { font: inherit; cursor: pointer; }
 .team-card {
   background: var(--surface);
   border: 1px solid var(--content-rule);
-  border-radius: 4px;
+  border-radius: 8px;
+  box-shadow: var(--card-shadow);
   overflow: hidden;
   display: grid;
   grid-template-rows: auto auto;  /* image, then text — fixed structure */
@@ -607,12 +576,13 @@ button { font: inherit; cursor: pointer; }
   padding: 16px 18px;
   background: var(--surface);
   border: 1px solid var(--content-rule);
-  border-radius: 4px;
+  border-radius: 8px;
+  box-shadow: var(--card-shadow);
   text-decoration: none;
   color: var(--content-fg);
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition: box-shadow 160ms ease, border-color 160ms ease;
 }
-.contact-item:hover { border-color: var(--accent); background: #fafafa; }
+.contact-item:hover { border-color: var(--accent); background: #fafafa; box-shadow: var(--card-shadow-hover); }
 .contact-icon {
   flex: 0 0 auto;
   width: 44px;
@@ -641,136 +611,11 @@ button { font: inherit; cursor: pointer; }
 .content-footer p { margin: 24px 0 0; }
 
 /* ============================================================
-   HOME — editorial rule, eyebrow, featured card, sidebar
-   ============================================================ */
-/* Thin rule above the page header */
-.editorial-rule {
-  border: 0;
-  border-top: 1px solid #cccccc;
-  margin: 0 0 24px;
-}
-/* Small uppercase sub-header above the grid */
-.grid-eyebrow {
-  margin: 0 0 16px;
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-/* Two-column layout: feed (left) + sidebar (right) */
-.home-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;   /* ~75% / 25% */
-  gap: 32px;
-  align-items: start;
-}
-.home-main { min-width: 0; }
-.home-sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  position: sticky;
-  top: 20px;
-}
-
-/* Featured card — full width, image left + content right */
-.card--featured {
-  grid-column: 1 / -1;
-  grid-template-rows: auto;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-}
-.card--featured .card-media {
-  aspect-ratio: auto;
-  height: 100%;
-  min-height: 300px;
-}
-.card--featured .card-body {
-  padding: 24px 28px;
-  gap: 10px;
-  justify-content: center;
-}
-.card--featured .card-title { font-size: 1.6rem; line-height: 1.2; }
-.card--featured .card-tags { padding: 0; margin-top: 6px; }
-.card-eyebrow {
-  margin: 0;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--brand);
-}
-.card-excerpt {
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 0.98rem;
-  line-height: 1.55;
-}
-
-/* Sidebar widgets */
-.widget {
-  background: var(--surface);
-  border: 1px solid var(--content-rule);
-  border-radius: 8px;
-  padding: 18px 18px 20px;
-  box-shadow: var(--card-shadow);
-}
-.widget-title {
-  margin: 0 0 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--content-rule);
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-}
-.widget p {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.6;
-}
-.widget-photo {
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  margin-bottom: 12px;
-  border-radius: 6px;
-  background:
-    linear-gradient(135deg, #dfe6ec, #eef2f5);
-}
-.quick-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* ============================================================
-   FLOATING WHITE SURFACES on the gray background
-   ============================================================ */
-.team-card,
-.contact-item,
-.prose,
-.tag-filter,
-.empty-state {
-  box-shadow: var(--card-shadow);
-}
-.team-card,
-.contact-item,
-.prose,
-.tag-filter { border-radius: 8px; }
-.contact-item { transition: box-shadow 160ms ease, border-color 160ms ease; }
-.contact-item:hover { box-shadow: var(--card-shadow-hover); }
-
-/* ============================================================
    RESPONSIVE — tablet
    ============================================================ */
 @media (max-width: 960px) {
   .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .team-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-
-  /* Sidebar drops below the feed and its widgets sit side by side */
-  .home-layout { grid-template-columns: 1fr; gap: 24px; }
-  .home-sidebar { position: static; flex-direction: row; flex-wrap: wrap; }
-  .home-sidebar .widget { flex: 1 1 260px; }
 }
 
 /* ============================================================
@@ -799,13 +644,6 @@ button { font: inherit; cursor: pointer; }
   .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .contact-list { grid-template-columns: 1fr; }
 
-  /* Featured card stacks (image on top) */
-  .card--featured { grid-template-columns: 1fr; }
-  .card--featured .card-media { aspect-ratio: 16 / 10; height: auto; min-height: 0; }
-  .card--featured .card-body { padding: 18px 16px; }
-  .card--featured .card-title { font-size: 1.3rem; }
-  .home-sidebar { flex-direction: column; }
-
   .page-header { margin-bottom: 24px; }
 }
 
@@ -820,70 +658,20 @@ button { font: inherit; cursor: pointer; }
 }
 
 /* ============================================================
-   ADMIN DASHBOARD — two-column layout (sidebar + main)
+   ADMIN DASHBOARD — single column under the header
    Used by /admin. Component styles (forms, tables, login, toast)
-   live inline in admin/index.html.
+   live in admin/admin.css.
    ============================================================ */
 .admin-layout {
   display: block;        /* single column — admin nav now lives in the header */
   min-height: 50vh;
 }
 
-/* Left black sidebar */
-.admin-sidebar {
-  position: sticky;
-  top: 0;
-  align-self: start;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--sidebar-bg);
-  color: var(--sidebar-fg);
-  padding: 28px 18px;
-}
-.admin-brand {
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  padding: 0 10px;
-}
-.admin-divider {
-  border: 0;
-  border-top: 1px solid var(--sidebar-rule);
-  margin: 20px 0;
-}
-.admin-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.admin-sidebar-footer {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 20px;
-  border-top: 1px solid var(--sidebar-rule);
-}
-/* Admin nav buttons — horizontal, in the header (same look as .nav-link) */
+/* Admin nav buttons in the header: the .nav-link look (shared rule in
+   SITE HEADER), a little tighter. Must stay after that shared rule. */
 .admin-nav-link {
-  display: inline-block;
   padding: 12px 12px;
-  background: transparent;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  color: var(--sidebar-fg);
-  font: inherit;
   font-size: 0.92rem;
-  letter-spacing: 0.01em;
-  text-decoration: none;
-  cursor: pointer;
-  transition: color 0.3s ease, border-color 0.3s ease;
-}
-.admin-nav-link:hover { color: var(--brand); }
-.admin-nav-link.is-active {
-  color: var(--brand);
-  border-bottom-color: var(--brand);
 }
 
 /* Main content — centered like the public site */
@@ -917,32 +705,6 @@ button { font: inherit; cursor: pointer; }
   .admin-grid { grid-template-columns: 1fr; gap: 28px; }
 }
 
-/* Admin responsive — sidebar becomes a top bar */
-@media (max-width: 800px) {
-  .admin-layout { grid-template-columns: 1fr; }
-  .admin-sidebar {
-    position: static;
-    height: auto;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 6px;
-    padding: 14px 16px;
-  }
-  .admin-brand { flex: 1 1 100%; padding: 0 2px 4px; font-size: 1.05rem; }
-  .admin-divider { display: none; }
-  .admin-nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
-  .admin-sidebar-footer {
-    margin-top: 0;
-    flex-direction: row;
-    border-top: 0;
-    padding-top: 0;
-    margin-left: auto;
-    gap: 6px;
-  }
-  .admin-nav-link { width: auto; padding: 9px 12px; font-size: 0.9rem; }
-}
-
 /* ============================================================
    Reduced motion
    ============================================================ */
@@ -971,7 +733,6 @@ button { font: inherit; cursor: pointer; }
   flex-direction: column;
   background: rgba(10, 16, 20, 0.55);
 }
-.ed-overlay[hidden] { display: none !important; }
 
 .ed-workspace {
   display: flex;
@@ -1028,8 +789,10 @@ button { font: inherit; cursor: pointer; }
 .ed-bar2-right {
   flex: 1 1 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  row-gap: 6px;             /* after `gap`, which sets both */
   padding: 8px 12px;
   background: var(--surface);
   border: 1px solid var(--content-rule);
@@ -1100,7 +863,6 @@ button { font: inherit; cursor: pointer; }
   color: var(--brand);
 }
 .ed-tool-svg { padding: 0; }
-.ed-bar2-right { flex-wrap: wrap; row-gap: 6px; }
 
 /* Lists (editor + public) — marker inherits text color; long lines wrap
    under the text, a new bullet/number appears only on Enter (native <li>). */
@@ -1117,6 +879,7 @@ button { font: inherit; cursor: pointer; }
    Enter ends the paragraph -> next paragraph starts without it. */
 .ed-el-content div, .ed-el-content p,
 .ac-el div, .ac-el p { margin: 0; }
+/* letters on the bold / italic / underline / text-colour buttons (bar 2) */
 .ed-tool-b { font-weight: 800; }
 .ed-tool-i { font-style: italic; font-weight: 600; }
 .ed-tool-u { text-decoration: underline; font-weight: 600; }
@@ -1136,22 +899,22 @@ button { font: inherit; cursor: pointer; }
   border-radius: 8px;
   box-shadow: 0 12px 30px rgba(16, 24, 40, 0.18);
 }
-.ed-color-panel[hidden] { display: none !important; }
 /* one-click colour swatches (keep the text selection) */
 .ed-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px; }
 .ed-swatches button {
   height: 24px; border: 1px solid rgba(0, 0, 0, 0.18); border-radius: 5px; cursor: pointer; padding: 0;
 }
 .ed-swatches button:hover { transform: scale(1.08); box-shadow: 0 0 0 2px var(--brand); }
-/* font family menu */
+/* font family menu in bar 2 (not part of the colour panel) */
 .ed-font {
   height: 34px; max-width: 170px; padding: 0 8px; border: 1px solid var(--content-rule); border-radius: 6px;
   background: #fff; font: inherit; font-size: 0.85rem; cursor: pointer;
 }
-/* smart guides shown while moving / resizing a block */
+/* smart guides on the canvas, shown while moving / resizing a block */
 .ed-guide { position: absolute; z-index: 9999; pointer-events: none; }
 .ed-guide--v { width: 0; border-left: 1px dashed #e0119d; }
 .ed-guide--h { height: 0; border-top: 1px dashed #e0119d; }
+/* colour panel, continued: preview, native picker, RGB rows, HEX row */
 .ed-color-preview {
   height: 40px; border-radius: 6px; border: 1px solid var(--content-rule);
   margin-bottom: 12px;
@@ -1195,11 +958,14 @@ button { font: inherit; cursor: pointer; }
   border-bottom: 1px solid var(--content-rule);
   font-size: 0.95rem; font-weight: 700;
 }
-.ed-side label {
+/* caption look shared by every field label in the drawer */
+.ed-side label,
+.ed-thumb-label,
+.ed-picker-label {
   display: block;
-  margin-bottom: 14px;
   font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
 }
+.ed-side label { margin-bottom: 14px; }
 .ed-side input, .ed-side select {
   width: 100%; min-height: 38px; margin-top: 6px;
   padding: 6px 10px; border: 1px solid var(--content-rule); border-radius: 4px;
@@ -1218,7 +984,6 @@ button { font: inherit; cursor: pointer; }
   display: block; margin-top: 6px;
   font-size: 0.72rem; text-transform: none; letter-spacing: 0; color: purple; font-weight: 600;
 }
-.ed-sched-hint[hidden] { display: none; }
 
 /* Canvas — white "paper" that mimics the public reader view */
 .ed-canvas-wrap {
@@ -1238,6 +1003,8 @@ button { font: inherit; cursor: pointer; }
   min-height: 1100px;       /* one sheet; admin.js grows it with the content (edAutoHeight) */
   margin: 0 auto;
   background: #fff;
+  background-size: cover;   /* after the shorthand, which resets size + position */
+  background-position: center;
   border-radius: 4px;
   box-shadow: 0 2px 18px rgba(16, 24, 40, 0.12);
   transition: min-height 180ms ease-out;
@@ -1252,11 +1019,6 @@ button { font: inherit; cursor: pointer; }
   background: rgba(22, 169, 224, 0.18);
   color: inherit;
 }
-.ed-el-content::-moz-selection,
-.ed-el-content *::-moz-selection {
-  background: rgba(22, 169, 224, 0.18);
-  color: inherit;
-}
 
 /* ---- Element boxes ---- */
 .ed-el {
@@ -1266,10 +1028,10 @@ button { font: inherit; cursor: pointer; }
   border-radius: 2px;
   user-select: none;
 }
+/* (no z-index here: admin.js sets every block's layer as an inline z-index) */
 .ed-el.is-selected {
   border-color: var(--brand);
   box-shadow: 0 0 0 1px var(--brand);
-  z-index: 50;
 }
 .ed-el-content {
   width: 100%;
@@ -1283,7 +1045,6 @@ button { font: inherit; cursor: pointer; }
   white-space: pre-wrap;
 }
 .ed-el.is-editing .ed-el-content { cursor: text; user-select: text; overflow: auto; }
-.ed-el-content img { max-width: 100%; display: block; }
 .ed-el--image .ed-el-content { padding: 0; }
 .ed-el--image img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .ed-el.is-uploading, .doc-canvas .is-uploading { opacity: .55; outline: 2px dashed #888; }
@@ -1325,8 +1086,6 @@ a.ac-file:hover, a.doc-file:hover { background: #eee; }
 
 /* ---- Crop („Oříznout") ---- */
 .ed-tool-text { width: auto; padding: 0 10px; gap: 6px; display: inline-flex; align-items: center; font-size: 0.88rem; }
-.ed-tool-text[hidden] { display: none; }
-.ed-bar2.is-docked #ed-crop { display: none; }            /* article canvas only */
 /* a cropped picture (editor block + public page): see VNSafe.croppedImage */
 svg.vn-crop { display: block; width: 100%; height: 100%; }
 .ed-el--image svg.vn-crop { pointer-events: none; }
@@ -1363,6 +1122,7 @@ svg.vn-crop { display: block; width: 100%; height: 100%; }
 .ed-crop-h[data-h="s"] { bottom: 0; background-position: bottom; }
 .ed-crop-h[data-h="w"] { left: 0; background-position: left; }
 .ed-crop-h[data-h="e"] { right: 0; background-position: right; }
+/* the selected block's delete button (×) — not part of the crop tool */
 .ed-el-delete {
   position: absolute; top: -14px; right: -14px;
   width: 24px; height: 24px; z-index: 61;
@@ -1376,7 +1136,6 @@ svg.vn-crop { display: block; width: 100%; height: 100%; }
   display: grid; place-items: center;
   background: rgba(10, 16, 20, 0.55);
 }
-.ed-confirm[hidden] { display: none !important; }
 .ed-confirm-box {
   width: min(420px, calc(100% - 32px));
   padding: 28px;
@@ -1405,15 +1164,12 @@ svg.vn-crop { display: block; width: 100%; height: 100%; }
 }
 
 /* ============================================================
-   SPLIT PREVIEW vs. FULL-SCREEN VISUAL EDITOR (2 states)
+   VISUAL ARTICLE EDITOR (continued) — rules left from the removed
+   split-preview step, Bar 1 action buttons, Data drawer, thumbnail
    ============================================================ */
-.admin-article-wrapper { display: flex; gap: 24px; padding: 20px; align-items: flex-start; }
-#metadata-sidebar { width: 280px; flex-shrink: 0; }
-#editor-canvas {
-  flex-grow: 1; max-width: 900px; background: #ffffff; padding: 40px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); border-radius: 8px;
-}
-#editor-canvas img,
+/* the Data drawer: this width only takes effect in the <=720px column layout */
+#metadata-sidebar { width: 280px; }
+/* Still applies to every picture in the article editor canvas. */
 .ed-canvas img {
   max-width: 100%; height: auto; display: block; margin: 20px 0; object-fit: contain;
 }
@@ -1425,19 +1181,13 @@ body.visual-editor-active .ed-bar2 { position: sticky; z-index: 210; }
 body.visual-editor-active .ed-bar1 { top: 0; }
 /* (canvas stays 820px wide here too — what you place is what the public page shows) */
 
-/* Toolbars only exist inside the open editor (the docked doc toolbar
-   re-asserts its own display further below). */
-.ed-bar1, .ed-bar2 { display: none; }
-body.visual-editor-active .ed-bar1,
-body.visual-editor-active .ed-bar2 { display: flex; }
-
 /* ---- Bar 1 action buttons ---- */
 .ed-btn--meta { display: inline-flex; align-items: center; gap: 6px; }
 .ed-btn--meta[aria-expanded="true"] { border-color: var(--brand); color: var(--brand); }
 /* Zpět / Vydat / Smazat share one solid-button shape; only the colour differs
    (set through --btn-bg / --btn-bg-hover per variant). */
 .ed-btn--action {
-  --btn-bg: #3b82f6; --btn-bg-hover: #2563eb;
+  --btn-bg: #3b82f6; --btn-bg-hover: #2563eb;   /* blue — also Zpět (.ed-btn--back) */
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 96px; min-height: 38px; padding: 0 18px;
   border: 1px solid var(--btn-bg); border-radius: 6px;
@@ -1449,7 +1199,6 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 .ed-btn--action:focus-visible { background: var(--btn-bg-hover); border-color: var(--btn-bg-hover); color: #fff; }
 .ed-btn--action:focus-visible { outline: 2px solid var(--btn-bg-hover); outline-offset: 2px; }
 .ed-btn--action:active { transform: translateY(1px); }
-.ed-btn--back    { --btn-bg: #3b82f6; --btn-bg-hover: #2563eb; }   /* blue  */
 .ed-btn--publish { --btn-bg: #15a34a; --btn-bg-hover: #138a3f; }   /* green */
 .ed-btn--publish.is-scheduled { --btn-bg: #7e22ce; --btn-bg-hover: #6b21a8; }  /* purple = Naplánovat */
 .ed-btn--danger  { --btn-bg: #ef4444; --btn-bg-hover: #dc2626; }   /* red   */
@@ -1485,10 +1234,7 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 
 /* ---- Thumbnail (Náhledový obrázek) in the metadata drawer ---- */
 .ed-thumb-field { margin-bottom: 14px; }
-.ed-thumb-label {
-  display: block; margin-bottom: 6px;
-  font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
-}
+.ed-thumb-label { margin-bottom: 6px; }   /* caption look: see .ed-side label */
 .ed-thumb-drop {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   width: 100%; aspect-ratio: 16 / 10;
@@ -1503,7 +1249,6 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 .ed-thumb-drop.is-dragover {
   border-color: #15a34a; color: #15a34a; background: rgba(21, 163, 74, 0.06); outline: none;
 }
-.ed-thumb-drop[hidden], .ed-thumb-preview[hidden], .ed-thumb-status[hidden] { display: none; }
 .ed-thumb-preview {
   position: relative; width: 100%; aspect-ratio: 16 / 10;
   border-radius: 8px; overflow: hidden;
@@ -1530,7 +1275,7 @@ body.visual-editor-active .ed-bar2 { display: flex; }
    PUBLIC render of the visual-editor element layout
    (matches the editor canvas 1:1, scaled to fit the column)
    ============================================================ */
-.article-canvas-wrap { position: relative; width: 100%; margin: 10px 0 24px; }
+.article-canvas-wrap { position: relative; width: 100%; margin: 0 0 20px; }
 .article-canvas { position: relative; }
 .ac-el { position: absolute; box-sizing: border-box; }
 .ac-el--text { padding: 6px 8px; white-space: pre-wrap; word-wrap: break-word; }
@@ -1586,6 +1331,76 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 .article-canvas--flow .ac-el.ac-el--badge { display: inline-flex; margin: 0 6px 8px 0; }
 
 /* ============================================================
+   ARTICLE PAGE — reader layout (article.html)
+   The article column is exactly the editor's page (820px) and sits in
+   the middle of the screen. The black hero band runs full width above
+   it. On wide screens the free space beside the column shows the posts
+   placed on the homepage (sticky side panels); on narrower screens
+   they move under the article.
+   ============================================================ */
+.article-shell {                    /* <main class="content article-shell"> */
+  max-width: 1400px;
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: 0 28px; align-items: start; align-content: start;   /* rows keep their own height */
+  padding-top: 0; padding-bottom: 32px;                     /* the sides come from .content */
+}
+.article-page { max-width: 820px; width: 100%; margin: 0 auto; }
+.article-heroband { background: #000; border-top: 2px solid #fff; }
+.article-hero-wrap { position: relative; box-sizing: content-box; max-width: 820px; margin: 0 auto; padding: 0 20px; }
+@media (max-width: 720px) { .article-hero-wrap { padding: 0 16px; } }   /* = the page's side padding there */
+.article-canvas--body { background-color: #fff; }
+.article-canvas--hero.article-canvas--flow { padding: 20px 0 8px; }
+.article-page .loading-state, .article-page .error-state { margin-top: 32px; }
+
+/* ---- side panels: posts placed on the homepage ---- */
+.reco { width: 100%; max-width: 820px; margin: 0 auto 14px; }
+.reco-heading {
+  margin: 0 0 12px; font-size: 0.78rem; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.reco--left .reco-heading { display: none; }          /* stacked: one list under one heading */
+.reco-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
+.reco-card {
+  display: block; overflow: hidden; text-decoration: none; color: var(--content-fg);
+  background: var(--surface); border: 1px solid var(--content-rule); border-radius: 8px;
+  box-shadow: var(--card-shadow); transition: box-shadow 160ms ease, transform 160ms ease;
+}
+.reco-card:hover { box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
+.reco-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.reco-thumb { display: block; aspect-ratio: 16 / 10; background: #eaeaea; }
+.reco-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.reco-name {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  margin: 10px 12px 12px; font-size: 0.9rem; font-weight: 600; line-height: 1.3;
+}
+@media (min-width: 1280px) {
+  .article-shell { grid-template-columns: minmax(0, 1fr) 820px minmax(0, 1fr); }
+  .article-page { grid-column: 2; grid-row: 1; }
+  .reco {
+    position: sticky; top: 20px; max-width: 240px; margin: 24px 0 24px;
+    max-height: calc(100vh - 40px); overflow-y: auto; scrollbar-width: thin;
+  }
+  .reco--right { grid-column: 3; grid-row: 1; justify-self: start; }
+  .reco--left { grid-column: 1; grid-row: 1; justify-self: end; }
+  .reco--left .reco-heading { display: block; }
+  .reco-list { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .reco-card:hover { transform: none; } }
+
+/* ---- back link, loading / error box ---- */
+.article-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-bottom: 24px;
+  color: var(--muted); text-decoration: none; font-size: 0.9rem;
+}
+.article-back:hover { color: var(--content-fg); }
+.loading-state, .error-state {
+  padding: 40px; text-align: center; color: var(--muted);
+  border: 1px dashed var(--content-rule); border-radius: 4px;
+  background: var(--surface);
+}
+
+/* ============================================================
    ADMIN article list (cards) — header + scheduled badge
    ============================================================ */
 .admin-list-head {
@@ -1595,13 +1410,12 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 #article-grid .card { cursor: pointer; }
 #article-grid .card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .admin-list-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.admin-filter .tag-filter { margin-bottom: 12px; }
 .admin-filter { margin-bottom: 28px; }
 
 /* ---- "Upravit filtry": global tag / author lists ---- */
 .tx-box { width: min(620px, calc(100% - 32px)); max-height: calc(100vh - 48px); overflow: auto; text-align: left; }
 .tx-box > h3, .tx-box > p { text-align: center; }
-.tx-box.is-busy, .ed-confirm.is-busy .tx-box { cursor: progress; }
+.ed-confirm.is-busy .tx-box { cursor: progress; }
 .tx-section { margin: 0 0 20px; padding-top: 14px; border-top: 1px solid var(--content-rule); }
 .tx-section h4 { margin: 0 0 10px; font-size: 0.95rem; }
 .tx-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
@@ -1631,7 +1445,6 @@ body.visual-editor-active .ed-bar2 { display: flex; }
 }
 .tx-add-row .btn { min-height: 38px; padding: 0 16px; }
 .tx-dup { display: block; margin: 0 0 4px; color: #d13438; font-size: 0.75rem; font-weight: 600; }
-.tx-dup[hidden] { display: none; }
 form.is-dup input { border-color: #d13438; }
 .tx-edit { display: inline-flex; flex-direction: column; }
 .tx-mini {
@@ -1641,10 +1454,7 @@ form.is-dup input { border-color: #d13438; }
 .tx-mini--ok { background: #15a34a; border-color: #15a34a; color: #fff; }
 
 /* ---- editor: authors / tags pickers ---- */
-.ed-picker-field { margin-bottom: 14px; }
-.ed-picker-label {
-  display: block; font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
-}
+.ed-picker-field { margin-bottom: 14px; }   /* its caption (.ed-picker-label): see .ed-side label */
 .ed-pick-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .ed-pick-chip {
   display: inline-flex; align-items: center; gap: 4px;
@@ -1662,6 +1472,7 @@ form.is-dup input { border-color: #d13438; }
   margin: -4px 0 16px; padding: 0; border: 0; background: none;
   font: inherit; font-size: 0.82rem; color: var(--brand); cursor: pointer; text-decoration: underline;
 }
+/* admin article list: "Naplánováno" badge on a scheduled post's card */
 .sched-badge {
   display: inline-block; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em;
   text-transform: uppercase; padding: 2px 8px; border-radius: 999px;
@@ -1669,29 +1480,31 @@ form.is-dup input { border-color: #d13438; }
 }
 
 /* ============================================================
-   GOOGLE-DOCS DOCUMENT EDITORS (homepage + „O nás")
+   ADMIN PAGE EDITORS (homepage + „O nás")
+   The article editor's format toolbar docks above the page being
+   edited. „O nás" is one Google-Docs-like document (.doc-canvas);
+   the homepage is the block grid (HOMEPAGE LAYOUT GRID below).
    ============================================================ */
 /* The shared .ed-bar2 toolbar is moved into this slot, so it sits
    exactly between the admin header/nav and the edited content. */
 .doc-toolbar-slot { margin: 0 0 18px; }
 .doc-toolbar-slot:empty { display: none; }
-/* .ed-bar2 is display:none unless the fullscreen editor is active, so the
-   docked toolbar has to re-assert its own display. */
 .ed-bar2.is-docked {
-  display: flex;
   position: sticky; top: 0; z-index: 40;
-  border: 1px solid var(--line, #d9dee5); border-radius: 10px;
+  border: 1px solid var(--line); border-radius: 10px;
   background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
 }
-/* "Přidat text" (a positioned text box) belongs to the article canvas only;
-   "Přidat obrázek / PDF" inserts into the document at the caret. */
+/* "Přidat text" (a positioned text box), embeds, layers and crop belong to
+   the article canvas only; "Přidat obrázek / PDF" inserts into the document
+   at the caret. */
 .ed-bar2.is-docked #ed-add-text,
 .ed-bar2.is-docked #ed-add-embed,
-.ed-bar2.is-docked #ed-layer-wrap { display: none; }   /* canvas-only blocks */
+.ed-bar2.is-docked #ed-layer-wrap,
+.ed-bar2.is-docked #ed-crop { display: none; }   /* canvas-only tools */
 
 .doc-canvas {
   min-height: 420px; padding: 48px 56px; margin-bottom: 24px;
-  background: #fff; border: 1px solid var(--line, #d9dee5); border-radius: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 10px;
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
   font-size: 16px; line-height: 1.65; color: #1a1a1a;
   outline: none; overflow-wrap: break-word;
@@ -1701,58 +1514,40 @@ form.is-dup input { border-color: #d13438; }
 .doc-canvas > * { margin: 0 0 0.65em; }
 .doc-canvas h1 { font-size: 2rem; line-height: 1.2; }
 .doc-canvas h2 { font-size: 1.5rem; line-height: 1.25; }
-/* Mandatory „Téma" block */
+/* The „Téma" block of the old homepage document: it can still sit in the
+   stored homepage text, shown on the public homepage and in its editor. */
 .home-theme-block h2 { margin: 0 0 0.15em; }
 .home-theme-block p { margin: 0 0 0.9em; opacity: 0.85; }
-
-/* ---- Pinned articles ---- */
-.pin-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0 14px; }
-.pin-controls select { flex: 1 1 260px; min-width: 200px; padding: 9px 10px; border: 1px solid var(--line, #d9dee5); border-radius: 8px; background: #fff; }
-.pin-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
-.pin-list li {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px; border: 1px solid var(--line, #d9dee5); border-radius: 8px; background: #fff;
-}
-.pin-list li strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pin-num { font-variant-numeric: tabular-nums; opacity: 0.6; }
-.feed-preview { margin: 8px 0 0; padding-left: 1.4em; display: grid; gap: 4px; }
-.feed-preview li.is-pinned { font-weight: 700; }
-.pin-badge {
-  display: inline-block; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
-  text-transform: uppercase; padding: 2px 7px; border-radius: 999px; vertical-align: middle;
-  color: var(--brand); background: rgba(0, 150, 214, 0.12); border: 1px solid rgba(0, 150, 214, 0.3);
-}
 
 /* ---- Team modular workspace (compact form + sidebar tools) ---- */
 .team-workspace {
   display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px;
   padding: 16px; margin: 0 0 18px;
-  border: 1px solid var(--line, #d9dee5); border-radius: 10px; background: #fbfcfd;
+  border: 1px solid var(--line); border-radius: 10px; background: #fbfcfd;
 }
 .team-form-box { display: grid; gap: 12px; align-content: start; }
 .team-side {
   display: grid; gap: 10px; align-content: start;
-  padding-left: 18px; border-left: 1px solid var(--line, #d9dee5);
+  padding-left: 18px; border-left: 1px solid var(--line);
 }
 .team-side .image-preview { width: 96px; height: 96px; background-size: cover; background-position: center; }
 @media (max-width: 760px) {
   .team-workspace { grid-template-columns: 1fr; }
-  .team-side { padding-left: 0; border-left: 0; border-top: 1px solid var(--line, #d9dee5); padding-top: 14px; }
+  .team-side { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); padding-top: 14px; }
   .doc-canvas { padding: 24px 18px; }
 }
 
 /* ---- Toolbar popovers (background + layers) ---- */
 .ed-pop-wrap { position: relative; display: inline-flex; }
-.ed-pop-wrap[hidden] { display: none; }
 .ed-pop {
   position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
   min-width: 210px; padding: 12px; display: grid; gap: 10px;
-  background: #fff; border: 1px solid var(--line, #d9dee5); border-radius: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 10px;
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.16);
 }
 .ed-pop h4 { margin: 0; font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; }
 .ed-pop label { display: grid; gap: 5px; font-size: 0.82rem; }
-.ed-pop input[type="color"] { width: 100%; height: 36px; padding: 2px; border: 1px solid var(--line, #d9dee5); border-radius: 6px; background: #fff; }
+.ed-pop input[type="color"] { width: 100%; height: 36px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 .ed-pop-actions { display: flex; justify-content: flex-end; }
 .ed-layer-menu { min-width: 190px; padding: 6px; gap: 2px; }
 .ed-layer-menu button {
@@ -1761,19 +1556,8 @@ form.is-dup input { border-color: #d13438; }
 }
 .ed-layer-menu button:hover { background: rgba(0, 0, 0, 0.06); }
 
-/* Canvas paints its background behind every element (elements get z >= 1). */
-.ed-canvas { background-size: cover; background-position: center; }
-.ed-canvas > .ed-el { z-index: 1; }
-
-/* Admin-authored rich documents rendered on the public site */
-.page-doc { margin: 0 0 28px; }
-.page-doc:empty { display: none; }
-.page-doc > * { margin: 0 0 0.65em; }
-.page-doc h1 { font-size: 2rem; line-height: 1.2; }
-.page-doc h2 { font-size: 1.5rem; line-height: 1.25; }
-.page-doc ul, .page-doc ol { padding-left: 1.5em; }
-.page-doc .home-theme-block p { opacity: 0.85; }
-/* Admin-set page backgrounds need breathing room around the content */
+/* Public site: an admin-set page background („O nás") needs breathing
+   room around the content */
 .page[style*="background"] { padding: 18px; border-radius: 12px; }
 
 /* ============================================================
@@ -1812,13 +1596,12 @@ form.is-dup input { border-color: #d13438; }
 
 /* Insert dialog */
 .ed-embed-box { text-align: left; }
-.ed-embed-box h3, .ed-embed-box > p { text-align: left; }
 .ed-embed-box input {
   width: 100%; min-height: 42px; margin: 0 0 8px; padding: 8px 12px; box-sizing: border-box;
   border: 1px solid var(--content-rule); border-radius: 6px; font: inherit; font-size: 0.92rem;
 }
 .ed-embed-box input:focus { outline: 2px solid #15a34a; outline-offset: 1px; border-color: #15a34a; }
-.ed-embed-box .ed-embed-status { min-height: 1.3em; margin: 0 0 16px; font-size: 0.84rem; color: #15a34a; text-align: left; }
+.ed-embed-box .ed-embed-status { min-height: 1.3em; margin: 0 0 16px; font-size: 0.84rem; color: #15a34a; }
 .ed-embed-box .ed-embed-status.is-error { color: #b00020; }
 .ed-embed-box .ed-confirm-actions { justify-content: flex-end; }
 .ed-confirm-ok:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -1830,7 +1613,6 @@ form.is-dup input { border-color: #d13438; }
    boxes (grid-column set by home-layout.js). A=1x1, B=2x1, C=3x1, D=4x2
    boxes; one box is 1.25x taller than wide. Free boxes stay blank.
    ============================================================ */
-.home-frame { display: block; }
 .home-frame.has-bg { padding: 18px; border-radius: 12px; background-size: cover; background-position: center; }
 .hl-canvas {
   container-type: inline-size;     /* units below are fractions of the canvas width */
@@ -2006,7 +1788,6 @@ body.hl-dragging, body.hl-dragging * { cursor: grabbing !important; user-select:
 
 /* Article picker */
 .hl-picker-box { width: min(560px, calc(100% - 32px)); text-align: left; }
-.hl-picker-box h3 { text-align: left; }
 .hl-picker-box input {
   width: 100%; box-sizing: border-box; min-height: 40px; margin: 0 0 10px; padding: 8px 12px;
   border: 1px solid var(--content-rule); border-radius: 6px; font: inherit;

@@ -1,7 +1,9 @@
 # Admin setup — one-time Vercel configuration
 
-The site now has a hidden admin dashboard at **`/admin`** backed by Vercel Blob.
-Before it works on the deployment, set two environment variables.
+The site has an admin dashboard at **`/admin`** backed by Vercel Blob.
+Before it works on a new deployment, set the environment variables below.
+Everything else (how the site and the storage work, limits, backups,
+troubleshooting) is in **`DOKUMENTACE.md`** (Czech).
 
 ## 1. Set `ADMIN_PASSWORD`
 
@@ -24,6 +26,11 @@ When you connected the Blob store, Vercel automatically added:
 If it's missing, go to **Storage → your Blob store → .env.local** and copy it
 in manually.
 
+Optional: `SESSION_SECRET` (see *Sessions & security*) and `ADMIN_HOST` —
+the address the admin works on, needed only when the project or team is
+renamed (the redirects in `vercel.json` name the same address and must be
+changed with it).
+
 ## 3. Redeploy
 
 After saving env vars, trigger a redeploy (push any commit, or hit
@@ -38,29 +45,30 @@ serverless functions.
   Standard Protection): only people signed in to the Vercel account get in,
   then they enter `ADMIN_PASSWORD`. On every other address `/admin` redirects
   to the homepage and admin API calls are refused (`isAdminHost` in `api/_lib.js`).
-- Article detail: `/article.html?id=<id>` (cards on the public site link here)
+- Article detail: `/article?id=<id>` (`/article.html?id=<id>` redirects there).
 
 ## Endpoints (for reference)
 
-| Method | Path                       | Auth   | Purpose                |
-|--------|----------------------------|--------|------------------------|
-| GET    | `/api/articles`            | public | list all articles      |
-| GET    | `/api/articles?id=<id>`    | public | single article         |
-| POST   | `/api/articles`            | admin  | create                 |
-| PUT    | `/api/articles?id=<id>`    | admin  | update                 |
-| DELETE | `/api/articles?id=<id>`    | admin  | delete                 |
-| POST   | `/api/upload`              | admin  | upload image to Blob   |
-| POST   | `/api/login`               | public | start admin session    |
-| GET    | `/api/login`               | public | check session state    |
-| POST   | `/api/logout`              | public | end admin session      |
+| Method | Path | Who | Purpose |
+|--------|------|-----|---------|
+| GET | `/api/articles` | public / admin | published articles as a short list for cards; the admin gets every article in full (scheduled too) |
+| GET | `/api/articles?id=<id>` | public | one published article |
+| POST | `/api/articles` | admin | create |
+| PUT | `/api/articles?id=<id>` | admin | update |
+| DELETE | `/api/articles?id=<id>` | admin | delete |
+| GET | `/api/content` | public | homepage layout, O nás, team, contacts |
+| PUT | `/api/content` | admin | save them |
+| GET | `/api/taxonomy` | public | global tag and author lists |
+| POST | `/api/taxonomy` | admin | add / rename / delete an entry (also rewrites the articles using it) |
+| POST | `/api/upload` | admin | upload a picture (JPG, PNG, WEBP, GIF → `images/`) or a PDF (→ `files/`) |
+| POST | `/api/login` | admin address only | start a session (403 on any other address) |
+| GET | `/api/login` | anyone | is this browser logged in? |
+| POST | `/api/logout` | anyone | end the session |
+| GET | `/sitemap.xml` | public | sitemap for search engines (`api/sitemap.js`) |
 
-Also: `GET /api/content` + `PUT` (admin), `GET /api/taxonomy` + `POST` (admin).
-
-Articles are stored as a single JSON file (`articles.json`) inside the Blob
-store, overwritten in place; uploaded images live under `images/`.
-How storage works, the Hobby-plan limits, backups and the incident of
-31 Oct 2026: see **`DOKUMENTACE.md`** (Czech). The old `articles-*.json`
-copies are backups from before that date: keep them.
+Data lives in the Blob store as `articles.json`, `content.json` and
+`taxonomy.json`, uploads under `images/` and `files/`. The old
+`articles-*.json` copies are backups from before 31 Oct 2026: keep them.
 
 ## Sessions & security
 

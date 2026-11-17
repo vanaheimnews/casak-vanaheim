@@ -8,7 +8,7 @@
  * ============================================================ */
 import {
   loadArticles, updateArticles, requireAdmin, isAdmin, readJsonBody, shapeArticle, uid,
-  isLive, compareNewest, sendServerError, setReadCache, ensureTaxonomy, restrictToTaxonomy
+  isLive, compareNewest, sendServerError, setReadCache, ensureTaxonomy, restrictToTaxonomy, methodNotAllowed
 } from "./_lib.js";
 
 /* The public list carries only what the cards and the homepage blocks
@@ -103,8 +103,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    res.setHeader("Allow", "GET, POST, PUT, DELETE");
-    return res.status(405).json({ error: "Method not allowed" });
+    return methodNotAllowed(res, "GET, POST, PUT, DELETE");
   } catch (err) {
     return sendServerError(req, res, err, "/api/articles");
   }

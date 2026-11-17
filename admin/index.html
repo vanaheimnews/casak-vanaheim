@@ -9,152 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&family=Inter:wght@400;700&family=JetBrains+Mono:wght@400;700&family=Merriweather:ital,wght@0,400;0,700;1,400;1,700&family=Montserrat:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Roboto:wght@400;700&display=swap">
-  <link rel="stylesheet" href="/style.css">
-  <style>
-    /* Admin component styles (layout lives in style.css under "ADMIN DASHBOARD") */
-    body { background: var(--content-bg); }
-
-    /* The [hidden] attribute must always win over any display rule below. */
-    [hidden] { display: none !important; }
-
-    /* Small "Admin" tag, sitting just above the centered blue line, aligned
-       to the right with the nav (within the content width). */
-    .admin-tag {
-      position: absolute;
-      left: 50%;
-      transform: translateX(-50%);
-      top: 70px;
-      width: 100%;
-      max-width: var(--max-content);
-      padding: 0 22px;
-      text-align: right;
-      color: var(--brand);
-      font-size: 0.8rem;
-      font-weight: 700;
-      letter-spacing: 0.34em;
-      text-transform: uppercase;
-      z-index: 2;
-    }
-    /* Admin has 5 wider buttons, so stack the header earlier (<=900px) to
-       avoid the nav colliding with the logo. */
-    @media (max-width: 900px) {
-      .header-top { height: auto; overflow: visible; }
-      .header-divider { display: none; }
-      .site-logo { position: static; transform: none; padding: 14px 0 14px 16px; }
-      .site-logo img { height: 64px; }
-      .admin-tag {
-        position: static; transform: none; max-width: none; top: auto;
-        display: block; text-align: left; padding: 12px 0 4px 16px;
-      }
-      .site-nav {
-        position: static; transform: none; width: 100%; max-width: none;
-        padding: 8px 8px; justify-content: flex-start; flex-wrap: wrap;
-        border-top: 3px solid var(--brand);
-      }
-      .admin-nav-link { padding: 10px 10px; font-size: 0.9rem; }
-    }
-
-    .panel {
-      background: var(--surface); border: 1px solid var(--content-rule);
-      border-radius: 4px; padding: 24px;
-    }
-    .panel + .panel { margin-top: 24px; }
-    .panel h2 {
-      margin: 0 0 16px; padding-bottom: 10px; border-bottom: 1px solid var(--content-rule);
-      font-size: 1.1rem; font-weight: 600;
-    }
-
-    .form-grid { display: flex; flex-direction: column; gap: 14px; }
-    .form-grid label {
-      display: flex; flex-direction: column; gap: 6px;
-      font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase;
-      color: var(--content-fg);
-    }
-    .form-grid input[type="text"],
-    .form-grid input[type="url"],
-    .form-grid input[type="date"],
-    .form-grid input[type="file"],
-    .form-grid select,
-    .form-grid textarea {
-      min-height: 40px; padding: 8px 12px;
-      border: 1px solid var(--content-rule); border-radius: 2px;
-      background: var(--surface); color: var(--content-fg);
-      font: inherit; font-size: 1rem; text-transform: none; letter-spacing: 0;
-    }
-    .form-grid textarea { min-height: 160px; resize: vertical; line-height: 1.5; }
-    .form-grid textarea.tall { min-height: 220px; }
-    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    @media (max-width: 600px) { .field-row { grid-template-columns: 1fr; } }
-    .help { color: var(--muted); font-size: 0.78rem; font-style: italic; text-transform: none; letter-spacing: 0; }
-
-    .image-preview {
-      margin-top: 4px; width: 100%; max-width: 220px;
-      aspect-ratio: 16 / 10;
-      background: #eaeaea center / cover no-repeat;
-      border: 1px solid var(--content-rule); border-radius: 2px;
-    }
-    .image-preview.round { aspect-ratio: 1 / 1; max-width: 120px; border-radius: 50%; }
-    .image-preview[hidden] { display: none; }
-
-    .form-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
-
-    .table-wrap { overflow-x: auto; }
-    .article-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; min-width: 420px; }
-    .article-table th, .article-table td {
-      text-align: left; padding: 12px 10px; vertical-align: top;
-      border-bottom: 1px solid var(--content-rule);
-    }
-    .article-table th {
-      font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
-      border-bottom: 1px solid var(--accent);
-    }
-    .article-table .thumb {
-      display: block; width: 64px; height: 48px;
-      background: #eaeaea center / cover no-repeat;
-      border: 1px solid var(--content-rule); border-radius: 2px;
-    }
-    .article-table .thumb.round { width: 48px; height: 48px; border-radius: 50%; }
-    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-    .row-actions button {
-      min-height: 30px; padding: 0 10px;
-      border: 1px solid var(--accent); background: var(--surface); color: var(--content-fg);
-      font-size: 0.72rem; border-radius: 2px;
-    }
-    .row-actions button:hover { background: var(--accent); color: #fff; }
-    .row-actions button.danger:hover { background: #b00020; border-color: #b00020; color: #fff; }
-    .empty-row td { color: var(--muted); text-align: center; font-style: italic; padding: 28px 10px; }
-
-    /* Login screen */
-    .login-screen { min-height: 60vh; display: grid; place-items: center; padding: 40px 24px; }
-    /* session expired while the editor is open: login floats above it */
-    .login-screen.is-modal { position: fixed; inset: 0; z-index: 400; min-height: 0; background: rgba(10, 16, 20, 0.6); }
-    .login-card {
-      width: min(420px, 100%);
-      background: var(--surface); border: 1px solid var(--content-rule);
-      border-radius: 4px; padding: 32px;
-    }
-    .login-card h1 { margin: 0 0 6px; font-size: 1.4rem; letter-spacing: 0.04em; text-transform: uppercase; }
-    .login-card p { margin: 0 0 18px; color: var(--muted); font-size: 0.9rem; }
-    .login-card form { display: flex; flex-direction: column; gap: 12px; }
-    .login-card input {
-      min-height: 42px; padding: 8px 12px;
-      border: 1px solid var(--content-rule); border-radius: 2px;
-      background: var(--surface); color: var(--content-fg); font: inherit;
-    }
-    .login-card .error { margin: 0; color: #b00020; font-size: 0.88rem; min-height: 1em; }
-
-    /* Toast */
-    .toast {
-      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-      padding: 12px 20px; background: var(--accent); color: #fff;
-      font-size: 0.88rem; letter-spacing: 0.04em; border-radius: 2px;
-      opacity: 0; pointer-events: none; transition: opacity 180ms ease; z-index: 1000; /* above the editor (200) and its dialogs */
-    }
-    .toast.is-visible { opacity: 1; }
-    @media (max-width: 700px) {
-      .toast { left: 16px; right: 16px; transform: none; text-align: center; }
-    }
-  </style>
+  <link rel="stylesheet" href="/style.css?v=2026-11-17">
+  <link rel="stylesheet" href="/admin/admin.css?v=2026-11-17">
 </head>
 <body>
 
@@ -239,29 +95,6 @@
         <!-- Public-style article cards; click a card to open its detail editor -->
         <div class="card-grid" id="article-grid"></div>
         <p class="empty-state" id="article-empty" hidden>Zatím žádné příspěvky. Vytvořte první tlačítkem „Nový příspěvek".</p>
-
-        <!-- Hidden data-bridge form (drives the visual editor + save) -->
-        <form class="form-grid" id="article-form" autocomplete="off" hidden>
-          <span id="form-title"></span>
-          <input type="hidden" id="f-id">
-          <input type="hidden" id="f-elements">
-          <input type="hidden" id="f-background">
-          <input type="text" id="f-title" maxlength="200">
-          <textarea id="f-body"></textarea>
-          <button class="btn" type="button" id="open-editor-btn">Otevřít vizuální editor</button>
-          <input type="url" id="f-image-url">
-          <input type="file" id="f-image-file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif">
-          <span class="image-preview" id="image-preview" hidden></span>
-          <input type="text" id="f-authors">
-          <input type="datetime-local" id="f-date">
-          <input type="text" id="f-tags">
-          <select id="f-kind">
-            <option value="article">Článek</option>
-            <option value="comic">Komiks</option>
-          </select>
-          <button class="btn" type="submit" id="submit-btn">Uložit</button>
-          <button class="btn btn-ghost" type="button" id="reset-btn">Vyčistit</button>
-        </form>
       </section>
 
       <!-- ====================================================
@@ -318,8 +151,6 @@
         <!-- Document canvas: same Google-Docs flow as the homepage -->
         <div class="doc-canvas" id="about-doc" contenteditable="true" spellcheck="false"
              role="textbox" aria-multiline="true" aria-label="Obsah stránky O nás"></div>
-        <!-- Plain-text mirror of the doc, kept for the public page's legacy renderer -->
-        <textarea id="about-text-input" hidden></textarea>
 
         <!-- Team members -->
         <section class="panel">
@@ -734,9 +565,11 @@
     </div>
   </div>
 
-  <script src="/sanitize.js"></script>
-  <script src="/home-layout.js"></script>
-  <script src="/article-layout.js"></script>
-  <script src="/admin/admin.js"></script>
+  <!-- ?v= : raise it whenever a shared .js / .css file changes (DOKUMENTACE.md, chapter 10) -->
+  <script src="/vn-core.js?v=2026-11-17"></script>
+  <script src="/sanitize.js?v=2026-11-17"></script>
+  <script src="/home-layout.js?v=2026-11-17"></script>
+  <script src="/article-layout.js?v=2026-11-17"></script>
+  <script src="/admin/admin.js?v=2026-11-17"></script>
 </body>
 </html>

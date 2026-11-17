@@ -23,23 +23,6 @@
   var logoutBtn   = document.querySelector("#logout-btn");
   var headerNav   = document.querySelector("#admin-headernav");  // admin buttons in the header
   var adminTag    = document.querySelector("#admin-tag");
-
-  var form        = document.querySelector("#article-form");
-  var fId         = document.querySelector("#f-id");
-  var fElements   = document.querySelector("#f-elements");
-  var fTitle      = document.querySelector("#f-title");
-  var fBody       = document.querySelector("#f-body");
-  var fImageUrl   = document.querySelector("#f-image-url");
-  var fImageFile  = document.querySelector("#f-image-file");
-  var fAuthors    = document.querySelector("#f-authors");
-  var fDate       = document.querySelector("#f-date");
-  var fTags       = document.querySelector("#f-tags");
-  var fKind       = document.querySelector("#f-kind");
-  var imagePreview= document.querySelector("#image-preview");
-  var submitBtn   = document.querySelector("#submit-btn");
-  var resetBtn    = document.querySelector("#reset-btn");
-  var tbody       = document.querySelector("#article-tbody");
-  var formTitle   = document.querySelector("#form-title");
   var toastEl     = document.querySelector("#toast");
 
   /* ----- Tab navigation + sections ----- */
@@ -52,7 +35,6 @@
   };
 
   /* ----- About tab refs ----- */
-  var aboutInput   = document.querySelector("#about-text-input");
   var saveAboutBtn = document.querySelector("#save-about-btn");
   var teamForm     = document.querySelector("#team-form");
   var tmId         = document.querySelector("#tm-id");
@@ -80,19 +62,17 @@
   var contactTbody  = document.querySelector("#contact-tbody");
 
   /* ----- State ----- */
-  var pendingImageUrl = "";  // resolved URL after a file upload OR a URL the user typed (articles).
-  var tmPendingImage  = "";  // same, for the team member photo.
+  var tmPendingImage  = "";  // team member photo: URL after a file upload OR a URL the user typed.
   var CONTENT = null;        // cached site content (about/team/contact).
   var contentLoaded = false;
 
   /* ============================================================
      Helpers
      ============================================================ */
-  function escapeHtml(value) {
-    return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
-      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
-    });
-  }
+  // Shared with the public pages (vn-core.js): HTML escaping and the tag /
+  // author name rules (NFC, collapsed spaces, any letter case — as api/_taxonomy.js).
+  var escapeHtml = VN.escapeHtml, cleanName = VN.cleanName, nameKey = VN.nameKey;
+
   /* ---------- publish date/time (scheduling) ----------
      The editor uses <input type="datetime-local"> ("YYYY-MM-DDTHH:MM",
      local time). Articles store `publishAt` as an absolute ISO timestamp
@@ -127,32 +107,6 @@
     var d = parseLocalInput(v);
     return d ? d.getDate() + ". " + (d.getMonth() + 1) + ". " + d.getFullYear() + " v " +
                pad2(d.getHours()) + ":" + pad2(d.getMinutes()) : "";
-  }
-
-  /* Byte length of a string in UTF-8 (for the article record size). */
-  function textBytes(str) {
-    if (window.TextEncoder) return new TextEncoder().encode(str).length;
-    return new Blob([str]).size; // fallback
-  }
-  /* Human-readable size. */
-  function formatBytes(bytes) {
-    if (bytes == null || isNaN(bytes)) return "—";
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1).replace(".", ",") + " KB";
-    return (bytes / (1024 * 1024)).toFixed(2).replace(".", ",") + " MB";
-  }
-  /* Try to read an image's byte size via a HEAD request (Content-Length).
-     Resolves to a number or null if it can't be determined. */
-  function fetchImageBytes(url) {
-    if (!url || /^data:/i.test(url) || !/^https?:/i.test(url)) {
-      return Promise.resolve(null);
-    }
-    return fetch(url, { method: "HEAD" })
-      .then(function (r) {
-        var len = r.headers.get("content-length");
-        return len ? parseInt(len, 10) : null;
-      })
-      .catch(function () { return null; });
   }
 
   function readAsDataUrl(file) {
@@ -242,129 +196,79 @@
   });
 
   /* ============================================================
-     Image handling
+     The article draft — the article the editor works on
+     draftReset() (a new article) or draftFromArticle() fills DRAFT
+     before edOpen() shows it; Vydat writes the editor back into it
+     (edCommitToDraft) and saveArticle() sends it. DRAFT holds its own
+     copies, never objects of ADMIN_ARTICLES or of the open editor, and
+     it stays as it is while the admin logs in again after an expired
+     session (the editor stays open, Vydat is pressed again).
      ============================================================ */
-  function updatePreview(url) {
-    if (url) {
-      imagePreview.style.backgroundImage = VNSafe.cssUrl(url);
-      imagePreview.hidden = false;
-    } else {
-      imagePreview.hidden = true;
-    }
+  var DRAFT;
+  // A new, empty article: published now unless its date is changed.
+  function draftReset() {
+    DRAFT = {
+      id: "",                   // "" = not saved yet
+      title: "",
+      body: "",                 // plain text of the body blocks
+      image: "",                // thumbnail URL, "" = none
+      authors: [],
+      tags: [],
+      tagsUnspecified: false,   // its last tag was deleted: shown as "nespecifikováno"
+      date: nowLocalInput(),    // publish date + time, local "YYYY-MM-DDTHH:MM"
+      kind: "article",          // "article" | "comic"
+      elements: [],             // the canvas blocks
+      background: null,         // page background { color, image }, null = none
+      heroHeight: 0             // black top zone (px), 0 = saved before the zones existed
+    };
+  }
+  draftReset();
+  // An existing article, copied.
+  function draftFromArticle(a) {
+    DRAFT = {
+      id: a.id,
+      title: String(a.title || "").replace(/[\r\n]/g, ""),   // a title is one line
+      body: String(a.body || "").replace(/\r\n?/g, "\n"),     // line breaks as "\n"
+      image: a.image || "",
+      authors: Array.isArray(a.authors) ? a.authors.map(String) : [],
+      tags: Array.isArray(a.tags) ? a.tags.map(String) : [],
+      tagsUnspecified: !!a.tagsUnspecified,
+      date: articleLocalInput(a),   // malformed (legacy) -> edOpen() shows "now"
+      kind: a.kind === "comic" ? "comic" : "article",
+      elements: Array.isArray(a.elements) ? JSON.parse(JSON.stringify(a.elements)) : [],
+      background: a.background ? JSON.parse(JSON.stringify(a.background)) : null,
+      heroHeight: +a.heroHeight > 0 ? Math.round(+a.heroHeight) : 0
+    };
   }
 
-  fImageUrl.addEventListener("input", function () {
-    if (fImageUrl.value.trim()) {
-      pendingImageUrl = fImageUrl.value.trim();
-      fImageFile.value = "";
-    } else {
-      pendingImageUrl = "";
-    }
-    updatePreview(pendingImageUrl);
-  });
-
-  fImageFile.addEventListener("change", function () {
-    var file = fImageFile.files && fImageFile.files[0];
-    if (!file) return;
-    // Instant local preview while the upload runs.
-    var localUrl = URL.createObjectURL(file);
-    var previous = pendingImageUrl;
-    updatePreview(localUrl);
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Nahrávám…";
-    uploadImageFile(file)
-      .then(function (url) {
-        pendingImageUrl = url;
-        fImageUrl.value = "";
-        updatePreview(pendingImageUrl);
-        toast("Obrázek nahrán.");
-      })
-      .catch(function (err) {
-        updatePreview(previous);
-        fImageFile.value = "";
-        toast("Nahrání selhalo: " + err.message);
-      })
-      .finally(function () {
-        URL.revokeObjectURL(localUrl);
-        submitBtn.disabled = false;
-        submitBtn.textContent = fId.value ? "Uložit změny" : "Vytvořit";
-      });
-  });
-
-  /* ============================================================
-     Form: reset + populate + submit
-     ============================================================ */
-  function resetForm() {
-    form.reset();
-    fId.value = "";
-    fElements.value = "";
-    fBackground.value = "";
-    formHero = 0;
-    fDate.value = nowLocalInput();
-    fTags.dataset.unspecified = "";
-    pendingImageUrl = "";
-    updatePreview("");
-    formTitle.textContent = "Nový příspěvek";
-    submitBtn.textContent = "Vytvořit";
-  }
-  function populateForm(article) {
-    fId.value       = article.id;
-    fElements.value = (article.elements && article.elements.length) ? JSON.stringify(article.elements) : "";
-    fBackground.value = article.background ? JSON.stringify(article.background) : "";
-    formHero = +article.heroHeight > 0 ? Math.round(+article.heroHeight) : 0;
-    fTitle.value    = article.title || "";
-    fBody.value     = article.body || "";
-    fAuthors.value  = JSON.stringify(article.authors || []);
-    fDate.value     = articleLocalInput(article);
-    fTags.value     = JSON.stringify(article.tags || []);
-    fTags.dataset.unspecified = article.tagsUnspecified ? "1" : "";
-    fKind.value     = article.kind || "article";
-    pendingImageUrl = article.image || "";
-    fImageUrl.value = pendingImageUrl;
-    fImageFile.value = "";
-    updatePreview(pendingImageUrl);
-    formTitle.textContent = "Upravit příspěvek";
-    submitBtn.textContent = "Uložit změny";
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-  resetBtn.addEventListener("click", resetForm);
-
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
-    saveArticle();
-  });
-
-  /* Save the article in the form. Resolves true on success, false otherwise
+  /* Save the draft. Resolves true on success, false otherwise
      (validation error, upload still running, API error, expired session) —
      callers such as Vydat keep the editor open until it resolves true. */
   var articleSaving = false;
   function saveArticle() {
     if (articleSaving) return Promise.resolve(false);   // no double POST
     if (uploadsBusy()) return Promise.resolve(false);
-    if (!fTitle.value.trim()) { toast("Název je povinný."); return Promise.resolve(false); }
-    var elements = [];
-    if (fElements.value) { try { elements = JSON.parse(fElements.value); } catch (e) { elements = []; } }
+    if (!DRAFT.title.trim()) { toast("Název je povinný."); return Promise.resolve(false); }
     // Empty/invalid date -> publish now. Past or current -> live immediately;
     // future -> scheduled (the API hides it until publishAt).
-    var when = parseLocalInput(fDate.value) || new Date();
+    var when = parseLocalInput(DRAFT.date) || new Date();
     var scheduled = when.getTime() > Date.now();
     var payload = {
-      title:   fTitle.value,
-      body:    fBody.value,
-      image:   pendingImageUrl || fImageUrl.value || "",
-      authors: edNameList(fAuthors.value),
-      tags:    edNameList(fTags.value),
+      title:   DRAFT.title,
+      body:    DRAFT.body,
+      image:   DRAFT.image || "",
+      authors: DRAFT.authors,
+      tags:    DRAFT.tags,
       date:    toLocalInput(when).slice(0, 10),
       publishAt: when.toISOString(),
-      kind:    fKind.value === "comic" ? "comic" : "article",
-      elements: elements,
-      background: edParseJson(fBackground.value, {}),
-      heroHeight: formHero                 // height of the black top zone (0 = none yet)
+      kind:    DRAFT.kind === "comic" ? "comic" : "article",
+      elements: DRAFT.elements,
+      background: DRAFT.background || {},
+      heroHeight: DRAFT.heroHeight         // height of the black top zone (0 = none yet)
     };
 
     articleSaving = true;
-    submitBtn.disabled = true;
-    var savingId = fId.value;
+    var savingId = DRAFT.id;
     var req = savingId
       ? api("/api/articles?id=" + encodeURIComponent(savingId), { method: "PUT", body: payload })
       : api("/api/articles", { method: "POST", body: payload });
@@ -374,7 +278,7 @@
         toast(scheduled
           ? "Naplánováno — vyjde " + formatLocalInput(toLocalInput(when)) + "."
           : (savingId ? "Příspěvek uložen a zveřejněn." : "Příspěvek zveřejněn."));
-        resetForm();
+        draftReset();
         refreshTable();
         return true;
       })
@@ -389,7 +293,6 @@
       })
       .finally(function () {
         articleSaving = false;
-        submitBtn.disabled = false;
       });
   }
 
@@ -407,20 +310,6 @@
   var articlesLoaded = false;   // true after the first successful /api/articles
   var adminSelected = { tags: {}, authors: {} };   // ticked filter entries, by nameKey()
 
-  function articleThumb(a) {
-    if (a.image) return a.image;
-    if (Array.isArray(a.elements)) {
-      for (var i = 0; i < a.elements.length; i++) {
-        if (a.elements[i].type === "image" && a.elements[i].content) return a.elements[i].content;
-      }
-      // no picture: a YouTube block's thumbnail
-      for (var j = 0; j < a.elements.length; j++) {
-        var info = a.elements[j].type === "embed" && VNSafe.embed(a.elements[j].content);
-        if (info && info.thumb) return info.thumb;
-      }
-    }
-    return "";
-  }
   // Same filter as the public site: OR within a section, AND between them.
   function renderArticleFilter() {
     var pruned = false;
@@ -430,11 +319,8 @@
       var known = {};
       txNames(list).forEach(function (name) { known[nameKey(name)] = 1; });
       Object.keys(sel).forEach(function (k) { if (!known[k]) { delete sel[k]; pruned = true; } });
-      box.innerHTML = txNames(list).map(function (name) {
-        var k = nameKey(name), c = counts[k] || 0;
-        return '<label class="tag-checkbox' + (c || sel[k] ? "" : " is-empty") + '"><input type="checkbox" value="' + escapeHtml(k) + '"' +
-          (sel[k] ? " checked" : "") + "><span>" + escapeHtml(name) + ' <span class="tag-count">(' + c + ")</span></span></label>";
-      }).join("") || '<span class="tag-list-empty">Zatím nic.</span>';
+      // the admin keeps unused entries clickable (the public site greys them out)
+      box.innerHTML = VN.facetHtml(txNames(list), counts, function (k) { return sel[k]; }, false);
     });
     if (pruned && articlesLoaded) renderArticleCards();   // a renamed / deleted entry was ticked
   }
@@ -448,7 +334,7 @@
     if (list.length === 0) { articleGrid.innerHTML = ""; articleEmpty.hidden = false; return; }
     articleEmpty.hidden = true;
     articleGrid.innerHTML = list.map(function (a) {
-      var thumb = articleThumb(a);
+      var thumb = VNHome.thumb(a);
       var media = thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy">' : "";
       var authors = (a.authors || []).join(", ");
       var future = isScheduled(a);
@@ -462,7 +348,7 @@
             '<div class="card-meta">' +
               "<time>" + escapeHtml(a.date || "") + "</time>" +
               (authors ? "<span>" + escapeHtml(authors) + "</span>" : "") +
-              "<span>" + (a.kind === "comic" ? "Komiks" : "Článek") + "</span>" +
+              "<span>" + VN.kindLabel(a) + "</span>" +
               (future ? '<span class="sched-badge">Naplánováno</span>' : "") +
             "</div>" +
           "</div>" +
@@ -471,7 +357,8 @@
       );
     }).join("");
   }
-  // name kept (refreshTable) so existing callers — submit / delete / showShell — work
+  // (Re)load the article list — after login, a save, a delete or a renamed list entry.
+  // The name dates from the old article table.
   function refreshTable() {
     api("/api/articles")
       .then(function (items) {
@@ -492,7 +379,10 @@
     var a = null;
     for (var i = 0; i < ADMIN_ARTICLES.length; i++) { if (ADMIN_ARTICLES[i].id === id) { a = ADMIN_ARTICLES[i]; break; } }
     if (!a) return;
-    populateForm(a);
+    draftFromArticle(a);
+    // (left from when the article form sat above the list: the list behind
+    // the editor scrolls to the top)
+    window.scrollTo({ top: 0, behavior: "smooth" });
     edOpen();
   }
   articleGrid.addEventListener("click", function (event) {
@@ -519,8 +409,7 @@
     renderArticleCards();
   });
   newArticleBtn.addEventListener("click", function () {
-    resetForm();
-    fDate.value = nowLocalInput();
+    draftReset();
     edOpen();
   });
 
@@ -631,6 +520,7 @@
   function showTab(name) {
     if (!sections[name]) name = "articles";
     // leaving the homepage editor would drop an image still uploading into it
+    // (the page-background upload relies on this: it always lands on the homepage)
     if (DOC.key === "home" && name !== "home" && pendingUploads > 0) {
       toast("Počkejte, až se dokončí nahrávání obrázku.");
       return;
@@ -668,10 +558,8 @@
       CONTENT = c;
       contentStored = JSON.stringify(c);
       contentLoaded = true;
-      renderAbout();
       renderTeamTable();
       renderContactTable();
-      homeArticlesChanged();
       return c;
     }).catch(function (err) {
       if (err.status === 401) { showLogin(); return; }
@@ -709,11 +597,7 @@
     });
   }
 
-  /* ---------- About: intro text ---------- */
-  function renderAbout() {
-    if (!CONTENT) return;
-    aboutInput.value = (CONTENT.about && CONTENT.about.text) || "";
-  }
+  /* ---------- About: the „O nás" document ---------- */
   // Saves the rich document (and its plain-text mirror) without dropping
   // the other about fields — docFlush() writes them into CONTENT first.
   saveAboutBtn.addEventListener("click", function () {
@@ -780,7 +664,7 @@
       .catch(function (err) {
         renderTeamTable();
         if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + (err.detail || err.message));
+        toast("Chyba: " + err.message);
       })
       .finally(function () { teamSubmit.disabled = false; });
   });
@@ -838,7 +722,7 @@
         .catch(function (err) {
           renderTeamTable();
           if (err.status === 401) { showLogin(); return; }
-          toast("Chyba: " + (err.detail || err.message));
+          toast("Chyba: " + err.message);
         });
     }
   });
@@ -857,7 +741,7 @@
       .then(function () { toast("Podnadpis uložen."); })
       .catch(function (err) {
         if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + (err.detail || err.message));
+        toast("Chyba: " + err.message);
       })
       .finally(function () { saveSubBtn.disabled = false; });
   });
@@ -899,7 +783,7 @@
       .catch(function (err) {
         renderContactTable();
         if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + (err.detail || err.message));
+        toast("Chyba: " + err.message);
       })
       .finally(function () { contactSubmit.disabled = false; });
   });
@@ -954,7 +838,7 @@
         .catch(function (err) {
           renderContactTable();
           if (err.status === 401) { showLogin(); return; }
-          toast("Chyba: " + (err.detail || err.message));
+          toast("Chyba: " + err.message);
         });
     }
   });
@@ -978,28 +862,14 @@
   var TX = { menu: null, editing: null, confirm: null, busy: false };
   var txDialog = document.querySelector("#tx-dialog");
 
-  // same rules as api/_taxonomy.js (NFC, collapsed spaces, any letter case)
-  function cleanName(n) { return String(n == null ? "" : n).normalize("NFC").replace(/\s+/g, " ").trim(); }
-  function nameKey(n) { return cleanName(n).toLocaleLowerCase("cs"); }
+  // The entries of a list ("tags" | "authors"): the global list once it is
+  // loaded, until then the names the articles use.
   function txNames(list) {
     if (taxoLoaded) return TAXO[list];
-    var seen = {}, out = [];     // lists not loaded (yet): the names the articles use
-    ADMIN_ARTICLES.forEach(function (a) {
-      (a[list] || []).forEach(function (n) { if (!seen[nameKey(n)]) { seen[nameKey(n)] = 1; out.push(n); } });
-    });
-    return out.sort(function (x, y) { return x.localeCompare(y, "cs"); });
+    return VN.namesUsed(ADMIN_ARTICLES, list);
   }
-  function txCounts(list) {
-    var counts = {};
-    ADMIN_ARTICLES.forEach(function (a) {
-      var seen = {};
-      (a[list] || []).forEach(function (n) {
-        var k = nameKey(n);
-        if (!seen[k]) { seen[k] = 1; counts[k] = (counts[k] || 0) + 1; }
-      });
-    });
-    return counts;
-  }
+  // { nameKey: number of articles using it } — all articles, scheduled too
+  function txCounts(list) { return VN.countNames(ADMIN_ARTICLES, list); }
   function txFind(list, name) {
     var k = nameKey(name);
     return TAXO[list].filter(function (n) { return nameKey(n) === k; })[0] || null;
@@ -1186,16 +1056,9 @@
   /* ---------- editor: authors / tags pickers ----------
      Chips of the chosen entries + a menu of the remaining ones from the
      global lists. Nothing can be typed, so only approved names are used.
-     The hidden form fields carry the choice as a JSON array. */
+     Vydat copies the choice into the article draft (edCommitToDraft). */
   var ED_PICK = { authors: [], tags: [] };
   var PICK_ADD = { authors: "+ Přidat autora…", tags: "+ Přidat štítek…" };
-  function edNameList(v) {
-    v = String(v || "").trim();
-    if (v.charAt(0) === "[") {
-      try { var arr = JSON.parse(v); if (Array.isArray(arr)) return arr.map(String); } catch (e) { /* fall through */ }
-    }
-    return v.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
-  }
   function edPickSet(list, names) {
     var out = [], seen = {};
     (names || []).forEach(function (n) {
@@ -1217,7 +1080,7 @@
       return '<span class="ed-pick-chip">' + escapeHtml(n) +
         '<button type="button" data-remove="' + escapeHtml(n) + '" aria-label="Odebrat ' + escapeHtml(n) + '">×</button></span>';
     }).join("");
-    if (!chips && list === "tags" && fTags.dataset.unspecified) chips = '<span class="ed-pick-none">nespecifikováno</span>';
+    if (!chips && list === "tags" && DRAFT.tagsUnspecified) chips = '<span class="ed-pick-none">nespecifikováno</span>';
     var first = avail.length ? PICK_ADD[list]
       : !taxoLoaded ? (taxoFailed ? "Seznam se nepodařilo načíst" : "Načítám seznam…")
       : TAXO[list].length ? "Vše vybráno" : "Nejdřív přidejte v „Upravit filtry“";
@@ -1299,8 +1162,6 @@
     metaToggle:   document.querySelector("#ed-meta-toggle"),
     side:         document.querySelector("#metadata-sidebar"),
     body:         document.querySelector("#editor-overlay .ed-body"),
-    author:    document.querySelector("#ed-author"),
-    tags:      document.querySelector("#ed-tags"),
     kind:      document.querySelector("#ed-kind"),
     date:      document.querySelector("#ed-date"),
     dateField: document.querySelector("#ed-date-field"),
@@ -1325,7 +1186,6 @@
     liveSpan: null,        // span being restyled live by the size box / colour panel
     playingId: null,       // video/post block currently showing its live player preview
     lastFs: 16,            // last valid font size (for revert)
-    colorSyncing: false,
     currentColor: "#000000"
   };
 
@@ -1339,71 +1199,60 @@
     dirty: false
   };
 
-  // Page width of the article canvas; article.html renders the same 820px.
-  var ED_CANVAS_W = 820;
-  function edUid() { return "el-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
   function edStripHtml(html) {
     var d = document.createElement("div");
     d.innerHTML = html || "";
     return (d.textContent || "").trim();
   }
-  function defaultStyles(over) {
-    return Object.assign({
-      fontSize: "16px", color: "#1a1a1a",
-      bold: false, italic: false, underline: false, align: "left"
-    }, over || {});
-  }
 
   /* ---------- open / close / seed ---------- */
+  // Show DRAFT in the editor. The editor works on its own copies of the
+  // draft's blocks and background (they are changed in place while editing).
   function edOpen() {
     ED.heroReady = false;
-    ED.elements = [];
-    ED.background = edParseJson(fBackground.value, { color: "", image: "" });
-    // 1) try to load an existing layout from the hidden form field
-    if (fElements.value) {
-      try {
-        var parsed = JSON.parse(fElements.value);
-        if (Array.isArray(parsed)) ED.elements = parsed;
-        // stored HTML is cleaned before it ever reaches a contenteditable
-        ED.elements.forEach(function (el) {
-          if (el && el.type === "text") el.content = VNSafe.html(el.content);
-        });
-      } catch (e) { ED.elements = []; }
-    }
+    ED.background = DRAFT.background ? JSON.parse(JSON.stringify(DRAFT.background)) : { color: "", image: "" };
+    // 1) the article's layout
+    ED.elements = JSON.parse(JSON.stringify(DRAFT.elements));
+    // stored HTML is cleaned before it ever reaches a contenteditable
+    ED.elements.forEach(function (el) {
+      if (el && el.type === "text") el.content = VNSafe.html(el.content);
+    });
     // 2) ensure a mandatory, non-deletable title element exists
     var hasTitle = ED.elements.some(function (el) { return el.isTitle; });
     if (!hasTitle) {
       ED.elements.unshift({
-        id: edUid(), type: "text", isTitle: true,
-        content: escapeHtml(fTitle.value || "Nadpis článku"),
+        id: VN.uid("el"), type: "text", isTitle: true,
+        content: escapeHtml(DRAFT.title || "Nadpis článku"),
         x: 40, y: 24, width: 640, height: "auto",
-        styles: defaultStyles({ fontSize: "34px", bold: true, color: "#ffffff" })   // white on the black hero
+        styles: VNArticle.textStyles({ fontSize: "34px", bold: true, color: "#ffffff" })   // white on the black hero
       });
       // 3) seed a body text element from the plain-text body, if any and no other text exists
-      var bodyText = (fBody.value || "").trim();
+      var bodyText = (DRAFT.body || "").trim();
       var hasBody = ED.elements.some(function (el) { return el.type === "text" && !el.isTitle; });
       if (bodyText && !hasBody) {
         ED.elements.push({
-          id: edUid(), type: "text", isTitle: false,
+          id: VN.uid("el"), type: "text", isTitle: false,
           content: escapeHtml(bodyText).replace(/\n/g, "<br>"),
           x: 40, y: 120, width: 740, height: "auto",
-          styles: defaultStyles()
+          styles: VNArticle.textStyles()
         });
       }
     }
-    // load metadata into the left sidebar (mirrors the article form)
-    edPickSet("authors", edNameList(fAuthors.value));
-    edPickSet("tags", edNameList(fTags.value));
+    // load metadata into the left sidebar
+    edPickSet("authors", DRAFT.authors);
+    edPickSet("tags", DRAFT.tags);
     loadTaxonomy();                      // fresh lists (another tab may have changed them)
-    EDITOR.kind.value = fKind.value || "article";
-    EDITOR.date.value = fDate.value || nowLocalInput();
+    EDITOR.kind.value = DRAFT.kind;
+    // the date field drops a malformed (legacy) date: such an article shows "now"
+    EDITOR.date.value = DRAFT.date;
+    if (!EDITOR.date.value) EDITOR.date.value = nowLocalInput();
     edUpdateSchedule();
-    edThumbLoad(pendingImageUrl || fImageUrl.value.trim());
+    edThumbLoad(DRAFT.image);
 
     // Two zones. An article saved before they existed gets the default black
     // hero from its data — exactly what the reader page shows for it.
     var prep = VNArticle.prepare({
-      elements: ED.elements, heroHeight: formHero, title: fTitle.value, body: fBody.value,
+      elements: ED.elements, heroHeight: DRAFT.heroHeight, title: DRAFT.title, body: DRAFT.body,
       image: ED.thumbUrl, date: EDITOR.date.value, authors: ED_PICK.authors, tags: ED_PICK.tags
     });
     ED.elements = prep.elements;
@@ -1417,7 +1266,7 @@
     // Straight into the visual editor — there is no separate preview step.
     document.body.classList.add("visual-editor-active");
     edSetMetaOpen(edMetaPref());
-    edApplyBackground(EDITOR.canvas, ED.background);
+    VN.applyBackground(EDITOR.canvas, ED.background || {});
     edRenderCanvas();
     edSetToolsVisible(false);
     edSetLayerVisible(false);
@@ -1470,7 +1319,7 @@
      -> the server URL replaces the preview. Only that URL goes into the
      article (`image`), never Base64, so articles.json stays small.
      State lives in ED.thumbUrl until Vydat commits it
-     (edCommitToForm), so "Zpět" really discards a new thumbnail.
+     (edCommitToDraft), so "Zpět" really discards a new thumbnail.
      Every blob: URL is revoked as soon as it is replaced, removed, or the
      editor closes. A token drops results of uploads that were superseded. */
   var THUMB = {
@@ -1576,28 +1425,26 @@
     document.body.classList.remove("visual-editor-active");
     EDITOR.overlay.hidden = true;
   }
-  // Commit the layout back into the article form (title + plain-text body + JSON)
-  function edCommitToForm() {
-    // thumbnail -> the form state the submit payload reads (`image`)
-    pendingImageUrl = ED.thumbUrl;
-    fImageUrl.value = "";
-    updatePreview(pendingImageUrl);
-    fElements.value = JSON.stringify(ED.elements);
-    formHero = ED.heroH;
-    fBackground.value = JSON.stringify(ED.background || { color: "", image: "" });
+  // Vydat: write the editor (canvas + Data panel) back into DRAFT, which
+  // saveArticle() then sends. Copies again: if the save fails, editing goes on.
+  function edCommitToDraft() {
+    DRAFT.image = ED.thumbUrl;
+    DRAFT.elements = JSON.parse(JSON.stringify(ED.elements));
+    DRAFT.heroHeight = ED.heroH;
+    DRAFT.background = JSON.parse(JSON.stringify(ED.background || { color: "", image: "" }));
+    // the title and a plain-text body, from the text of the blocks
     var titleEl = ED.elements.filter(function (el) { return el.isTitle; })[0];
-    if (titleEl) fTitle.value = edStripHtml(titleEl.content);
-    var bodyText = ED.elements
+    if (titleEl) DRAFT.title = edStripHtml(titleEl.content).replace(/[\r\n]/g, "");   // a title is one line
+    DRAFT.body = ED.elements
       .filter(function (el) { return el.type === "text" && !el.isTitle && !el.role; })
       .map(function (el) { return edStripHtml(el.content); })
       .filter(Boolean)
       .join("\n\n");
-    fBody.value = bodyText;
-    // commit metadata from the left sidebar back into the article form
-    fAuthors.value = JSON.stringify(ED_PICK.authors);
-    fTags.value = JSON.stringify(ED_PICK.tags);
-    fKind.value = EDITOR.kind.value;
-    fDate.value = EDITOR.date.value || nowLocalInput();
+    // the Data panel
+    DRAFT.authors = ED_PICK.authors.map(String);
+    DRAFT.tags = ED_PICK.tags.map(String);
+    DRAFT.kind = EDITOR.kind.value;
+    DRAFT.date = EDITOR.date.value || nowLocalInput();
   }
 
   /* ---------- rendering ---------- */
@@ -1696,18 +1543,12 @@
     edApplyContentStyles(content, el);
     el.content = content.innerHTML;
   }
-  function edApplyContentStyles(content, el) {
-    content.style.fontFamily = el.styles.fontFamily || "";
-    content.style.fontSize = el.styles.fontSize || "16px";
-    content.style.color = el.styles.color || "#1a1a1a";
-    content.style.fontWeight = el.styles.bold ? "700" : "400";
-    content.style.fontStyle = el.styles.italic ? "italic" : "normal";
-    content.style.textDecoration = el.styles.underline ? "underline" : "none";
-    content.style.textAlign = el.styles.align || "left";
-  }
+  // A text block's box look — the same function the reader page uses.
+  function edApplyContentStyles(content, el) { VNArticle.applyTextStyles(content, el.styles); }
 
   function edBuildNode(el) {
     var node = document.createElement("div");
+    // is-title / is-hero (and ed-role-* except ed-role-tag) have no CSS: hooks for tools/dev/parity
     node.className = "ed-el ed-el--" + el.type + (el.isTitle ? " is-title" : "") +
       (edIsHero(el) ? " is-hero" : "") + (el.role ? " ed-role-" + el.role : "");
     node.dataset.id = el.id;
@@ -1814,7 +1655,7 @@
   var GUIDE_SNAP = 5;
   function edGuideLines(exceptId) {
     var pageH = Math.max(EDITOR.canvas.scrollHeight, EDITOR.canvas.offsetHeight);
-    var v = [0, ED_CANVAS_W / 2, ED_CANVAS_W].map(function (p) { return { pos: p, from: 0, to: pageH }; });
+    var v = [0, VNArticle.W / 2, VNArticle.W].map(function (p) { return { pos: p, from: 0, to: pageH }; });
     var h = [];
     Array.prototype.forEach.call(EDITOR.canvas.querySelectorAll(":scope > .ed-el"), function (n) {
       if (n.dataset.id === exceptId) return;
@@ -1971,7 +1812,7 @@
       var dx = e2.clientX - startX + (wrap.scrollLeft - sx0), dy = e2.clientY - startY + (wrap.scrollTop - sy0);
       if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       if (moved) {
-        var w = node.offsetWidth, hgt = node.offsetHeight, maxX = Math.max(0, ED_CANVAS_W - w);
+        var w = node.offsetWidth, hgt = node.offsetHeight, maxX = Math.max(0, VNArticle.W - w);
         var x = Math.min(Math.max(0, origX + dx), maxX), y = edZoneClampY(el, origY + dy, hgt);   // stays in its zone
         // smart guides: edges/centre snap to other blocks (Alt = move freely)
         var gx = null, gy = null;
@@ -2052,9 +1893,9 @@
       // clamp x/y so resizing from top/left can't invert
       if (h.indexOf("w") > -1) x = origX + (origW - w);
       if (h.indexOf("n") > -1) y = origY + (origH - ht);
-      // keep the box inside the page — the public article is exactly ED_CANVAS_W wide
+      // keep the box inside the page — the public article is exactly VNArticle.W wide
       if (x < 0) { if (h.indexOf("w") > -1) w += x; x = 0; }
-      if (x + w > ED_CANVAS_W) w = Math.max(40, ED_CANVAS_W - x);
+      if (x + w > VNArticle.W) w = Math.max(40, VNArticle.W - x);
       // never across the line between the black and the white zone
       if (edIsHero(el)) { y = Math.max(0, y); ht = Math.min(ht, Math.max(24, ED.heroH - y)); }
       else if (y < ED.heroH) { ht = Math.max(24, ht - (ED.heroH - y)); y = ED.heroH; }
@@ -2150,8 +1991,7 @@
     edRenderCanvas();
     var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + id + '"]');
     if (!node) return;
-    var content = node.querySelector(".ed-el-content");
-    content.contentEditable = "true";
+    var content = node.querySelector(".ed-el-content");   // editable: edBuildNode() made it so
     // read the click position first: a plain focus() scrolls the box's top into view
     var caret = typeof x === "number" ? edCaretAt(x, y) : null;
     content.focus({ preventScroll: true });
@@ -2202,10 +2042,10 @@
   EDITOR.addText.addEventListener("click", function () {
     var w = 300;
     var el = {
-      id: edUid(), type: "text", isTitle: false,
+      id: VN.uid("el"), type: "text", isTitle: false,
       content: "textové pole",
       x: edCanvasCenterX(w), y: edVisibleTop(), width: w, height: "auto",
-      styles: defaultStyles()
+      styles: VNArticle.textStyles()
     };
     ED.elements.push(el);
     edSelect(el.id);
@@ -2213,7 +2053,7 @@
   EDITOR.addImage.addEventListener("click", function () { EDITOR.imageFile.click(); });
 
   /* ---------- video / social post blocks ("Vložit video / příspěvek") ----------
-     Stored as { type: "embed", content: <embed URL from VNSafe.embed>, provider }.
+     Stored as { type: "embed", content: <embed URL from VNSafe.embed> }.
      In the editor the block shows a still preview (YouTube thumbnail or a
      provider card) so it selects, drags, resizes and layers like any block —
      a live <iframe> would swallow the mouse and reload on every re-render.
@@ -2250,12 +2090,12 @@
     edRenderCanvas();
   }
   function edInsertEmbed(info) {
-    var w = Math.min(info.w, ED_CANVAS_W), h = info.h;
+    var w = Math.min(info.w, VNArticle.W), h = info.h;
     var el = {
-      id: edUid(), type: "embed", isTitle: false,
-      content: info.src, provider: info.provider,
+      id: VN.uid("el"), type: "embed", isTitle: false,
+      content: info.src,
       x: edCanvasCenterX(w), y: edVisibleTop(), width: w, height: h,
-      styles: defaultStyles()
+      styles: VNArticle.textStyles()
     };
     ED.elements.push(el);
     edSelect(el.id);
@@ -2313,13 +2153,13 @@
   function edInsertIntoCanvas(file, kind, pos) {
     var localUrl = URL.createObjectURL(file);
     var w = kind === "pdf" ? 300 : 360;
-    var x = pos ? Math.min(Math.max(0, Math.round(pos.x - w / 2)), ED_CANVAS_W - w) : edCanvasCenterX(w);
+    var x = pos ? Math.min(Math.max(0, Math.round(pos.x - w / 2)), VNArticle.W - w) : edCanvasCenterX(w);
     var y = pos ? Math.max(ED.heroH + 8, Math.round(pos.y - 20)) : edVisibleTop();
     var el = {
-      id: edUid(), type: kind === "pdf" ? "file" : "image", isTitle: false,
+      id: VN.uid("el"), type: kind === "pdf" ? "file" : "image", isTitle: false,
       content: localUrl, name: file.name, uploading: true,
       x: x, y: y, width: w, height: kind === "pdf" ? "auto" : 220,
-      styles: defaultStyles()
+      styles: VNArticle.textStyles()
     };
     ED.elements.push(el);
     edSelect(el.id);
@@ -2958,7 +2798,6 @@
       if (!el) return;
       e.preventDefault();
       if (VNArticle.isLocked(el)) { toast("Tento prvek se řídí panelem Data a nejde kopírovat."); return; }
-      edExitEdit();
       ED_CLIP = { data: JSON.parse(JSON.stringify(el)), pastes: 0 };
       toast("Blok zkopírován — Ctrl+V vloží kopii.");
       return;
@@ -2967,10 +2806,10 @@
     e.preventDefault();
     ED_CLIP.pastes++;
     var copy = JSON.parse(JSON.stringify(ED_CLIP.data)), off = 20 * ED_CLIP.pastes;
-    copy.id = edUid();
+    copy.id = VN.uid("el");
     copy.isTitle = false;                                      // only one title per article
     var w = +copy.width || 0;
-    copy.x = Math.min(Math.max(0, (+copy.x || 0) + off), Math.max(0, ED_CANVAS_W - w));
+    copy.x = Math.min(Math.max(0, (+copy.x || 0) + off), Math.max(0, VNArticle.W - w));
     delete copy.role;                                          // a copy of the thumbnail is an ordinary picture
     copy.y = edZoneClampY(copy, (+copy.y || 0) + off, typeof copy.height === "number" ? copy.height : 0);
     copy.z = ED.elements.reduce(function (m, x) { return Math.max(m, x.z || 0); }, 0) + 1;   // on top
@@ -3172,7 +3011,6 @@
   function edSyncColor(r, g, b, src) {
     r = clamp255(r); g = clamp255(g); b = clamp255(b);
     var hex = rgbToHex(r, g, b);
-    ED.colorSyncing = true;
     function put(input, v) { if (input !== src) input.value = v; }
     put(EDITOR.rRange, r); put(EDITOR.rNum, r);
     put(EDITOR.gRange, g); put(EDITOR.gNum, g);
@@ -3183,7 +3021,6 @@
     EDITOR.preview.style.background = hex;
     EDITOR.colorBtn.style.color = hex;
     ED.currentColor = hex;
-    ED.colorSyncing = false;
   }
   // Apply ED.currentColor to the active text right away (box or live range).
   // Also works in the Home/About document mode (no selected canvas element).
@@ -3323,7 +3160,6 @@
   // picker browsing, valid HEX) syncs all controls AND recolours the text
   // immediately. No `change`/Enter step is needed to see or keep it.
   function edColorInput(r, g, b, src) {
-    if (ED.colorSyncing) return;
     edSyncColor(r, g, b, src);
     edApplyColorLive();
   }
@@ -3461,7 +3297,6 @@
      ============================================================ */
   ED.heroH = 0;              // height of the black zone (px)
   ED.heroReady = false;      // the open article's canvas is prepared: sync may run
-  var formHero = 0;          // heroHeight of the article in the form (0 = saved before the zones existed)
 
   function edIsHero(el) { return !!el && el.zone === "hero"; }
   function edRole(role) { return ED.elements.filter(function (e) { return e.role === role; })[0] || null; }
@@ -3693,8 +3528,7 @@
     ED.elements = s.e;
     ED.background = s.b;
     if (s.h) ED.heroH = s.h;
-    fBackground.value = JSON.stringify(s.b);
-    edApplyBackground(EDITOR.canvas, ED.background);
+    VN.applyBackground(EDITOR.canvas, ED.background || {});
     var sel = edFind(ED.selectedId);
     if (!sel) ED.selectedId = null;
     edRenderCanvas();
@@ -3912,10 +3746,10 @@
       c.h = r2(Math.min(f.h / s, nh - c.y));
       if (VNSafe.cropRect(c)) live.crop = c; else delete live.crop;     // the whole picture = no crop
       var w = f.w, h = f.h;
-      if (w > ED_CANVAS_W) { h = h * ED_CANVAS_W / w; w = ED_CANVAS_W; }   // never wider than the page
+      if (w > VNArticle.W) { h = h * VNArticle.W / w; w = VNArticle.W; }   // never wider than the page
       live.width = Math.max(1, Math.round(w));
       live.height = Math.max(1, Math.round(h));
-      live.x = Math.round(Math.min(Math.max(0, img.x + f.x), Math.max(0, ED_CANVAS_W - live.width)));
+      live.x = Math.round(Math.min(Math.max(0, img.x + f.x), Math.max(0, VNArticle.W - live.width)));
       live.y = edZoneClampY(live, Math.round(img.y + f.y), live.height);   // stays in its zone
     }
     edRenderCanvas();
@@ -3969,23 +3803,19 @@
       edClose();
       toast("Editor zavřen bez uložení.");
     } else if (action === "delete") {
-      var id = fId.value;
+      var id = DRAFT.id;
       if (id) {
         api("/api/articles?id=" + encodeURIComponent(id), { method: "DELETE" })
-          .then(function () { edClose(); resetForm(); refreshTable(); toast("Příspěvek smazán."); })
+          .then(function () { edClose(); draftReset(); refreshTable(); toast("Příspěvek smazán."); })
           .catch(function (err) {
             if (err.status === 401) { showLogin(); return; }
-            toast("Chyba: " + (err.detail || err.message));
+            toast("Chyba: " + err.message);
           });
       } else {
-        edClose(); resetForm(); toast("Rozpracovaný příspěvek zahozen.");
+        edClose(); draftReset(); toast("Rozpracovaný příspěvek zahozen.");
       }
     }
   });
-
-  // launch the editor from the (hidden) article form
-  var openEditorBtn = document.querySelector("#open-editor-btn");
-  if (openEditorBtn) openEditorBtn.addEventListener("click", edOpen);
 
   // Bar 1 "Vydat" / "Naplánovat" -> commit layout + metadata and save via the API.
   /* Leaving the page (refresh, „Zobrazit web", closing the tab) with unsaved
@@ -4040,12 +3870,12 @@
     edExitEdit();
     // An existing post with nothing changed since the editor opened (text,
     // layout, data, thumbnail): nothing to store, so no paid save.
-    if (fId.value && edStateSnapshot() === ED.snapshot) {
+    if (DRAFT.id && edStateSnapshot() === ED.snapshot) {
       edClose();
       toast("Beze změn — příspěvek zůstává, jak byl.");
       return;
     }
-    edCommitToForm();
+    edCommitToDraft();
     var label = EDITOR.publish.textContent;
     EDITOR.publish.disabled = true;
     EDITOR.publish.textContent = "Ukládám…";
@@ -4063,12 +3893,6 @@
      section's dock slot rather than duplicated, so every handler
      that is already wired keeps working with no drift.
      ============================================================ */
-  var fBackground = document.querySelector("#f-background");
-  function edParseJson(str, fallback) {
-    if (!str) return fallback;
-    try { var v = JSON.parse(str); return v || fallback; } catch (e) { return fallback; }
-  }
-
   var DOC_TARGETS = {
     // home: a block layout — DOC.root follows the text block being edited
     home:  { root: document.querySelector("#home-canvas-editor"), slot: document.querySelector("#home-toolbar-slot"),
@@ -4083,7 +3907,7 @@
     if (!bar2El || !slot) return;
     bar2El.classList.add("is-docked");
     slot.appendChild(bar2El);
-    if (typeof edSetToolsVisible === "function") edSetToolsVisible(true);
+    edSetToolsVisible(true);
   }
   function docUndock() {
     if (!bar2El || !bar2Parent || bar2El.parentNode === bar2Parent) return;
@@ -4142,7 +3966,6 @@
       if (key === "about") {
         // keep the plain-text mirror the public page's existing renderer reads
         CONTENT.about.text = docPlainText(copy);
-        if (aboutInput) aboutInput.value = CONTENT.about.text;
       }
     }
     if (DOC.dirty) contentDirty = true;   // in CONTENT now, not yet on the server
@@ -4166,7 +3989,7 @@
       docLoad(tab);
     }
     docDock(target.slot);
-    edApplyBackground(target.frame || target.root,
+    VN.applyBackground(target.frame || target.root,
       target.layout ? (HOME.bg || {}) : (CONTENT[tab] && CONTENT[tab].background) || {});
   }
   function docUnmount() {
@@ -4191,7 +4014,7 @@
       .then(function () { toast(okMsg); })
       .catch(function (err) {
         if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + (err.detail || err.message));
+        toast("Chyba: " + err.message);
       })
       .finally(function () { if (btn) btn.disabled = false; });
   }
@@ -4204,7 +4027,7 @@
      public page uses — so what the admin sees is 1:1 what readers get.
      Every block sits on an invisible grid 4 boxes wide (block.col = first
      box). Blocks are dragged by grabbing them anywhere and snap to the
-     nearest free boxes. All changes live in a DRAFT (HOME.layout/HOME.bg)
+     nearest free boxes. All changes live in a draft (HOME.layout/HOME.bg)
      and reach readers only on „Uložit stránku" (homeSave); other saves
      (team, contacts, „O nás") never publish the draft. Text blocks are
      contenteditable and use the docked toolbar: DOC.root = the text block
@@ -4282,7 +4105,7 @@
         CONTENT.home.layout = prevLayout;             // readers keep the previous version
         CONTENT.home.background = prevBg;
         if (err.status === 401) { showLogin(); return; }
-        toast("Uložení selhalo: " + (err.detail || err.message));
+        toast("Uložení selhalo: " + err.message);
       })
       .finally(function () { saveHomeBtn.disabled = false; });
   }
@@ -4350,7 +4173,7 @@
     }
     return null;
   }
-  function homeNewRow(block) { return { id: VNHome.uid("r"), blocks: [block] }; }
+  function homeNewRow(block) { return { id: VN.uid("r"), blocks: [block] }; }
   // A structural change: tidy rows, mark the draft unsaved, redraw.
   function homeChanged() {
     HOME.layout.rows = HOME.layout.rows.filter(function (r) { return r.blocks.length; });
@@ -4467,8 +4290,8 @@
     if (!HOME.layout || homeBusy()) return;
     homeSyncText();
     var b = kind === "text"
-      ? { id: VNHome.uid("b"), kind: "text", span: 4, col: 0, html: "<p>Nový textový blok</p>" }
-      : { id: VNHome.uid("b"), kind: "post", size: kind, col: 0, articleId: "" };
+      ? { id: VN.uid("b"), kind: "text", span: 4, col: 0, html: "<p>Nový textový blok</p>" }
+      : { id: VN.uid("b"), kind: "post", size: kind, col: 0, articleId: "" };
     var w = VNHome.blockWidth(b), rows = HOME.layout.rows, last = rows[rows.length - 1];
     var col = last ? VNHome.nearestFreeCol(last, w, 0) : -1;
     if (col >= 0) { b.col = col; last.blocks.push(b); } else rows.push(homeNewRow(b));
@@ -4774,7 +4597,7 @@
       return '<li><button type="button" data-id="' + escapeHtml(a.id) + '">' +
         '<span class="hl-pick-img"' + (img ? ' style="background-image:' + escapeHtml(VNSafe.cssUrl(img)) + '"' : "") + "></span>" +
         "<span><strong>" + escapeHtml(a.title || "(bez názvu)") + "</strong>" +
-        "<small>" + escapeHtml(VNHome.formatDate(a.date)) + flags + "</small></span></button></li>";
+        "<small>" + escapeHtml(VN.formatDate(a.date)) + flags + "</small></span></button></li>";
     }).join("");
   }
   function homeAssign(articleId) {
@@ -4862,7 +4685,6 @@
   var layerBtn  = document.querySelector("#ed-layer");
   var layerMenu = document.querySelector("#ed-layer-menu");
   if (layerBtn) {
-    layerBtn.addEventListener("mousedown", function (e) { e.preventDefault(); });
     layerBtn.addEventListener("click", function (e) {
       e.stopPropagation();
       if (layerMenu) layerMenu.hidden = !layerMenu.hidden;
@@ -4877,27 +4699,13 @@
 
   /* ============================================================
      PAGE BACKGROUND — solid colour OR image, locked behind all
+     (drawn by VN.applyBackground; the homepage frame gets has-bg, the
+     same padding as on the public page)
      ============================================================ */
-  function edApplyBackground(target, bg) {
-    if (!target) return;
-    bg = bg || {};
-    if (bg.image) {
-      target.style.backgroundImage = VNSafe.cssUrl(bg.image);
-      target.style.backgroundSize = "cover";
-      target.style.backgroundPosition = "center";
-      target.style.backgroundColor = bg.color || "";
-    } else {
-      target.style.backgroundImage = "";
-      target.style.backgroundColor = bg.color || "";
-    }
-    // the homepage frame gets the same padding as on the public page
-    target.classList.toggle("has-bg", !!(bg.image || bg.color));
-  }
   // Which background is the toolbar currently editing?
   function edCurrentBg() {
     if (DOC.key === "home") {                 // homepage: part of the draft (published on save)
-      if (!HOME.bg) HOME.bg = { color: "", image: "" };
-      return HOME.bg;
+      return HOME.bg;                         // (set by homeLoad() when the tab opened)
     }
     if (DOC.key && CONTENT) {
       if (!CONTENT[DOC.key]) CONTENT[DOC.key] = {};
@@ -4916,8 +4724,8 @@
   var bgSaveTimer = null;
   function edBgChanged() {
     var bg = edCurrentBg();
-    edApplyBackground(edBgTargetEl(), bg);
-    if (!DOC.key) { fBackground.value = JSON.stringify(bg); return; }
+    VN.applyBackground(edBgTargetEl(), bg || {});
+    if (!DOC.key) return;                                  // article editor: saved with the article (Vydat)
     if (DOC.key === "home") { homeMarkDirty(); return; }   // waits for „Uložit stránku"
     var key = DOC.key;
     clearTimeout(bgSaveTimer);
@@ -4934,7 +4742,6 @@
   var bgClear = document.querySelector("#ed-bg-clear");
 
   if (bgBtn) {
-    bgBtn.addEventListener("mousedown", function (e) { e.preventDefault(); });
     bgBtn.addEventListener("click", function (e) {
       e.stopPropagation();
       if (!bgPanel) return;
@@ -4978,12 +4785,7 @@
           bg.image = url;
           edBgChanged();
           toast("Pozadí nahráno.");
-        } else if (targetKey === "home") {      // finished after leaving the tab: into the draft
-          if (!HOME.bg) HOME.bg = { color: "", image: "" };
-          HOME.bg.image = url;
-          homeMarkDirty();
-          toast("Pozadí domovské stránky nahráno — uloží se tlačítkem „Uložit stránku“.");
-        } else if (targetKey && CONTENT) {
+        } else if (targetKey && CONTENT) {      // „O nás" was left meanwhile (the homepage cannot be: showTab waits)
           if (!CONTENT[targetKey]) CONTENT[targetKey] = {};
           var old = CONTENT[targetKey].background || {};
           CONTENT[targetKey].background = { color: old.color || "", image: url };
@@ -5009,8 +4811,6 @@
   /* ============================================================
      Boot
      ============================================================ */
-  fDate.value = nowLocalInput();
-
   // Probe session state — if cookie is missing, show login immediately.
   api("/api/login")
     .then(function (info) {

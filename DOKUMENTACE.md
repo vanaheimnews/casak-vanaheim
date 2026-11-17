@@ -22,7 +22,7 @@ Web nemá žádný build ani framework. Je to čisté HTML, CSS a JavaScript plu
  prohlížeč čtenáře                 Vercel                          Vercel Blob
  ─────────────────                 ──────                          ───────────
  index.html, article.html  ──►  statické soubory
- script.js, home-layout.js
+ script.js, article.js, …
         │  fetch /api/...
         └──────────────────────►  api/*.js (serverless)  ──►  articles.json, content.json,
                                   + CDN cache 5 min              taxonomy.json, images/, files/
@@ -36,12 +36,13 @@ Web nemá žádný build ani framework. Je to čisté HTML, CSS a JavaScript plu
 | Soubor | Účel |
 |---|---|
 | `index.html`, `script.js` | Veřejný web: Domů (bloky z editoru), Příspěvky (Filtrovat / Seřadit), O nás, Kontakt |
-| `article.html` | Detail článku (`/article?id=…`), vykresluje rozložení z vizuálního editoru |
+| `article.html`, `article.js` | Detail článku (`/article?id=…`): stránka a skript, který článek načte a vykreslí stejně jako editor, přidá boční panely s příspěvky z domovské stránky a SEO údaje |
+| `vn-core.js` | `VN`: drobné funkce, které potřebují všechny stránky (escapování HTML, jména štítků a autorů a jejich počty, formát data, řazení od nejnovějších, pozadí stránky, načtení JSON z API). Načítá se jako první skript |
 | `home-layout.js` | Vykreslování domovské stránky z bloků (sdílí ho web i admin) |
 | `article-layout.js` | `VNArticle`: dvě zóny stránky článku (černá hlavička a bílé tělo), výchozí rozložení hlavičky a převod starších článků. Sdílí ho editor i stránka článku, proto vypadají stejně |
 | `sanitize.js` | `VNSafe`: čištění HTML a odkazů a rozpoznání videí (YouTube, Vimeo, Instagram, TikTok, Spotify) |
-| `style.css` | Styly webu i administrace |
-| `admin/index.html`, `admin/admin.js` | Administrace a vizuální editor článků (velký soubor, rozdělený do sekcí s nadpisy) |
+| `style.css` | Styly webu, stránky článku a vizuálního editoru. Na začátku souboru je obsah sekcí |
+| `admin/index.html`, `admin/admin.js`, `admin/admin.css` | Administrace a vizuální editor článků. `admin.js` je velký soubor rozdělený do sekcí, jejich obsah je na jeho začátku. `admin.css` jsou styly, které potřebuje jen admin |
 | `api/_lib.js` | Společné funkce serveru: přihlášení, **ukládání do Blobu**, tvar dat |
 | `api/_taxonomy.js` | Logika seznamů štítků a autorů, bez přístupu k úložišti |
 | `api/articles.js` | `/api/articles`: číst, vytvořit, upravit, smazat článek |
@@ -50,12 +51,12 @@ Web nemá žádný build ani framework. Je to čisté HTML, CSS a JavaScript plu
 | `api/upload.js` | `/api/upload`: nahrání obrázku nebo PDF |
 | `api/login.js`, `api/logout.js` | Přihlášení do adminu |
 | `api/sitemap.js` | `/sitemap.xml` pro vyhledávače |
-| `tools/dev/` | Lokální testovací server a testy (kapitola 10). Na web se nenasazuje |
+| `tools/dev/` | Lokální testovací server s ukázkovými daty, testy a kontrola, že úprava nic nezměnila (kapitola 10). Na web se nenasazuje |
 | `vercel.json` | Přesměrování (vercel.app → doména, admin jen na své adrese) |
 | `SETUP-ADMIN.md` | Jednorázové nastavení hesla a tokenu ve Vercelu |
-| `.vercelignore` | Co se na web nenahrává (staré prototypy, dokumentace, `tools/`) |
+| `.vercelignore` | Co se na web nenahrává (dokumentace, `tools/`) |
 
-Složky `editorial-news-feed-layout/`, `school-magazine/` a `vanaheim-news/` jsou staré prototypy. Na web se nenasazují.
+Staré prototypy (`editorial-news-feed-layout/`, `school-magazine/`, `vanaheim-news/`) byly odstraněny, zůstávají jen v historii gitu.
 
 ---
 
@@ -281,7 +282,7 @@ node --import ./tools/dev/register.mjs tools/dev/devserver.mjs
 ```
 
 - Web běží na http://localhost:8765 a admin na http://localhost:8765/admin s heslem `test`.
-- Spouští se **skutečné** soubory `api/*.js`, jen místo Vercel Blob se použije úložiště v paměti (`tools/dev/fake-blob.mjs`). Po restartu se smaže.
+- Spouští se **skutečné** soubory `api/*.js`, jen místo Vercel Blob se použije úložiště v paměti (`tools/dev/fake-blob.mjs`) s ukázkovými daty z `tools/dev/seed.mjs` (sedm článků, domovská stránka, O nás, kontakty). Po restartu se vše vrátí do výchozího stavu.
 - Na http://localhost:8765/__ops je vidět, kolik simple a advanced operací co stálo. Hodí se při změnách ukládání.
 - Lokálně jsou web i admin na stejné adrese. Po přihlášení proto i veřejná stránka dostává data jako admin, včetně naplánovaných článků.
 
@@ -290,6 +291,10 @@ node --import ./tools/dev/register.mjs tools/dev/devserver.mjs
 ```bash
 node tools/dev/taxonomy.test.mjs
 ```
+
+**Kontrola, že úprava nic nerozbila** (`tools/dev/parity/`): přehraje asi 20 scénářů (veřejný web, stránka článku v různých šířkách, admin, vizuální editor včetně zpět/znovu, ořezu a dvou zón) proti dvěma verzím webu, například proti poslednímu commitu, a porovná, co zaznamenaly: stav stránky, uložená data, texty hlášek a vzhled každého viditelného prvku (poloha, velikost a asi 90 vlastností CSS). Postup je v `tools/dev/parity/README.md`. Vyplatí se před každým větším zásahem do kódu.
+
+**Verze souborů (`?v=…`):** stránky `index.html`, `article.html` a `admin/index.html` načítají skripty a styly s dovětkem `?v=datum`, například `/vn-core.js?v=2026-11-17`. Při každé změně kteréhokoli `.js` nebo `.css` souboru je potřeba toto datum na všech třech stránkách přepsat na nové (hledat `?v=`). Jinak by si vyhledávač Google mohl poskládat stránku ze starých a nových souborů, které spolu nefungují.
 
 **Kontrola syntaxe** před pushem: `node --check api/articles.js` a podobně pro změněné soubory.
 

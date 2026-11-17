@@ -1,9 +1,11 @@
 /* ============================================================
-   SCHOOL MAGAZINE — script.js (public site)
+   SCHOOL MAGAZINE — script.js (public site: index.html)
    ------------------------------------------------------------
-   Loads articles from /api/articles (backed by Vercel Blob).
-   Falls back to a small sample if the API is unreachable so the
-   page is still usable in local preview.
+   Four pages in one document (Domů, Příspěvky, O nás, Kontakt),
+   switched by the URL hash. The data comes from /api/articles,
+   /api/content and /api/taxonomy; the last answers are kept in
+   localStorage so a refresh paints at once.
+   Requires vn-core.js (VN), sanitize.js (VNSafe), home-layout.js (VNHome).
    ============================================================ */
 (function () {
   "use strict";
@@ -40,34 +42,7 @@
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $all(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
-  function escapeHtml(value) {
-    return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
-      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
-    });
-  }
-
-  // Does an HTML string contain visible text? (an emptied editor leaves "<div><br></div>")
-  function docHasText(html) {
-    var t = document.createElement("template");
-    t.innerHTML = html;
-    return (t.content.textContent || "").replace(/[\s​]/g, "") !== "";
-  }
-
-  // "YYYY-MM-DD" is a calendar date — build it in LOCAL time. new Date(iso)
-  // means UTC midnight, which showed the previous day west of UTC.
-  function formatDate(iso) {
-    if (!iso) return "";
-    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-    var d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    var months = ["ledna","února","března","dubna","května","června",
-                  "července","srpna","září","října","listopadu","prosince"];
-    return d.getDate() + ". " + months[d.getMonth()] + " " + d.getFullYear();
-  }
-
-  // Newest first: exact publish time when known, else the calendar date.
-  function publishKey(a) { return a.publishAt || a.date || ""; }
-  function byDateDesc(a, b) { return publishKey(b).localeCompare(publishKey(a)); }
+  var escapeHtml = VN.escapeHtml, nameKey = VN.nameKey, formatDate = VN.formatDate;
 
   /* ============================================================
      PAGE SWITCHING
@@ -76,7 +51,6 @@
     if (PAGES.indexOf(name) === -1) name = "home";
     PAGES.forEach(function (p) {
       var section = $("#page-" + p);
-      if (!section) return;
       var isActive = p === name;
       section.hidden = !isActive;
       section.classList.toggle("is-active", isActive);
@@ -87,8 +61,7 @@
     if (location.hash !== "#" + name) {
       history.replaceState(null, "", "#" + name);
     }
-    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
-    closeDrawer();
+    window.scrollTo({ top: 0, behavior: "auto" });
   }
 
   function wireNav() {
@@ -108,30 +81,6 @@
   }
 
   /* ============================================================
-     MOBILE DRAWER
-     ============================================================ */
-  function openDrawer() {
-    $("#sidebar").classList.add("is-open");
-    $("#burger").setAttribute("aria-expanded", "true");
-    $("#sidebar-backdrop").hidden = false;
-  }
-  function closeDrawer() {
-    var sidebar = $("#sidebar");
-    if (!sidebar) return;
-    sidebar.classList.remove("is-open");
-    $("#burger").setAttribute("aria-expanded", "false");
-    $("#sidebar-backdrop").hidden = true;
-  }
-  function wireDrawer() {
-    $("#burger").addEventListener("click", function () {
-      var open = $("#sidebar").classList.contains("is-open");
-      if (open) closeDrawer(); else openDrawer();
-    });
-    $("#sidebar-backdrop").addEventListener("click", closeDrawer);
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDrawer(); });
-  }
-
-  /* ============================================================
      CARD RENDERING — cards link to article.html?id=...
      ============================================================ */
   function buildCard(article) {
@@ -141,7 +90,7 @@
     // its only tag was deleted: a placeholder, not a real (filterable) tag
     if (!tagsHtml && article.tagsUnspecified) tagsHtml = '<span class="card-tag card-tag--none">nespecifikováno</span>';
     var authors = (article.authors || []).join(", ");
-    var kindLabel = article.kind === "comic" ? "Komiks" : "Článek";
+    var kindLabel = VN.kindLabel(article);
     var href = "./article.html?id=" + encodeURIComponent(article.id);
     var imgSrc = VNSafe.url(article.image, { image: true });
     var imgHtml = imgSrc
@@ -169,22 +118,6 @@
   /* ============================================================
      RENDERERS
      ============================================================ */
-  /* Page background: solid colour or cover image (admin-configured). */
-  function applyPageBackground(section, bg) {
-    if (!section || !bg) return;
-    var img = bg.image ? VNSafe.cssUrl(bg.image) : "";
-    if (img) {
-      section.style.backgroundImage = img;
-      section.style.backgroundSize = "cover";
-      section.style.backgroundPosition = "center";
-    } else {
-      section.style.backgroundImage = "";
-    }
-    var color = /^#[0-9a-f]{3,8}$/i.test(bg.color || "") ? bg.color : "";
-    section.style.backgroundColor = color;
-    section.classList.toggle("has-bg", !!(img || color));
-  }
-
   /* Homepage = the block layout built in the admin editor (home-layout.js,
      the same renderer the editor uses). Blocks whose article isn't
      published (yet) stay as blank space. Sites without a saved layout get
@@ -193,7 +126,7 @@
     var host = $("#home-canvas");
     // wait for the layout AND the articles, so blocks don't flash empty;
     // if the content API failed (and nothing is cached) use the default layout
-    if (!host || !articlesReady || (!CONTENT && !contentFailed)) return;
+    if (!articlesReady || (!CONTENT && !contentFailed)) return;
     var home = (CONTENT && CONTENT.home) || {};
     var layout = VNHome.normalize(home.layout) || VNHome.defaultLayout(CONTENT || {}, ARTICLES);
     if (articlesFailed) {
@@ -201,7 +134,7 @@
         html: '<p class="empty-state">Články se nepodařilo načíst. Zkuste stránku obnovit.</p>' }] });
     }
     VNHome.render(host, layout, ARTICLES);
-    applyPageBackground($("#home-frame"), home.background);
+    VN.applyBackground($("#home-frame"), home.background);
   }
 
   /* ============================================================
@@ -211,42 +144,16 @@
      Within a section the choice is OR (any ticked tag), between the
      sections AND (a ticked tag AND a ticked author).
      ============================================================ */
-  function nameKey(n) { return String(n == null ? "" : n).normalize("NFC").replace(/\s+/g, " ").trim().toLocaleLowerCase("cs"); }
   function facetNames(list) {
-    if (TAXO && Array.isArray(TAXO[list])) return TAXO[list];
-    // lists not loaded (yet): the names the posts use
-    var seen = {}, out = [];
-    ARTICLES.forEach(function (a) {
-      (a[list] || []).forEach(function (n) { if (!seen[nameKey(n)]) { seen[nameKey(n)] = 1; out.push(n); } });
-    });
-    return out.sort(function (a, b) { return a.localeCompare(b, "cs"); });
-  }
-  function facetCounts(list) {
-    var counts = {};
-    ARTICLES.forEach(function (a) {
-      var seen = {};
-      (a[list] || []).forEach(function (n) {
-        var k = nameKey(n);
-        if (!seen[k]) { seen[k] = 1; counts[k] = (counts[k] || 0) + 1; }
-      });
-    });
-    return counts;
+    // until the global lists are loaded: the names the posts use
+    return TAXO && Array.isArray(TAXO[list]) ? TAXO[list] : VN.namesUsed(ARTICLES, list);
   }
   function renderFacet(listEl, list, selected) {
-    if (!listEl) return;
-    var names = facetNames(list), counts = facetCounts(list), known = {};
+    var names = facetNames(list), known = {};
     names.forEach(function (n) { known[nameKey(n)] = 1; });
     // a ticked entry that no longer exists must not stay as an invisible filter
     selected.forEach(function (k) { if (!known[k]) selected.delete(k); });
-    listEl.innerHTML = names.length ? names.map(function (n) {
-      var k = nameKey(n), c = counts[k] || 0, on = selected.has(k);
-      return (
-        '<label class="tag-checkbox' + (c || on ? "" : " is-empty") + '">' +
-          '<input type="checkbox" value="' + escapeHtml(k) + '"' + (on ? " checked" : "") + (c || on ? "" : " disabled") + ">" +
-          "<span>" + escapeHtml(n) + ' <span class="tag-count">(' + c + ")</span></span>" +
-        "</label>"
-      );
-    }).join("") : '<span class="tag-list-empty">Zatím nic.</span>';
+    listEl.innerHTML = VN.facetHtml(names, VN.countNames(ARTICLES, list), function (k) { return selected.has(k); }, true);
   }
   function renderFilters() {
     renderFacet($("#tag-list"), "tags", selectedTags);
@@ -260,34 +167,30 @@
   function renderArticles() {
     var grid = $("#articles-grid");
     var empty = $("#articles-empty");
-    if (!grid) return;
     var filtered = ARTICLES.filter(function (a) {
       return matchesAny(a, "tags", selectedTags) && matchesAny(a, "authors", selectedAuthors);
-    }).sort(sortOrder === "old" ? function (a, b) { return byDateDesc(b, a); } : byDateDesc);
+    }).sort(sortOrder === "old" ? function (a, b) { return VN.byNewest(b, a); } : VN.byNewest);
     var active = selectedTags.size + selectedAuthors.size;
     var badge = $("#filter-count");
-    if (badge) { badge.textContent = active ? String(active) : ""; badge.hidden = !active; }
+    badge.textContent = active ? String(active) : "";
+    badge.hidden = !active;
     if (filtered.length === 0) {
       grid.innerHTML = "";
-      if (empty) {
-        empty.textContent = ARTICLES.length
-          ? "Žádné příspěvky neodpovídají vybraným filtrům."
-          : (articlesFailed ? "Články se nepodařilo načíst. Zkuste stránku obnovit." : "Zatím žádné příspěvky.");
-        empty.hidden = false;
-      }
+      empty.textContent = ARTICLES.length
+        ? "Žádné příspěvky neodpovídají vybraným filtrům."
+        : (articlesFailed ? "Články se nepodařilo načíst. Zkuste stránku obnovit." : "Zatím žádné příspěvky.");
+      empty.hidden = false;
     } else {
-      if (empty) empty.hidden = true;
+      empty.hidden = true;
       grid.innerHTML = filtered.map(buildCard).join("");
     }
   }
 
   function renderTeam() {
     var grid = $("#team-grid");
-    if (!grid) return;
     var team = (CONTENT && Array.isArray(CONTENT.team)) ? CONTENT.team : [];
-    // No members -> hide the whole „Náš tým" section instead of stock photos.
-    var section = grid.closest(".team");
-    if (section) section.hidden = team.length === 0;
+    // No members -> hide the whole „Náš tým" section.
+    grid.closest(".team").hidden = team.length === 0;
     grid.innerHTML = team.map(function (m) {
       var src = VNSafe.url(m.image, { image: true });
       var img = src
@@ -310,12 +213,12 @@
      ============================================================ */
   function renderAbout() {
     var box = $("#about-text");
-    if (!box || !CONTENT || !CONTENT.about) return;
-    applyPageBackground($("#page-about"), CONTENT.about.background);
+    if (!CONTENT || !CONTENT.about) return;
+    VN.applyBackground($("#page-about"), CONTENT.about.background);
     // Prefer the rich document authored in the admin editor; fall back to the
     // plain-text field for content saved before the editor existed.
     var doc = VNSafe.html(CONTENT.about.doc);
-    if (doc && (/<img\b/i.test(doc) || docHasText(doc))) { box.innerHTML = doc; return; }
+    if (doc && VN.hasContent(doc)) { box.innerHTML = doc; return; }
     var text = CONTENT.about.text || "";
     // Split on blank lines into paragraphs.
     var paras = text.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
@@ -331,10 +234,7 @@
     var list = $("#contact-list");
     var subtitle = $("#contact-subtitle");
     if (!CONTENT || !CONTENT.contact) return;
-    if (subtitle && typeof CONTENT.contact.subtitle === "string") {
-      subtitle.textContent = CONTENT.contact.subtitle;
-    }
-    if (!list) return;
+    if (typeof CONTENT.contact.subtitle === "string") subtitle.textContent = CONTENT.contact.subtitle;
     var items = Array.isArray(CONTENT.contact.items) ? CONTENT.contact.items : [];
     if (items.length === 0) return; // keep fallback markup
     list.innerHTML = items.map(function (c) {
@@ -362,15 +262,12 @@
   function wireFeedTools() {
     var toggle = $("#filter-toggle"), panel = $("#filter-panel");
     var sortBtn = $("#sort-toggle"), sortMenu = $("#sort-menu");
-    if (toggle && panel) {
-      toggle.addEventListener("click", function () {
-        panel.hidden = !panel.hidden;
-        toggle.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
-      });
-    }
+    toggle.addEventListener("click", function () {
+      panel.hidden = !panel.hidden;
+      toggle.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
+    });
     [["#tag-list", selectedTags], ["#author-list", selectedAuthors]].forEach(function (pair) {
       var list = $(pair[0]), selected = pair[1];
-      if (!list) return;
       list.addEventListener("change", function (event) {
         var input = event.target;
         if (!(input instanceof HTMLInputElement)) return;
@@ -380,16 +277,12 @@
         renderArticles();
       });
     });
-    var clearBtn = $("#clear-tags");
-    if (clearBtn) {
-      clearBtn.addEventListener("click", function () {
-        selectedTags.clear();
-        selectedAuthors.clear();
-        renderFilters();
-        renderArticles();
-      });
-    }
-    if (!sortBtn || !sortMenu) return;
+    $("#clear-tags").addEventListener("click", function () {
+      selectedTags.clear();
+      selectedAuthors.clear();
+      renderFilters();
+      renderArticles();
+    });
     function closeSort() { sortMenu.hidden = true; sortBtn.setAttribute("aria-expanded", "false"); }
     sortBtn.addEventListener("click", function () {
       sortMenu.hidden = !sortMenu.hidden;
@@ -412,6 +305,18 @@
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeSort(); });
   }
 
+  function renderArticleViews() {
+    renderHome();
+    renderFilters();
+    renderArticles();
+  }
+  function renderContentViews() {
+    renderAbout();
+    renderTeam();
+    renderContacts();
+    renderHome();
+  }
+
   /* ============================================================
      DATA LOADING
      ============================================================ */
@@ -428,11 +333,7 @@
   }
 
   function loadArticles() {
-    return fetch("/api/articles", { cache: "no-store" })
-      .then(function (r) {
-        if (!r.ok) throw new Error("API " + r.status);
-        return r.json();
-      })
+    return VN.getJson("/api/articles", { cache: "no-store" })
       .then(function (items) {
         ARTICLES = Array.isArray(items) ? items : [];   // an empty magazine stays empty
         articlesFailed = false;
@@ -445,11 +346,7 @@
   }
 
   function loadTaxonomy() {
-    return fetch("/api/taxonomy", { cache: "no-store" })
-      .then(function (r) {
-        if (!r.ok) throw new Error("API " + r.status);
-        return r.json();
-      })
+    return VN.getJson("/api/taxonomy", { cache: "no-store" })
       .then(function (t) {
         TAXO = t;
         writeCache(TAXO_CACHE_KEY, t);
@@ -458,18 +355,11 @@
   }
 
   function loadContent() {
-    return fetch("/api/content", { cache: "no-store" })
-      .then(function (r) {
-        if (!r.ok) throw new Error("API " + r.status);
-        return r.json();
-      })
+    return VN.getJson("/api/content", { cache: "no-store" })
       .then(function (c) {
         CONTENT = c;
         writeCache(CONTENT_CACHE_KEY, c);
-        renderAbout();
-        renderTeam();
-        renderContacts();
-        renderHome();
+        renderContentViews();
       })
       .catch(function () {
         // Offline / API down — keep whatever was rendered from cache; with no
@@ -483,11 +373,9 @@
      BOOT
      ============================================================ */
   function boot() {
-    var yearEl = $("#year");
-    if (yearEl) yearEl.textContent = new Date().getFullYear();
+    $("#year").textContent = new Date().getFullYear();
 
     wireNav();
-    wireDrawer();
     wireFeedTools();
 
     // 1) Instant paint from cache (only what we actually have cached) so a
@@ -501,17 +389,12 @@
     if (cachedArticles.length) {
       ARTICLES = cachedArticles;
       articlesReady = true;
-      renderHome();
-      renderFilters();
-      renderArticles();
+      renderArticleViews();
     }
     var cachedContent = readCache(CONTENT_CACHE_KEY);
     if (cachedContent) {
       CONTENT = cachedContent;
-      renderAbout();
-      renderTeam();
-      renderContacts();
-      renderHome();
+      renderContentViews();
     }
 
     // 2) Reveal the initial tab (already populated from cache when available).
@@ -521,9 +404,7 @@
     // 3) Refresh from the server and re-render (updates cache too).
     loadArticles().then(function () {
       articlesReady = true;
-      renderHome();
-      renderFilters();
-      renderArticles();
+      renderArticleViews();
     });
     loadTaxonomy().then(function () {
       if (!articlesReady) return;        // the articles' render shows the lists too

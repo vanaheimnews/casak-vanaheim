@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Parity check</title>
+  <style>body { margin: 0; font: 14px/1.5 system-ui, sans-serif; } #log { position: fixed; right: 0; bottom: 0; z-index: 9; margin: 0; padding: 8px 12px; background: #111; color: #9f9; }</style>
+</head>
+<body>
+  <pre id="log">parity: open with ?auto to run everything, ?auto&amp;s=pub-home&amp;s=… for some</pre>
+  <script type="module">
+    import { run, scenarios } from "./run.mjs";
+    window.parity = { run, scenarios };
+    const params = new URLSearchParams(location.search), log = document.querySelector("#log");
+    if (params.has("auto")) {
+      const timer = setInterval(() => {
+        const p = window.__progress;
+        if (p) log.textContent = "parity: " + p.done.length + " / " + p.todo + (p.current ? " — " + p.current : "") + (p.failed.length ? " — FAILED: " + p.failed.join(", ") : "");
+      }, 500);
+      run(params.getAll("s")).then((p) => { clearInterval(timer); log.textContent = "parity: finished, " + p.done.length + " scenarios" + (p.failed.length ? " — FAILED: " + p.failed.join(", ") : ""); });
+    }
+  </script>
+</body>
+</html>

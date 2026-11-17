@@ -5,7 +5,7 @@
  * ============================================================ */
 import {
   setAdminCookie, clearAdminCookie, readJsonBody, isAdmin, safeEqual, createSessionToken, adminPassword,
-  isAdminHost
+  isAdminHost, methodNotAllowed
 } from "./_lib.js";
 
 /* Best-effort brute-force brake: after MAX_FAILS wrong passwords from one IP
@@ -42,10 +42,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ loggedIn: await isAdmin(req) });
   }
 
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST, GET");
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return methodNotAllowed(res, "POST, GET");
 
   try {
     // Only on the Vercel-Authentication-protected admin URL (see _lib.js).

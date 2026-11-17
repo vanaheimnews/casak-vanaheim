@@ -17,16 +17,17 @@
  *                  cards show "nespecifikováno" there. It is NOT a tag —
  *                  never in the lists, never filterable, reserved name.
  * ============================================================ */
-export const UNSPECIFIED = "nespecifikováno";
-export const LISTS = ["tags", "authors"];
+const UNSPECIFIED = "nespecifikováno";
+const LISTS = ["tags", "authors"];
 const MAX_NAME = 60;
 
-export function cleanName(v) {
+// The browser applies the same rule: VN.cleanName / VN.nameKey in vn-core.js.
+function cleanName(v) {
   return String(v == null ? "" : v).normalize("NFC").replace(/\s+/g, " ").trim();
 }
 // new names typed by the admin are capped; existing ones are never cut
 function newName(v) { return cleanName(v).slice(0, MAX_NAME).trim(); }
-export function nameKey(v) {
+function nameKey(v) {
   return cleanName(v).toLocaleLowerCase("cs");
 }
 function sortNames(list) {

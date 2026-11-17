@@ -1,14 +1,21 @@
 /* ============================================================
- * Shared serverless helpers — auth, JSON parsing, Blob article store.
- * Files prefixed with "_" are excluded from Vercel's route detection,
- * so this is import-only — not an HTTP endpoint.
+ * Shared serverless helpers of the api/ endpoints. Files prefixed with
+ * "_" are excluded from Vercel's route detection, so this is
+ * import-only — not an HTTP endpoint. Sections, in this order:
+ *   STORAGE               JSON files in Blob (read, write, compare-and-swap)
+ *   ARTICLE STORE         articles.json
+ *   TAXONOMY STORE        taxonomy.json (tag / author lists, see _taxonomy.js)
+ *   CONTENT STORE         content.json (homepage, About, team, contacts)
+ *   SESSIONS AND COOKIES  signed admin session, admin host, admin checks
+ *   REQUEST HELPERS       cache headers, 405 / 500 answers, JSON body
+ *   SHAPING / VALIDATION  what every stored or answered object looks like
  * ============================================================ */
 import { list, put, head, BlobNotFoundError, BlobPreconditionFailedError } from "@vercel/blob";
 import { webcrypto } from "node:crypto";
 import { shapeTaxonomy, seedTaxonomy, restrictNames } from "./_taxonomy.js";
 
-/* ----------------------------------------------------------------
- * Mutable JSON in Blob, frugal with operations.
+/* ================================================================
+ * STORAGE: mutable JSON in Blob, frugal with operations.
  * The Hobby plan includes only 2,000 "advanced" operations (uploads and
  * list() calls) a month; past that Vercel blocks the store for 30 days
  * (every read answers 403). The old scheme wrote a new <base>-<random>.json
@@ -25,7 +32,7 @@ import { shapeTaxonomy, seedTaxonomy, restrictNames } from "./_taxonomy.js";
  * The first read of a file that only exists in the old <base>-<random>.json
  * form copies the newest of those (one list(), once) to the fixed name;
  * the old copies stay as a backup.
- * ---------------------------------------------------------------- */
+ * ================================================================ */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Parsed copy of each file per warm function instance, keyed by ETag: while
 // the file is unchanged, a read costs one head() and no download at all.
@@ -35,7 +42,8 @@ function remember(baseName, etag, value) {
   return structuredClone(value);   // callers get their own copy to change
 }
 
-async function headOrNull(pathname) {
+// Metadata of a stored file, or null when it does not exist (also used by upload.js).
+export async function headOrNull(pathname) {
   try {
     return await head(pathname);
   } catch (e) {
@@ -68,7 +76,8 @@ async function saveJson(baseName, value, opts = {}) {
   return written;
 }
 
-// Old format: the newest <base>-<random>.json (or a stray <base>.json listing).
+// Old format: the newest <base>-<random>.json. Only names that start with
+// "<base>-" count, so the fixed <base>.json itself is never picked up here.
 async function readLegacy(baseName) {
   const result = await list({ prefix: baseName, limit: 1000 });
   const versions = (result.blobs || []).filter(function (b) {
@@ -134,11 +143,126 @@ async function updateJson(baseName, fallback, mutate) {
   err.status = 409;
   throw err;
 }
+
+/* ================================================================
+ * ARTICLE STORE: all articles in a single JSON file (articles.json).
+ * Public access so the static site can read it directly if needed.
+ * Writes go through the admin API endpoints only.
+ * ================================================================ */
+export async function loadArticles() {
+  const data = await loadJson("articles", []);
+  return Array.isArray(data) ? data : [];
+}
+
+// Change the article list safely (see updateJson): mutate(items) -> { value, ... }.
+export async function updateArticles(mutate) {
+  return updateJson("articles", [], (data) => mutate(Array.isArray(data) ? data : []));
+}
+
+/* ================================================================
+ * TAXONOMY STORE: the global tag / author lists in taxonomy.json (the
+ * list rules and the rename / delete cascade are in _taxonomy.js).
+ * ================================================================ */
+/* The current lists. The first read (no taxonomy.json yet) seeds them from
+ * the names the articles use and saves them, once: an entry then never
+ * vanishes just because its last post was edited or deleted, and later
+ * reads need no list() call. GET /api/taxonomy reads through here too, so
+ * a public read may be the one that creates the file. */
+export async function ensureTaxonomy(articles) {
+  const data = await loadJson("taxonomy", null);
+  if (data) return shapeTaxonomy(data);
+  const seeded = seedTaxonomy(articles || await loadArticles());
+  try {
+    await saveJson("taxonomy", seeded, { etag: null });      // create only
+  } catch (e) {
+    return shapeTaxonomy(await loadJson("taxonomy", seeded));  // a parallel request created it
+  }
+  return seeded;
+}
+
+// Change the lists safely: mutate(currentTaxonomy) -> { value, ... }.
+export async function updateTaxonomy(mutate, articles) {
+  return updateJson("taxonomy", null, (data) =>
+    mutate(data ? shapeTaxonomy(data) : seedTaxonomy(articles || [])));
+}
+
+/* An article may only use names from the global lists (spelled as there).
+ * Tags set again end the "nespecifikováno" fallback state. */
+export function restrictToTaxonomy(article, taxonomy, stored) {
+  const asked = (article.tags || []).length;
+  article.tags = restrictNames(article.tags, taxonomy.tags);
+  article.authors = restrictNames(article.authors, taxonomy.authors);
+  // left with no tag because the stored post had the fallback, or because
+  // the tags sent no longer exist (deleted meanwhile): show "nespecifikováno"
+  article.tagsUnspecified = !article.tags.length && (!!(stored && stored.tagsUnspecified) || asked > 0);
+  return article;
+}
+
+/* ================================================================
+ * CONTENT STORE: the site content in a single JSON file (content.json):
+ * homepage (block layout, background), About (text, document,
+ * background), team members, contact subtitle and contact items.
+ * shapeContent() below defines the exact shape.
+ * ================================================================ */
+// What content.json starts as (written by the first read), and the value
+// shapeContent() falls back to for a missing or invalid field.
+const DEFAULT_CONTENT = {
+  home: {
+    doc: "",
+    // legacy: no page or editor reads or writes home.theme since 721b058
+    theme: { period: "měsíce", desc: "dané téma písmem" },
+    pinned: [],
+    background: { color: "", image: "" }
+  },
+  about: {
+    doc: "",
+    background: { color: "", image: "" },
+    text:
+      "Školní magazín vznikl v roce 2022 jako nápad několika studentů, kteří chtěli dát svým spolužákům prostor pro vlastní texty, ilustrace a komiksy. Z malého newsletteru se postupně stal pravidelně vycházející časopis, na kterém se podílí celá redakce.\n\n" +
+      "Každý týden se scházíme ve čtvrtek odpoledne ve školní knihovně. Plánujeme nové vydání, rozdělujeme témata, společně čteme rozpracované texty a chystáme rozhovory. Jednou za měsíc vychází nové číslo — tištěné i online."
+  },
+  team: [
+    { id: "t1", name: "Anna Nováková",   role: "Šéfredaktorka",      image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80" },
+    { id: "t2", name: "Petr Svoboda",    role: "Redaktor",           image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80" },
+    { id: "t3", name: "Klára Dvořáková", role: "Ilustrátorka",       image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=400&q=80" },
+    { id: "t4", name: "Tomáš Marek",     role: "Fotograf",           image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=400&q=80" },
+    { id: "t5", name: "Eliška Horáková", role: "Korektorka",         image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80" },
+    { id: "t6", name: "Martin Král",     role: "Grafik",             image: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=400&q=80" },
+    { id: "t7", name: "Jan Bárta",       role: "Autor komiksů",      image: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=400&q=80" },
+    { id: "t8", name: "Lucie Pokorná",   role: "Pedagogický dohled", image: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80" }
+  ],
+  contact: {
+    subtitle: "Napište nám nebo nás sledujte na sítích.",
+    items: [
+      { id: "c1", type: "Email",     label: "magazin@skola.cz", url: "mailto:magazin@skola.cz" },
+      { id: "c2", type: "Email",     label: "info@skola.cz",    url: "mailto:info@skola.cz" },
+      { id: "c3", type: "YouTube",   label: "@nase-skola",      url: "https://youtube.com/" },
+      { id: "c4", type: "Instagram", label: "@nase.skola",      url: "https://instagram.com/" },
+      { id: "c5", type: "Facebook",  label: "/nase.skola",      url: "https://facebook.com/" }
+    ]
+  }
+};
+
+export async function loadContent() {
+  const data = await loadJson("content", DEFAULT_CONTENT);   // never saved: created once from the defaults
+  return data ? shapeContent(data) : DEFAULT_CONTENT;
+}
+
+export async function saveContent(content) {
+  const shaped = shapeContent(content);
+  await saveJson("content", shaped);
+  return shaped;
+}
+
+/* ================================================================
+ * SESSIONS AND COOKIES: an admin request needs the protected admin host
+ * AND a valid signed session cookie (set by /api/login).
+ * ================================================================ */
 const COOKIE_NAME = "vn_admin";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 14; // 14 days
 
 /* ---------------- cookies ---------------- */
-export function parseCookies(req) {
+function parseCookies(req) {
   const header = req.headers.cookie || "";
   const out = {};
   header.split(";").forEach((part) => {
@@ -202,7 +326,7 @@ export async function createSessionToken() {
   return payload + "." + (await hmac(key, payload));
 }
 
-export async function verifySessionToken(token) {
+async function verifySessionToken(token) {
   const parts = String(token || "").split(".");
   if (parts.length !== 4 || parts[0] !== "v1") return false;
   const exp = Number(parts[1]);
@@ -221,10 +345,10 @@ export async function verifySessionToken(token) {
  * ADMIN_HOST env var can override it (e.g. after renaming the project/team).
  * ------------------------------------------------------------------ */
 const DEFAULT_ADMIN_HOST = "casak-vanaheim-git-main-vanaheim-news-projects.vercel.app";
-export function adminHost() {
+function adminHost() {
   return String(process.env.ADMIN_HOST || DEFAULT_ADMIN_HOST).trim().toLowerCase();
 }
-export function requestHost(req) {
+function requestHost(req) {
   return String(req.headers["x-forwarded-host"] || req.headers.host || "")
     .split(",")[0].trim().toLowerCase().replace(/:\d+$/, "");
 }
@@ -232,6 +356,37 @@ export function isAdminHost(req) {
   return requestHost(req) === adminHost();
 }
 
+export async function isAdmin(req) {
+  if (!isAdminHost(req)) return false;
+  return verifySessionToken(parseCookies(req)[COOKIE_NAME]);
+}
+
+// Setting and clearing share this one attribute list, so a later change
+// (Path, SameSite …) cannot reach only one of them.
+function writeAdminCookie(res, value, maxAge) {
+  res.setHeader(
+    "Set-Cookie",
+    `${COOKIE_NAME}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`
+  );
+}
+export function setAdminCookie(res, value) {
+  writeAdminCookie(res, value, COOKIE_MAX_AGE);
+}
+export function clearAdminCookie(res) {
+  writeAdminCookie(res, "", 0);
+}
+
+export async function requireAdmin(req, res) {
+  if (!(await isAdmin(req))) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+/* ================================================================
+ * REQUEST HELPERS: cache headers, the 405 / 500 answers, the JSON body.
+ * ================================================================ */
 /* Public GET answers are cached by Vercel's CDN for 5 minutes (then
  * refreshed in the background), so visitors don't each cost a Blob read;
  * a new post shows up on the public site within about 5 minutes.
@@ -242,31 +397,10 @@ export function setReadCache(req, res) {
     : "public, max-age=0, s-maxage=300, stale-while-revalidate=600");
 }
 
-export async function isAdmin(req) {
-  if (!isAdminHost(req)) return false;
-  return verifySessionToken(parseCookies(req)[COOKIE_NAME]);
-}
-
-export function setAdminCookie(res, value) {
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE_NAME}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}`
-  );
-}
-
-export function clearAdminCookie(res) {
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`
-  );
-}
-
-export async function requireAdmin(req, res) {
-  if (!(await isAdmin(req))) {
-    res.status(401).json({ error: "Unauthorized" });
-    return false;
-  }
-  return true;
+// 405 for a method the endpoint does not handle; `allow` lists the ones it does.
+export function methodNotAllowed(res, allow) {
+  res.setHeader("Allow", allow);
+  return res.status(405).json({ error: "Method not allowed" });
 }
 
 /* 500 response. Internal details (useful: e.g. a missing Blob token) are
@@ -297,116 +431,27 @@ export async function readJsonBody(req) {
   });
 }
 
-/* ---------------- article store (Blob) ----------------
- *  Articles live as a single JSON file (articles.json) in Blob.
- *  Public access so the static site can read it directly if needed.
- *  Writes go through the admin API endpoints only.
- * ------------------------------------------------------- */
-export async function loadArticles() {
-  const data = await loadJson("articles", []);
-  return Array.isArray(data) ? data : [];
+/* ================================================================
+ * SHAPING / VALIDATION: every object is normalised here before it is
+ * stored or answered: missing fields get defaults, wrong types are
+ * converted.
+ * ================================================================ */
+export function uid() {
+  return "a-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 }
+// A trimmed string ("" for any falsy value, 0 included).
+const text = (v) => String(v || "").trim();
+// Trimmed, non-empty strings from an array or from a comma-separated string.
+const nameList = (v) => (Array.isArray(v) ? v : String(v || "").split(",")).map((t) => String(t).trim()).filter(Boolean);
 
-export async function saveArticles(articles) {
-  await saveJson("articles", articles);
-}
-
-// Change the article list safely (see updateJson): mutate(items) -> { value, ... }.
-export async function updateArticles(mutate) {
-  return updateJson("articles", [], (data) => mutate(Array.isArray(data) ? data : []));
-}
-
-/* ---------------- tag / author lists (Blob) ----------------
- *  taxonomy.json holds the global lists (see _taxonomy.js). Until the
- *  first change is saved, the lists are the names the articles use.
- * ----------------------------------------------------------- */
-/* The first time (no taxonomy.json yet) the lists seeded from the articles
- * are saved, once: an entry then never vanishes just because its last post
- * was edited or deleted, and later reads need no list() call. */
-export async function ensureTaxonomy(articles) {
-  const data = await loadJson("taxonomy", null);
-  if (data) return shapeTaxonomy(data);
-  const seeded = seedTaxonomy(articles || await loadArticles());
-  try {
-    await saveJson("taxonomy", seeded, { etag: null });      // create only
-  } catch (e) {
-    return shapeTaxonomy(await loadJson("taxonomy", seeded));  // a parallel request created it
-  }
-  return seeded;
-}
-export const loadTaxonomy = ensureTaxonomy;
-
-export async function saveTaxonomy(taxonomy) {
-  const shaped = shapeTaxonomy(taxonomy);
-  await saveJson("taxonomy", shaped);
-  return shaped;
-}
-
-// Change the lists safely: mutate(currentTaxonomy) -> { value, ... }.
-export async function updateTaxonomy(mutate, articles) {
-  return updateJson("taxonomy", null, (data) =>
-    mutate(data ? shapeTaxonomy(data) : seedTaxonomy(articles || [])));
-}
-
-/* An article may only use names from the global lists (spelled as there).
- * Tags set again end the "nespecifikováno" fallback state. */
-export function restrictToTaxonomy(article, taxonomy, stored) {
-  const asked = (article.tags || []).length;
-  article.tags = restrictNames(article.tags, taxonomy.tags);
-  article.authors = restrictNames(article.authors, taxonomy.authors);
-  // left with no tag because the stored post had the fallback, or because
-  // the tags sent no longer exist (deleted meanwhile): show "nespecifikováno"
-  article.tagsUnspecified = !article.tags.length && (!!(stored && stored.tagsUnspecified) || asked > 0);
-  return article;
-}
-
-/* ---------------- site content store (Blob) ----------------
- *  About text, team members, contact subtitle and contact items
- *  live as a single JSON file (content.json) in Blob.
- * ----------------------------------------------------------- */
-export const DEFAULT_CONTENT = {
-  home: {
-    doc: "",
-    theme: { period: "měsíce", desc: "dané téma písmem" },
-    pinned: [],
-    background: { color: "", image: "" }
-  },
-  about: {
-    doc: "",
-    background: { color: "", image: "" },
-    text:
-      "Školní magazín vznikl v roce 2022 jako nápad několika studentů, kteří chtěli dát svým spolužákům prostor pro vlastní texty, ilustrace a komiksy. Z malého newsletteru se postupně stal pravidelně vycházející časopis, na kterém se podílí celá redakce.\n\n" +
-      "Každý týden se scházíme ve čtvrtek odpoledne ve školní knihovně. Plánujeme nové vydání, rozdělujeme témata, společně čteme rozpracované texty a chystáme rozhovory. Jednou za měsíc vychází nové číslo — tištěné i online."
-  },
-  team: [
-    { id: "t1", name: "Anna Nováková",   role: "Šéfredaktorka",      image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80" },
-    { id: "t2", name: "Petr Svoboda",    role: "Redaktor",           image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80" },
-    { id: "t3", name: "Klára Dvořáková", role: "Ilustrátorka",       image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=400&q=80" },
-    { id: "t4", name: "Tomáš Marek",     role: "Fotograf",           image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=400&q=80" },
-    { id: "t5", name: "Eliška Horáková", role: "Korektorka",         image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80" },
-    { id: "t6", name: "Martin Král",     role: "Grafik",             image: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=400&q=80" },
-    { id: "t7", name: "Jan Bárta",       role: "Autor komiksů",      image: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=400&q=80" },
-    { id: "t8", name: "Lucie Pokorná",   role: "Pedagogický dohled", image: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80" }
-  ],
-  contact: {
-    subtitle: "Napište nám nebo nás sledujte na sítích.",
-    items: [
-      { id: "c1", type: "Email",     label: "magazin@skola.cz", url: "mailto:magazin@skola.cz" },
-      { id: "c2", type: "Email",     label: "info@skola.cz",    url: "mailto:info@skola.cz" },
-      { id: "c3", type: "YouTube",   label: "@nase-skola",      url: "https://youtube.com/" },
-      { id: "c4", type: "Instagram", label: "@nase.skola",      url: "https://instagram.com/" },
-      { id: "c5", type: "Facebook",  label: "/nase.skola",      url: "https://facebook.com/" }
-    ]
-  }
-};
-
+/* ---------------- site content ---------------- */
 function shapeMember(m) {
   m = m || {};
   return {
     id:    m.id || uid(),
-    name:  String(m.name || "").trim(),
-    role:  String(m.role || "").trim(),
-    image: String(m.image || "").trim()
+    name:  text(m.name),
+    role:  text(m.role),
+    image: text(m.image)
   };
 }
 function shapeContactItem(c) {
@@ -414,22 +459,24 @@ function shapeContactItem(c) {
   return {
     id:    c.id || uid(),
     type:  String(c.type || "Odkaz").trim(),
-    label: String(c.label || "").trim(),
-    url:   String(c.url || "").trim()
+    label: text(c.label),
+    url:   text(c.url)
   };
 }
 /* Canvas background: a solid colour OR an image (image wins when both set). */
-export function shapeBackground(b) {
+function shapeBackground(b) {
   b = b || {};
   return {
-    color: String(b.color || "").trim(),
-    image: String(b.image || "").trim()
+    color: text(b.color),
+    image: text(b.image)
   };
 }
-/* Homepage block layout (see home-layout.js; same rules as VNHome.normalize):
- * a grid 4 boxes wide; every block starts at grid column col (0-3), blocks
- * never overlap or pass column 4; text {span 1-4, html} or post {size A-D,
- * articleId}. Old layouts without col (row.align) are packed in order.
+/* Homepage block layout. Same placement rules as VNHome.normalize() in
+ * home-layout.js: the browser cannot import this module, so the two copies
+ * are kept in step by hand. A grid 4 boxes wide; every block starts at grid
+ * column col (0-3), blocks never overlap or pass column 4; text {span 1-4,
+ * html} or post {size A-D, articleId}. Old layouts without col (row.align)
+ * are packed in order.
  * null = no layout saved yet (the site then shows VNHome.defaultLayout). */
 const POST_SIZES = { A: 1, B: 2, C: 3, D: 4 };
 function shapeLayout(l) {
@@ -480,7 +527,7 @@ function shapeLayout(l) {
 }
 
 /* Normalise an arbitrary object into the full content shape. */
-export function shapeContent(d) {
+function shapeContent(d) {
   d = d || {};
   const home = d.home || {};
   const theme = home.theme || {};
@@ -489,16 +536,18 @@ export function shapeContent(d) {
   const DH = DEFAULT_CONTENT.home;
   return {
     home: {
-      // Rich-text document (HTML) authored in the homepage editor.
+      // doc, theme and pinned are legacy (the homepage before the block
+      // layout): no editor changes them any more, the admin only sends back
+      // what it loaded. doc and pinned (article ids, in pin order) are still
+      // read by VNHome.defaultLayout until a layout is saved; theme is read
+      // by nothing since 721b058.
       doc: typeof home.doc === "string" ? home.doc : DH.doc,
       theme: {
         period: typeof theme.period === "string" ? theme.period : DH.theme.period,
         desc:   typeof theme.desc   === "string" ? theme.desc   : DH.theme.desc
       },
-      // Article ids locked to the top of the feed, in pin order.
-      pinned: Array.isArray(home.pinned)
-                ? home.pinned.map((id) => String(id).trim()).filter(Boolean)
-                : DH.pinned,
+      // only an array counts (unlike tags, a string is not split into ids)
+      pinned: Array.isArray(home.pinned) ? nameList(home.pinned) : DH.pinned,
       background: shapeBackground(home.background),
       // Block layout from the homepage editor (null until first saved)
       layout: shapeLayout(home.layout)
@@ -516,22 +565,6 @@ export function shapeContent(d) {
   };
 }
 
-export async function loadContent() {
-  const data = await loadJson("content", DEFAULT_CONTENT);   // never saved: created once from the defaults
-  return data ? shapeContent(data) : DEFAULT_CONTENT;
-}
-
-export async function saveContent(content) {
-  const shaped = shapeContent(content);
-  await saveJson("content", shaped);
-  return shaped;
-}
-
-/* ---------------- article shape ---------------- */
-export function uid() {
-  return "a-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-}
-
 /* ---------------- scheduling ----------------
  * An article is public once its publish moment has passed:
  *   - publishAt (exact ISO timestamp) when present,
@@ -542,7 +575,7 @@ export function uid() {
  * article simply starts appearing at its time.
  * ------------------------------------------- */
 const SITE_TZ = "Europe/Prague";
-export function pragueToday() {
+function pragueToday() {
   // en-CA formats as YYYY-MM-DD
   return new Intl.DateTimeFormat("en-CA", { timeZone: SITE_TZ }).format(new Date());
 }
@@ -551,7 +584,7 @@ function normalizeIso(v) {
   const t = Date.parse(v);
   return isNaN(t) ? "" : new Date(t).toISOString();
 }
-export function publishTime(a) {
+function publishTime(a) {
   const t = a.publishAt ? Date.parse(a.publishAt) : NaN;
   return isNaN(t) ? null : t;
 }
@@ -566,27 +599,18 @@ export function compareNewest(a, b) {
   return sortKey(b) - sortKey(a);
 }
 
+/* ---------------- article shape ---------------- */
 export function shapeArticle(data) {
-  const tags = Array.isArray(data.tags)
-    ? data.tags.map((t) => String(t).trim()).filter(Boolean)
-    : String(data.tags || "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
+  const tags = nameList(data.tags);
   return {
     id:       data.id || uid(),
-    title:    String(data.title || "").trim(),
-    body:     String(data.body || "").trim(),
-    image:    String(data.image || "").trim(),
+    title:    text(data.title),
+    body:     text(data.body),
+    image:    text(data.image),
     tags,
     // a deleted tag left the article with none: cards show "nespecifikováno"
     tagsUnspecified: data.tagsUnspecified === true && !tags.length,
-    authors:  Array.isArray(data.authors)
-                ? data.authors.map((a) => String(a).trim()).filter(Boolean)
-                : String(data.authors || "")
-                    .split(",")
-                    .map((a) => a.trim())
-                    .filter(Boolean),
+    authors:  nameList(data.authors),
     date:     data.date || pragueToday(),
     // Exact publish moment (ISO, UTC). Empty for legacy date-only records.
     publishAt: normalizeIso(data.publishAt),

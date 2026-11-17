@@ -12,23 +12,16 @@
  * blocks are span boxes wide, auto height. Free boxes stay blank. An empty
  * post block (or one whose article isn't published) is blank space for
  * readers and a "+" placeholder in the editor.
- * Requires sanitize.js (VNSafe) to be loaded first.
+ * Requires vn-core.js (VN) and sanitize.js (VNSafe) to be loaded first.
  * ============================================================ */
 (function () {
   "use strict";
 
   var POST_SIZES = { A: 1, B: 2, C: 3, D: 4 };
-  var MONTHS = ["ledna", "února", "března", "dubna", "května", "června",
-                "července", "srpna", "září", "října", "listopadu", "prosince"];
+  var uid = VN.uid;
 
-  function uid(prefix) {
-    return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
-  }
   function blockWidth(b) {
     return b.kind === "post" ? POST_SIZES[b.size] : b.span;
-  }
-  function rowUsed(row, exceptId) {
-    return row.blocks.reduce(function (sum, b) { return b.id === exceptId ? sum : sum + blockWidth(b); }, 0);
   }
   // Grid columns (0-3) of a row taken by blocks other than exceptId.
   function rowCells(row, exceptId) {
@@ -110,13 +103,11 @@
       blocks: [{ id: uid("b"), kind: "text", span: 4, col: 0,
                  html: "<h1>Domovská stránka</h1><p style=\"color: #5b6770;\">Nejnovější příspěvky našeho magazínu.</p>" }]
     }];
-    if (home.doc && docHasText(home.doc)) {
+    if (home.doc && VN.hasContent(home.doc)) {
       rows.push({ id: uid("r"), blocks: [{ id: uid("b"), kind: "text", span: 4, col: 0, html: home.doc }] });
     }
     var pinned = Array.isArray(home.pinned) ? home.pinned : [];
-    var list = (liveArticles || []).slice().sort(function (a, b) {
-      return String(b.publishAt || b.date || "").localeCompare(String(a.publishAt || a.date || ""));
-    });
+    var list = (liveArticles || []).slice().sort(VN.byNewest);
     var ordered = pinned.map(function (id) { return list.filter(function (a) { return a.id === id; })[0]; })
       .filter(Boolean)
       .concat(list.filter(function (a) { return pinned.indexOf(a.id) === -1; }))
@@ -134,18 +125,6 @@
     return { rows: rows };
   }
 
-  function docHasText(html) {
-    var t = document.createElement("template");
-    t.innerHTML = html;
-    return (t.content.textContent || "").replace(/[\s​]/g, "") !== "" || !!t.content.querySelector("img");
-  }
-  function formatDate(iso) {
-    if (!iso) return "";
-    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-    var d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.getDate() + ". " + MONTHS[d.getMonth()] + " " + d.getFullYear();
-  }
   // Card picture: thumbnail, else the first image block, else a YouTube thumbnail.
   function thumb(a) {
     var src = a.image;
@@ -157,14 +136,16 @@
     }
     return VNSafe.url(src, { image: true });
   }
-  // Plain-text excerpt for C/D cards (body or the article's text blocks).
-  function excerpt(a) {
+  // The article's text without markup: its plain-text body and its text blocks.
+  function plainText(a) {
     var t = document.createElement("template");
     t.innerHTML = (Array.isArray(a.elements) ? a.elements : [])
       .filter(function (el) { return el.type === "text" && !el.isTitle && !el.role; })
       .map(function (el) { return "<p>" + VNSafe.html(el.content) + "</p>"; }).join(" ");
-    return ((a.body || "") + " " + t.content.textContent).replace(/\s+/g, " ").trim().slice(0, 1200);
+    return ((a.body || "") + " " + t.content.textContent).replace(/\s+/g, " ").trim();
   }
+  // Excerpt for C/D cards (the stylesheet clamps it to a few lines).
+  function excerpt(a) { return plainText(a).slice(0, 1200); }
 
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -191,11 +172,11 @@
     var body = el("div", "hl-body");
     body.appendChild(el("h2", "hl-title", a.title || "(bez názvu)"));
     var meta = el("div", "hl-meta");
-    var time = el("time", null, formatDate(a.date));
+    var time = el("time", null, VN.formatDate(a.date));
     time.dateTime = a.date || "";
     meta.appendChild(time);
     if ((a.authors || []).length) meta.appendChild(el("span", null, a.authors.join(", ")));
-    meta.appendChild(el("span", null, a.kind === "comic" ? "Komiks" : "Článek"));
+    meta.appendChild(el("span", null, VN.kindLabel(a)));
     body.appendChild(meta);
     if (size === "C" || size === "D") {
       var ex = excerpt(a);
@@ -217,11 +198,9 @@
     var canvas = el("div", "hl-canvas" + (opts.editing ? " is-editing" : ""));
     ((layout && layout.rows) || []).forEach(function (row) {
       var rowEl = el("div", "hl-row");
-      rowEl.dataset.rowId = row.id;
       row.blocks.forEach(function (b) {
         var node = el("div", "hl-block");
         node.dataset.blockId = b.id;
-        node.style.setProperty("--span", blockWidth(b));
         var col = b.col >= 0 && b.col <= 3 ? b.col : 0;
         node.style.gridColumn = (col + 1) + " / span " + blockWidth(b);   // its grid boxes
         if (b.kind === "text") {
@@ -252,7 +231,6 @@
         if (opts.decorate) opts.decorate(node, b, row);
         rowEl.appendChild(node);
       });
-      if (opts.decorateRow) opts.decorateRow(rowEl, row);
       canvas.appendChild(rowEl);
     });
     root.innerHTML = "";
@@ -261,17 +239,15 @@
   }
 
   window.VNHome = {
-    POST_SIZES: POST_SIZES,
     normalize: normalize,
     defaultLayout: defaultLayout,
     render: render,
     blockWidth: blockWidth,
-    rowUsed: rowUsed,
     rowCells: rowCells,
     spanFree: spanFree,
     nearestFreeCol: nearestFreeCol,
-    uid: uid,
     thumb: thumb,
-    formatDate: formatDate
+    plainText: plainText,
+    excerpt: excerpt
   };
 })();
