@@ -308,3 +308,18 @@ node tools/dev/taxonomy.test.mjs
 - **Editor domovské stránky** sdílí lištu formátování s editorem článků. Dvě okrajové situace (rychlé přepínání bloků během načítání) se nijak nevyřešily.
 - **Velikost `articles.json`** roste (kapitola 7). Při velkém množství článků zvážit rozdělení po rocích.
 - **Hlídání limitu:** Vercel posílá e-mail, když se limit blíží. Stojí za to mít jako kontaktní e-mail účtu adresu, kterou někdo čte.
+
+### Drobné chyby nalezené při úklidu kódu (listopad 2026), záměrně neopravené
+
+Úklid kódu nesměl nic změnit na vzhledu ani chování, proto tyto nalezené chyby zůstaly, jak byly. Dají se opravit každá zvlášť:
+
+- **Editor:** obrázky jsou v editoru o 20 px níž než u čtenáře (pravidlo `.ed-canvas img` ve `style.css`), a rámeček ořezu je proto o kousek posunutý proti tomu, co se uloží.
+- **Příspěvky:** karty vedou na `./article.html?id=…` (jedno přesměrování navíc) a nepoužívají náhradní obrázek (první obrázek nebo video z článku), který používá domovská stránka a boční panely.
+- **Úryvek a popis pro vyhledávače** obsahují text článku dvakrát (tělo a textové bloky za sebou).
+- **Krátké stránky** (například Kontakt) se na širších obrazovkách dají posunout o 50 px: `.content` počítá s hlavičkou vysokou 170 px, skutečná má 220 px.
+- **Ukládání obsahu** (`PUT /api/content`, tedy domovská stránka, O nás, tým, kontakty) nemá ochranu proti souběžnému ukládání ze dvou oken: vyhraje to pozdější.
+- **O nás:** obrázek, který se ještě nahrává do textu, se ztratí, když admin mezitím přepne záložku. Editor „O nás“ a veřejná stránka mají navíc trochu jiné řádkování (dvě různé sady stylů).
+- **Lišta formátování:** panel barev, nabídka vrstev a panel pozadí mohou být otevřené zároveň. Na záložkách Domů a O nás se panel barev nezavře kliknutím vedle.
+- **Firefox:** po přetažení souboru do textu domovské stránky nebo „O nás“ se kurzor neumístí na místo puštění.
+- **Kontakty:** když se smažou všechny, veřejný web je ještě jednou ukáže z paměti prohlížeče, než se stránka znovu načte.
+- **`ADMIN_HOST`** sama admin na jinou adresu nepřesune: stejná adresa je napevno ve `vercel.json` (třikrát) a musí se změnit spolu s ní.

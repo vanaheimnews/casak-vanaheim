@@ -10,11 +10,36 @@
  *   PUT    /api/articles?id=X    body = patch
  *   DELETE /api/articles?id=X
  *   POST   /api/upload           { filename, dataUrl }
+ *   GET    /api/content          -> { about, team, contact, home }
+ *   PUT    /api/content          body = the whole content object
+ *   GET    /api/taxonomy         -> { tags, authors }
+ *   POST   /api/taxonomy         { list, action, name, to }
+ * ------------------------------------------------------------
+ * Sections, in file order:
+ *   HELPERS                  name rules, publish date / time, api(), toast()
+ *   LOGIN FLOW               login form, logout, showLogin() / showShell()
+ *   THE ARTICLE DRAFT        DRAFT, the article the editor works on; saveArticle()
+ *   ARTICLE LIST             article cards + tag / author filter
+ *   FILE UPLOAD              images + PDF through /api/upload
+ *   TAB SWITCHING            Příspěvky / Domovská stránka / O nás / Kontakt
+ *   CONTENT                  /api/content: the „O nás" save, team members, contacts
+ *   GLOBAL TAG / AUTHOR LISTS  „Upravit filtry" + the editor's tag / author pickers
+ *   VISUAL ARTICLE EDITOR    state, open / close, Data panel, blocks, drag / resize,
+ *                            inline editing, embeds, the formatting toolbar
+ *   LAYERS                   „Zarovnat vrstvy" (z-index of the blocks)
+ *   PAGE BACKGROUND          colour / image behind an article, „O nás", the homepage
+ *   TWO ZONES                the black hero + the white body of an article
+ *   UNDO / REDO              history of the article canvas
+ *   CROP                     „Oříznout" for a picture
+ *   EDITOR BAR 1             Zpět / Smazat / Vydat; leaving the page; dropped files
+ *   DOCUMENT EDITING         the „O nás" document + docking the toolbar
+ *   HOMEPAGE LAYOUT EDITOR   the homepage block grid (a draft until „Uložit stránku")
+ *   BOOT                     session probe
  * ============================================================ */
 (function () {
   "use strict";
 
-  /* ----- DOM ----- */
+  /* ---------- login screen, page shell, header, toast ---------- */
   var loginScreen = document.querySelector("#login-screen");
   var loginForm   = document.querySelector("#login-form");
   var loginPass   = document.querySelector("#login-password");
@@ -25,49 +50,8 @@
   var adminTag    = document.querySelector("#admin-tag");
   var toastEl     = document.querySelector("#toast");
 
-  /* ----- Tab navigation + sections ----- */
-  var navLinks    = Array.prototype.slice.call(document.querySelectorAll(".admin-nav-link[data-tab]"));
-  var sections    = {
-    articles: document.querySelector("#section-articles"),
-    home:     document.querySelector("#section-home"),
-    about:    document.querySelector("#section-about"),
-    contact:  document.querySelector("#section-contact")
-  };
-
-  /* ----- About tab refs ----- */
-  var saveAboutBtn = document.querySelector("#save-about-btn");
-  var teamForm     = document.querySelector("#team-form");
-  var tmId         = document.querySelector("#tm-id");
-  var tmName       = document.querySelector("#tm-name");
-  var tmRole       = document.querySelector("#tm-role");
-  var tmImageUrl   = document.querySelector("#tm-image-url");
-  var tmImageFile  = document.querySelector("#tm-image-file");
-  var tmPreview    = document.querySelector("#tm-preview");
-  var teamSubmit   = document.querySelector("#team-submit-btn");
-  var teamReset    = document.querySelector("#team-reset-btn");
-  var teamTitle    = document.querySelector("#team-form-title");
-  var teamTbody    = document.querySelector("#team-tbody");
-
-  /* ----- Contact tab refs ----- */
-  var subtitleInput = document.querySelector("#contact-subtitle-input");
-  var saveSubBtn    = document.querySelector("#save-subtitle-btn");
-  var contactForm   = document.querySelector("#contact-form");
-  var ctId          = document.querySelector("#ct-id");
-  var ctType        = document.querySelector("#ct-type");
-  var ctLabel       = document.querySelector("#ct-label");
-  var ctUrl         = document.querySelector("#ct-url");
-  var contactSubmit = document.querySelector("#contact-submit-btn");
-  var contactReset  = document.querySelector("#contact-reset-btn");
-  var contactTitle  = document.querySelector("#contact-form-title");
-  var contactTbody  = document.querySelector("#contact-tbody");
-
-  /* ----- State ----- */
-  var tmPendingImage  = "";  // team member photo: URL after a file upload OR a URL the user typed.
-  var CONTENT = null;        // cached site content (about/team/contact).
-  var contentLoaded = false;
-
   /* ============================================================
-     Helpers
+     HELPERS — name rules, publish date / time, api(), toast()
      ============================================================ */
   // Shared with the public pages (vn-core.js): HTML escaping and the tag /
   // author name rules (NFC, collapsed spaces, any letter case — as api/_taxonomy.js).
@@ -151,19 +135,29 @@
     toastTimer = setTimeout(function () { toastEl.classList.remove("is-visible"); }, 2400);
   }
 
+  // The usual end of a failed API call: an expired session shows the login
+  // form, any other error a toast ("Chyba: …" unless another prefix is given).
+  // Not part of api() itself: POST /api/login answers 401 for a wrong password,
+  // and a few callers (Vydat, „Upravit filtry", the article list) say more.
+  function apiFailed(err, prefix) {
+    if (err.status === 401) { showLogin(); return; }
+    toast((prefix || "Chyba: ") + err.message);
+  }
+
   /* ============================================================
-     Login flow
+     LOGIN FLOW
      ============================================================ */
   function showLogin() {
     loginScreen.hidden = false;
     // Session expired while the article editor is open: show the login as a
     // modal ABOVE the editor so the unsaved work stays put underneath.
-    var editorOpen = !document.querySelector("#editor-overlay").hidden;
+    var editorOpen = !EDITOR.overlay.hidden;
     loginScreen.classList.toggle("is-modal", editorOpen);
-    if (editorOpen) { setTimeout(function () { loginPass.focus(); }, 0); return; }
-    shell.hidden = true;
-    if (headerNav) headerNav.hidden = true;   // hide admin controls until logged in
-    if (adminTag) adminTag.hidden = true;
+    if (!editorOpen) {
+      shell.hidden = true;
+      if (headerNav) headerNav.hidden = true;   // hide admin controls until logged in
+      if (adminTag) adminTag.hidden = true;
+    }
     setTimeout(function () { loginPass.focus(); }, 0);
   }
   function showShell() {
@@ -196,7 +190,7 @@
   });
 
   /* ============================================================
-     The article draft — the article the editor works on
+     THE ARTICLE DRAFT — the article the editor works on
      draftReset() (a new article) or draftFromArticle() fills DRAFT
      before edOpen() shows it; Vydat writes the editor back into it
      (edCommitToDraft) and saveArticle() sends it. DRAFT holds its own
@@ -297,7 +291,7 @@
   }
 
   /* ============================================================
-     Article list — public-style cards + tag filter.
+     ARTICLE LIST — public-style cards + tag filter.
      Clicking a card opens that article in the editor (detail/preview).
      ============================================================ */
   var articleGrid      = document.querySelector("#article-grid");
@@ -306,6 +300,7 @@
   var articleAuthorList = document.querySelector("#article-author-list");
   var articleClearTags = document.querySelector("#article-clear-tags");
   var newArticleBtn    = document.querySelector("#new-article-btn");
+  var ARTICLE_FILTERS = [["tags", articleTagList], ["authors", articleAuthorList]];   // [list, tick-box list]
   var ADMIN_ARTICLES = [];
   var articlesLoaded = false;   // true after the first successful /api/articles
   var adminSelected = { tags: {}, authors: {} };   // ticked filter entries, by nameKey()
@@ -313,7 +308,7 @@
   // Same filter as the public site: OR within a section, AND between them.
   function renderArticleFilter() {
     var pruned = false;
-    [["tags", articleTagList], ["authors", articleAuthorList]].forEach(function (p) {
+    ARTICLE_FILTERS.forEach(function (p) {
       var list = p[0], box = p[1], sel = adminSelected[list], counts = txCounts(list);
       if (!box) return;
       var known = {};
@@ -394,7 +389,7 @@
     var card = event.target.closest(".card[data-id]");
     if (card) { event.preventDefault(); openArticleForEdit(card.dataset.id); }
   });
-  [["tags", articleTagList], ["authors", articleAuthorList]].forEach(function (p) {
+  ARTICLE_FILTERS.forEach(function (p) {
     if (!p[1]) return;
     p[1].addEventListener("change", function (event) {
       var inp = event.target;
@@ -414,7 +409,7 @@
   });
 
   /* ============================================================
-     File upload (images + PDF)
+     FILE UPLOAD (images + PDF)
      Vercel rejects request bodies over 4.5 MB *before* our function
      runs (HTTP 413, non-JSON) — that was the "sometimes fails" bug.
      Base64 adds ~33 %, so: big JPG/PNG/WEBP are downscaled in the
@@ -427,6 +422,7 @@
   };
   var UPLOAD_EXT = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
                      webp: "image/webp", gif: "image/gif", pdf: "application/pdf" };
+  var MSG_UNSUPPORTED_FILE = "Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF.";
   var pendingUploads = 0;   // saves are blocked while > 0 (no blob: URLs get persisted)
 
   // Some browsers/OSes leave file.type empty — fall back to the extension.
@@ -437,6 +433,14 @@
     return UPLOAD_EXT[ext] || t;
   }
   function fileKind(file) { return UPLOAD_TYPES[fileMime(file)] || null; }
+  // fileKind() of a file picked / dropped into a text or the canvas;
+  // null (after a toast) for a type that cannot be uploaded.
+  function checkedFileKind(file) {
+    var kind = fileKind(file);
+    if (!kind) toast(MSG_UNSUPPORTED_FILE);
+    return kind;
+  }
+  function toastUploadFailed(err) { toast("Nahrání selhalo: " + err.message); }
 
   // Downscale a raster image to fit 2400 px and the size cap. Resolves a Blob.
   function compressImage(file, mime) {
@@ -473,7 +477,7 @@
     var kind = UPLOAD_TYPES[mime];
     if (!kind || (kind === "pdf" && !opts.allowPdf)) {
       return Promise.reject(new Error(opts.allowPdf
-        ? "Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF."
+        ? MSG_UNSUPPORTED_FILE
         : "Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF."));
     }
     var needsCompress = kind === "image" && mime !== "image/gif" && file.size > 1.5 * 1024 * 1024;
@@ -508,23 +512,28 @@
   function uploadImageFile(file) {
     return uploadFile(file, { allowPdf: false }).then(function (r) { return r.url; });
   }
-  function uploadsBusy() {
-    if (pendingUploads > 0) { toast("Počkejte, až se dokončí nahrávání souborů."); return true; }
+  // An upload is still running: say so (message optional) and report true.
+  function uploadsBusy(message) {
+    if (pendingUploads > 0) { toast(message || "Počkejte, až se dokončí nahrávání souborů."); return true; }
     return false;
   }
 
   /* ============================================================
-     Tab switching
+     TAB SWITCHING
      ============================================================ */
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll(".admin-nav-link[data-tab]"));
+  var sections = {
+    articles: document.querySelector("#section-articles"),
+    home:     document.querySelector("#section-home"),
+    about:    document.querySelector("#section-about"),
+    contact:  document.querySelector("#section-contact")
+  };
   var currentTab = "articles";
   function showTab(name) {
     if (!sections[name]) name = "articles";
     // leaving the homepage editor would drop an image still uploading into it
     // (the page-background upload relies on this: it always lands on the homepage)
-    if (DOC.key === "home" && name !== "home" && pendingUploads > 0) {
-      toast("Počkejte, až se dokončí nahrávání obrázku.");
-      return;
-    }
+    if (DOC.key === "home" && name !== "home" && homeBusy()) return;
     currentTab = name;
     Object.keys(sections).forEach(function (key) {
       if (sections[key]) sections[key].hidden = key !== name;
@@ -533,7 +542,7 @@
       link.classList.toggle("is-active", link.dataset.tab === name);
     });
     // Lazy-load site content the first time Home/About/Contact is opened.
-    if ((name === "home" || name === "about" || name === "contact") && !contentLoaded) {
+    if ((name === "home" || name === "about" || name === "contact") && !CONTENT) {
       loadContent().then(function () {
         // The admin may have moved on while it loaded: mount only the tab that
         // is still shown, never under an open article editor (it would steal
@@ -549,27 +558,62 @@
   });
 
   /* ============================================================
-     Content (about / team / contact) — load + persist whole object
+     CONTENT (home / about / team / contact) — load + persist whole object
+     The site content is one JSON object (/api/content), loaded the first
+     time the homepage / O nás / Kontakt tab opens, always saved as a whole.
      ============================================================ */
+  // The API always sends the full shape (api/_lib.js shapeContent): about,
+  // home, team [] and contact { subtitle, items [] } — read without fallbacks.
+  var CONTENT = null;          // the site content; null until loaded
   var contentRequest = null;   // one in-flight load shared by quick tab clicks
+  var contentDirty = false;    // document edits flushed into CONTENT but not saved
+  var contentStored = "";      // JSON of CONTENT as last loaded / saved
+
+  /* ---------- O nás tab: the document's save button, the team members table + form ---------- */
+  var saveAboutBtn = document.querySelector("#save-about-btn");
+  var teamForm     = document.querySelector("#team-form");
+  var tmId         = document.querySelector("#tm-id");
+  var tmName       = document.querySelector("#tm-name");
+  var tmRole       = document.querySelector("#tm-role");
+  var tmImageUrl   = document.querySelector("#tm-image-url");
+  var tmImageFile  = document.querySelector("#tm-image-file");
+  var tmPreview    = document.querySelector("#tm-preview");
+  var teamSubmit   = document.querySelector("#team-submit-btn");
+  var teamReset    = document.querySelector("#team-reset-btn");
+  var teamTitle    = document.querySelector("#team-form-title");
+  var teamTbody    = document.querySelector("#team-tbody");
+  var teamWorkspace = document.querySelector("#team-workspace");   // the member form, opened in place
+  var teamAddBtn    = document.querySelector("#team-add-btn");
+  var teamCloseBtn  = document.querySelector("#team-close-btn");
+  var tmPendingImage = "";   // team member photo: URL after a file upload OR a URL the user typed
+
+  /* ---------- Kontakt tab: the subtitle, the contacts table + form ---------- */
+  var subtitleInput = document.querySelector("#contact-subtitle-input");
+  var saveSubBtn    = document.querySelector("#save-subtitle-btn");
+  var contactForm   = document.querySelector("#contact-form");
+  var ctId          = document.querySelector("#ct-id");
+  var ctType        = document.querySelector("#ct-type");
+  var ctLabel       = document.querySelector("#ct-label");
+  var ctUrl         = document.querySelector("#ct-url");
+  var contactSubmit = document.querySelector("#contact-submit-btn");
+  var contactReset  = document.querySelector("#contact-reset-btn");
+  var contactTitle  = document.querySelector("#contact-form-title");
+  var contactTbody  = document.querySelector("#contact-tbody");
+
   function loadContent() {
     if (contentRequest) return contentRequest;
     contentRequest = api("/api/content").then(function (c) {
       CONTENT = c;
       contentStored = JSON.stringify(c);
-      contentLoaded = true;
       renderTeamTable();
       renderContactTable();
       return c;
     }).catch(function (err) {
-      if (err.status === 401) { showLogin(); return; }
-      toast("Chyba načtení obsahu: " + err.message);
+      apiFailed(err, "Chyba načtení obsahu: ");
     }).finally(function () { contentRequest = null; });
     return contentRequest;
   }
   // Persist the whole CONTENT object; returns the (shaped) saved content.
-  var contentDirty = false;   // document edits flushed into CONTENT but not saved
-  var contentStored = "";     // JSON of CONTENT as last loaded / saved
   // Every save is one paid storage operation: an unchanged CONTENT (Uložit
   // without edits, a background set back to the same colour…) is not sent.
   function saveContent() {
@@ -596,12 +640,19 @@
       throw err;
     });
   }
+  // Last cell of a team / contact table row; prefix: "team" | "contact".
+  function rowActionsHtml(prefix) {
+    return '<td><div class="row-actions">' +
+        '<button type="button" data-action="' + prefix + '-edit">Upravit</button>' +
+        '<button type="button" data-action="' + prefix + '-delete" class="danger">Smazat</button>' +
+      "</div></td>";
+  }
 
   /* ---------- About: the „O nás" document ---------- */
   // Saves the rich document (and its plain-text mirror) without dropping
   // the other about fields — docFlush() writes them into CONTENT first.
   saveAboutBtn.addEventListener("click", function () {
-    docSave("about", saveAboutBtn, "Stránka „O nás“ byla uložena.");
+    docSave(saveAboutBtn, "Stránka „O nás“ byla uložena.");
   });
 
   /* ---------- About: team members ---------- */
@@ -617,6 +668,19 @@
     teamTitle.textContent = "Nový člen";
     teamSubmit.textContent = "Přidat člena";
   }
+  // The member form is a modular workspace that opens in place (no separate view).
+  function openTeamWorkspace() {
+    teamWorkspace.hidden = false;
+    tmName.focus();
+  }
+  function closeTeamWorkspace() {
+    teamWorkspace.hidden = true;
+  }
+  if (teamAddBtn) teamAddBtn.addEventListener("click", function () {
+    resetTeamForm();
+    openTeamWorkspace();
+  });
+  if (teamCloseBtn) teamCloseBtn.addEventListener("click", closeTeamWorkspace);
   function tmUpdatePreview(url) {
     if (url) {
       tmPreview.style.backgroundImage = VNSafe.cssUrl(url);
@@ -635,7 +699,7 @@
     teamSubmit.textContent = "Nahrávám…";
     uploadImageFile(file)
       .then(function (url) { tmPendingImage = url; tmImageUrl.value = ""; tmUpdatePreview(url); toast("Fotka nahrána."); })
-      .catch(function (err) { toast("Nahrání selhalo: " + err.message); })
+      .catch(toastUploadFailed)
       .finally(function () { teamSubmit.disabled = false; teamSubmit.textContent = tmId.value ? "Uložit změny" : "Přidat člena"; });
   });
   teamReset.addEventListener("click", resetTeamForm);
@@ -650,28 +714,23 @@
       role: tmRole.value.trim(),
       image: tmPendingImage || tmImageUrl.value.trim() || ""
     };
-    var idx = (CONTENT.team || []).findIndex(function (m) { return m.id === member.id; });
+    var idx = CONTENT.team.findIndex(function (m) { return m.id === member.id; });
 
     teamSubmit.disabled = true;
     saveContentChange(function (c) {
-      if (!Array.isArray(c.team)) c.team = [];
       if (idx === -1) c.team.push(member); else c.team[idx] = member;
     })
       .then(function () {
         toast(idx === -1 ? "Člen přidán." : "Člen uložen.");
         resetTeamForm(); closeTeamWorkspace(); renderTeamTable();
       })
-      .catch(function (err) {
-        renderTeamTable();
-        if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + err.message);
-      })
+      .catch(function (err) { renderTeamTable(); apiFailed(err); })
       .finally(function () { teamSubmit.disabled = false; });
   });
 
   function renderTeamTable() {
     if (!CONTENT) return;
-    var list = CONTENT.team || [];
+    var list = CONTENT.team;
     if (list.length === 0) {
       teamTbody.innerHTML = '<tr class="empty-row"><td colspan="4">Zatím žádní členové.</td></tr>';
       return;
@@ -686,10 +745,7 @@
           "<td>" + thumb + "</td>" +
           "<td><strong>" + escapeHtml(m.name) + "</strong></td>" +
           "<td>" + escapeHtml(m.role || "") + "</td>" +
-          '<td><div class="row-actions">' +
-            '<button type="button" data-action="team-edit">Upravit</button>' +
-            '<button type="button" data-action="team-delete" class="danger">Smazat</button>' +
-          "</div></td>" +
+          rowActionsHtml("team") +
         "</tr>"
       );
     }).join("");
@@ -699,7 +755,7 @@
     var btn = event.target.closest("button[data-action]");
     if (!btn || !CONTENT) return;
     var id = btn.closest("tr").dataset.id;
-    var member = (CONTENT.team || []).find(function (m) { return m.id === id; });
+    var member = CONTENT.team.find(function (m) { return m.id === id; });
     if (!member) return;
     if (btn.dataset.action === "team-edit") {
       tmId.value = member.id;
@@ -716,33 +772,25 @@
     } else if (btn.dataset.action === "team-delete") {
       if (!confirm('Opravdu smazat „' + (member.name || "") + '"?')) return;
       saveContentChange(function (c) {
-        c.team = (c.team || []).filter(function (m) { return m.id !== id; });
+        c.team = c.team.filter(function (m) { return m.id !== id; });
       })
         .then(function () { if (tmId.value === id) resetTeamForm(); renderTeamTable(); toast("Člen smazán."); })
-        .catch(function (err) {
-          renderTeamTable();
-          if (err.status === 401) { showLogin(); return; }
-          toast("Chyba: " + err.message);
-        });
+        .catch(function (err) { renderTeamTable(); apiFailed(err); });
     }
   });
 
   /* ---------- Contact: subtitle ---------- */
   function renderContactSubtitle() {
     if (!CONTENT) return;
-    subtitleInput.value = (CONTENT.contact && CONTENT.contact.subtitle) || "";
+    subtitleInput.value = CONTENT.contact.subtitle || "";
   }
   saveSubBtn.addEventListener("click", function () {
     if (!CONTENT) return;
-    if (!CONTENT.contact) CONTENT.contact = { subtitle: "", items: [] };
     CONTENT.contact.subtitle = subtitleInput.value;
     saveSubBtn.disabled = true;
     saveContent()
       .then(function () { toast("Podnadpis uložen."); })
-      .catch(function (err) {
-        if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + err.message);
-      })
+      .catch(apiFailed)
       .finally(function () { saveSubBtn.disabled = false; });
   });
 
@@ -770,28 +818,21 @@
       ctUrl.focus();
       return;
     }
-    var items = (CONTENT.contact && Array.isArray(CONTENT.contact.items)) ? CONTENT.contact.items : [];
-    var idx = items.findIndex(function (c) { return c.id === item.id; });
+    var idx = CONTENT.contact.items.findIndex(function (c) { return c.id === item.id; });
 
     contactSubmit.disabled = true;
     saveContentChange(function (c) {
-      if (!c.contact) c.contact = { subtitle: "", items: [] };
-      if (!Array.isArray(c.contact.items)) c.contact.items = [];
       if (idx === -1) c.contact.items.push(item); else c.contact.items[idx] = item;
     })
       .then(function () { toast(idx === -1 ? "Kontakt přidán." : "Kontakt uložen."); resetContactForm(); renderContactTable(); })
-      .catch(function (err) {
-        renderContactTable();
-        if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + err.message);
-      })
+      .catch(function (err) { renderContactTable(); apiFailed(err); })
       .finally(function () { contactSubmit.disabled = false; });
   });
 
   function renderContactTable() {
     if (!CONTENT) return;
     renderContactSubtitle();
-    var list = (CONTENT.contact && CONTENT.contact.items) || [];
+    var list = CONTENT.contact.items;
     if (list.length === 0) {
       contactTbody.innerHTML = '<tr class="empty-row"><td colspan="4">Zatím žádné kontakty.</td></tr>';
       return;
@@ -806,10 +847,7 @@
           "<td><strong>" + escapeHtml(c.type) + "</strong></td>" +
           "<td>" + escapeHtml(c.label) + "</td>" +
           '<td style="font-size:0.82rem; word-break:break-all;">' + link + "</td>" +
-          '<td><div class="row-actions">' +
-            '<button type="button" data-action="contact-edit">Upravit</button>' +
-            '<button type="button" data-action="contact-delete" class="danger">Smazat</button>' +
-          "</div></td>" +
+          rowActionsHtml("contact") +
         "</tr>"
       );
     }).join("");
@@ -819,7 +857,7 @@
     var btn = event.target.closest("button[data-action]");
     if (!btn || !CONTENT) return;
     var id = btn.closest("tr").dataset.id;
-    var item = ((CONTENT.contact && CONTENT.contact.items) || []).find(function (c) { return c.id === id; });
+    var item = CONTENT.contact.items.find(function (c) { return c.id === id; });
     if (!item) return;
     if (btn.dataset.action === "contact-edit") {
       ctId.value = item.id;
@@ -835,11 +873,7 @@
         c.contact.items = c.contact.items.filter(function (x) { return x.id !== id; });
       })
         .then(function () { if (ctId.value === id) resetContactForm(); renderContactTable(); toast("Kontakt smazán."); })
-        .catch(function (err) {
-          renderContactTable();
-          if (err.status === 401) { showLogin(); return; }
-          toast("Chyba: " + err.message);
-        });
+        .catch(function (err) { renderContactTable(); apiFailed(err); });
     }
   });
 
@@ -860,6 +894,7 @@
     authors: { one: "Autor",  none: "Zatím žádní autoři." }
   };
   var TX = { menu: null, editing: null, confirm: null, busy: false };
+  var TX_RESERVED_MSG = "„nespecifikováno“ je vyhrazený název.";
   var txDialog = document.querySelector("#tx-dialog");
 
   // The entries of a list ("tags" | "authors"): the global list once it is
@@ -880,12 +915,17 @@
     return !!hit && !(except && nameKey(hit) === nameKey(except));
   }
   function txPosts(c) { return c + " " + (c === 1 ? "příspěvku" : "příspěvků"); }
+  // Does s ({ list, name }: the open menu / the entry being edited or
+  // deleted) point at this entry? Any letter case.
+  function txSame(s, list, name) { return !!s && s.list === list && nameKey(s.name) === nameKey(name); }
+  // Keep the lists the server sent (a load or the answer to a change).
+  function txStore(t) { TAXO = { tags: (t && t.tags) || [], authors: (t && t.authors) || [] }; }
 
   function loadTaxonomy() {
     var mine = ++taxoSeq;
     return api("/api/taxonomy").then(function (t) {
       if (mine !== taxoSeq) return;              // a newer list (from a change) is already here
-      TAXO = { tags: (t && t.tags) || [], authors: (t && t.authors) || [] };
+      txStore(t);
       taxoLoaded = true;
       taxoFailed = false;
       txChanged();
@@ -903,7 +943,7 @@
   }
 
   function txRender() {
-    Array.prototype.forEach.call(txDialog.querySelectorAll(".tx-chips"), function (box) {
+    txDialog.querySelectorAll(".tx-chips").forEach(function (box) {
       var list = box.dataset.list, counts = txCounts(list);
       if (!taxoLoaded) {
         box.innerHTML = '<span class="tag-list-empty">' + (taxoFailed ? "Seznam se nepodařilo načíst. Zavřete okno a zkuste to znovu." : "Načítám…") + "</span>";
@@ -912,8 +952,7 @@
       if (!TAXO[list].length) { box.innerHTML = '<span class="tag-list-empty">' + TX_WORDS[list].none + "</span>"; return; }
       box.innerHTML = TAXO[list].map(function (n) {
         var c = counts[nameKey(n)] || 0;
-        function is(s) { return !!s && s.list === list && nameKey(s.name) === nameKey(n); }
-        if (is(TX.editing)) {
+        if (txSame(TX.editing, list, n)) {
           return '<form class="tx-edit" data-list="' + list + '" data-name="' + escapeHtml(n) + '" autocomplete="off">' +
             '<span class="tx-dup" hidden>duplikát</span>' +
             '<span class="tx-add-row"><input type="text" maxlength="60" value="' + escapeHtml(n) + '" aria-label="Nový název">' +
@@ -921,8 +960,8 @@
             '<button class="tx-mini" type="button" data-tx="cancel">Zrušit</button></span></form>';
         }
         var menu = "";
-        if (is(TX.menu)) {
-          menu = is(TX.confirm)
+        if (txSame(TX.menu, list, n)) {
+          menu = txSame(TX.confirm, list, n)
             ? '<span class="tx-menu" role="menu"><span class="tx-menu-q">Smazat „' + escapeHtml(n) + "“?" +
                 (c ? " Odebere se z " + txPosts(c) + "." : "") + "</span>" +
                 '<button type="button" class="tx-danger" data-tx="delete-yes">Smazat</button>' +
@@ -951,7 +990,7 @@
     api("/api/taxonomy", { method: "POST", body: req })
       .then(function (res) {
         taxoSeq++;                     // an older GET still on its way must not undo this
-        if (res && res.taxonomy) TAXO = { tags: res.taxonomy.tags || [], authors: res.taxonomy.authors || [] };
+        if (res && res.taxonomy) txStore(res.taxonomy);
         taxoLoaded = true;
         taxoFailed = false;
         edPickApply(req);              // an open editor follows the rename / delete
@@ -973,7 +1012,7 @@
           showLogin();
           return;
         }
-        toast(code === "reserved" ? "„nespecifikováno“ je vyhrazený název." : "Chyba: " + err.message);
+        toast(code === "reserved" ? TX_RESERVED_MSG : "Chyba: " + err.message);
       })
       .finally(function () {
         TX.busy = false;
@@ -991,7 +1030,7 @@
     if (TX.busy) return;               // a change is still saving
     txDialog.hidden = true;
     txReset();
-    Array.prototype.forEach.call(txDialog.querySelectorAll(".tx-add"), function (f) { f.reset(); txShowDup(f, false); });
+    txDialog.querySelectorAll(".tx-add").forEach(function (f) { f.reset(); txShowDup(f, false); });
   }
   document.querySelector("#tx-open-btn").addEventListener("click", txOpen);
   document.querySelector("#ed-tx-open").addEventListener("click", txOpen);
@@ -1001,7 +1040,7 @@
     var chip = e.target.closest(".tx-chip");
     var act = e.target.closest("[data-tx]");
     if (chip) {
-      var open = TX.menu && TX.menu.list === chip.dataset.list && nameKey(TX.menu.name) === nameKey(chip.dataset.name);
+      var open = txSame(TX.menu, chip.dataset.list, chip.dataset.name);
       txReset();
       if (!open) TX.menu = { list: chip.dataset.list, name: chip.dataset.name };
       txRender();
@@ -1040,11 +1079,11 @@
     e.preventDefault();
     var form = e.target, list = form.dataset.list;
     var input = form.querySelector("input"), v = cleanName(input.value);
-    var old = form.classList.contains("tx-edit") ? form.dataset.name : null;
+    var old = form.dataset.name || null;   // the entry a .tx-edit form renames (an add form has none)
     if (!v) { input.focus(); return; }
     // already in the list: not added, red "duplikát" right above the input
     if (txIsDup(list, v, old)) { txShowDup(form, true); input.focus(); return; }
-    if (list === "tags" && nameKey(v) === nameKey("nespecifikováno")) { toast("„nespecifikováno“ je vyhrazený název."); return; }
+    if (list === "tags" && nameKey(v) === nameKey("nespecifikováno")) { toast(TX_RESERVED_MSG); return; }
     if (old && v === old) { txReset(); txRender(); return; }
     txAction(old ? { list: list, action: "rename", name: old, to: v } : { list: list, action: "add", name: v }, form);
   });
@@ -1101,7 +1140,7 @@
     if (req.action === "rename") ED_PICK[req.list] = cur.map(function (n) { return nameKey(n) === k ? req.to : n; });
     else if (req.action === "delete") ED_PICK[req.list] = cur.filter(function (n) { return nameKey(n) !== k; });
   }
-  Array.prototype.forEach.call(document.querySelectorAll(".ed-picker"), function (box) {
+  document.querySelectorAll(".ed-picker").forEach(function (box) {
     var list = box.dataset.list;
     box.addEventListener("change", function (e) {
       if (e.target.tagName !== "SELECT" || !e.target.value) return;
@@ -1119,10 +1158,15 @@
 
   /* ============================================================
      VISUAL ARTICLE EDITOR (Canva + Google-Docs hybrid)
+     A full-screen overlay: the collapsible Data panel (metadata) beside
+     the 820px canvas of positioned blocks. EDITOR holds its static
+     elements, ED the state of the open article, DOC the homepage / „O nás"
+     document that borrows the same toolbar.
      ============================================================ */
   var EDITOR = {
     overlay:   document.querySelector("#editor-overlay"),
     canvas:    document.querySelector("#ed-canvas"),
+    wrap:      document.querySelector("#editor-overlay .ed-canvas-wrap"),   // the canvas's parent; it scrolls
     addImage:  document.querySelector("#ed-add-image"),
     addText:   document.querySelector("#ed-add-text"),
     addEmbed:  document.querySelector("#ed-add-embed"),
@@ -1175,29 +1219,46 @@
     indInc:    document.querySelector("#ed-indent-inc")
   };
 
-  // ----- editor state -----
+  /* ---------- editor state (every field is declared here) ---------- */
   var ED = {
     elements: [],          // array of element objects (the article layout)
     selectedId: null,
     editingId: null,
-    snapshot: "",          // JSON for "discard"
-    pendingAction: null,   // 'discard' | 'save' | 'delete'
+    session: 0,            // +1 on every edOpen(): late async results detect a new editor session
+    snapshot: "",          // edStateSnapshot() at open time: the leave-page warning and Vydat compare it
+    pendingAction: null,   // the confirm dialog's action: "discard" | "delete"
+    background: null,      // page background { color, image } (the editor's own copy)
+    heroH: 0,              // height of the black zone (px)
+    heroReady: false,      // the open article's canvas is prepared: sync may run
+    pageH: 0,              // current height of the white sheet (grows with the content)
+    thumbUrl: "",          // thumbnail: committed server URL ("" = no thumbnail)
+    thumbLocal: "",        // thumbnail: current blob: preview URL, if any
+    thumbToken: 0,         // thumbnail: bumps on every pick/remove; stale uploads are ignored
     savedRange: null,      // last text selection inside the editing content
     liveSpan: null,        // span being restyled live by the size box / colour panel
     playingId: null,       // video/post block currently showing its live player preview
     lastFs: 16,            // last valid font size (for revert)
-    currentColor: "#000000"
+    currentColor: "#000000",
+    colorRange: null,      // the text selection remembered when the colour button is pressed
+    hexTyped: false        // the HEX field holds a value the admin typed (only that is committed)
   };
 
   /* Google-Docs document mode. While DOC.root is set, every formatting tool
      (size, B/I/U, colour, align, lists, indent) targets this one contenteditable
-     document instead of a positioned canvas element — see edEditingContent()
+     element (the „O nás" document, or the homepage text block being edited)
+     instead of a positioned canvas element — see edEditingContent()
      and edActiveContentEl(), the two funnels all of them go through. */
   var DOC = {
     root: null,     // the contenteditable document element
     key: null,      // "home" | "about"
     dirty: false
   };
+  // A change the input event does not report (a toolbar command, an inserted
+  // file): the document is unsaved; on the homepage the layout draft too.
+  function docMarkDirty() {
+    DOC.dirty = true;
+    if (DOC.key === "home") homeMarkDirty();
+  }
 
   function edStripHtml(html) {
     var d = document.createElement("div");
@@ -1210,34 +1271,12 @@
   // draft's blocks and background (they are changed in place while editing).
   function edOpen() {
     ED.heroReady = false;
-    ED.background = DRAFT.background ? JSON.parse(JSON.stringify(DRAFT.background)) : { color: "", image: "" };
-    // 1) the article's layout
+    ED.background = DRAFT.background ? JSON.parse(JSON.stringify(DRAFT.background)) : emptyBg();
+    // the article's blocks; stored HTML is cleaned before it ever reaches a contenteditable
     ED.elements = JSON.parse(JSON.stringify(DRAFT.elements));
-    // stored HTML is cleaned before it ever reaches a contenteditable
     ED.elements.forEach(function (el) {
       if (el && el.type === "text") el.content = VNSafe.html(el.content);
     });
-    // 2) ensure a mandatory, non-deletable title element exists
-    var hasTitle = ED.elements.some(function (el) { return el.isTitle; });
-    if (!hasTitle) {
-      ED.elements.unshift({
-        id: VN.uid("el"), type: "text", isTitle: true,
-        content: escapeHtml(DRAFT.title || "Nadpis článku"),
-        x: 40, y: 24, width: 640, height: "auto",
-        styles: VNArticle.textStyles({ fontSize: "34px", bold: true, color: "#ffffff" })   // white on the black hero
-      });
-      // 3) seed a body text element from the plain-text body, if any and no other text exists
-      var bodyText = (DRAFT.body || "").trim();
-      var hasBody = ED.elements.some(function (el) { return el.type === "text" && !el.isTitle; });
-      if (bodyText && !hasBody) {
-        ED.elements.push({
-          id: VN.uid("el"), type: "text", isTitle: false,
-          content: escapeHtml(bodyText).replace(/\n/g, "<br>"),
-          x: 40, y: 120, width: 740, height: "auto",
-          styles: VNArticle.textStyles()
-        });
-      }
-    }
     // load metadata into the left sidebar
     edPickSet("authors", DRAFT.authors);
     edPickSet("tags", DRAFT.tags);
@@ -1247,10 +1286,12 @@
     EDITOR.date.value = DRAFT.date;
     if (!EDITOR.date.value) EDITOR.date.value = nowLocalInput();
     edUpdateSchedule();
-    edThumbLoad(DRAFT.image);
+    edThumbSet(DRAFT.image);
 
-    // Two zones. An article saved before they existed gets the default black
-    // hero from its data — exactly what the reader page shows for it.
+    // The same preparation the reader page runs: an article without a title
+    // block (a new or plain-text one) gets the title block — and a body block
+    // from its plain text — and an article saved before the two zones existed
+    // gets the default black hero from its data.
     var prep = VNArticle.prepare({
       elements: ED.elements, heroHeight: DRAFT.heroHeight, title: DRAFT.title, body: DRAFT.body,
       image: ED.thumbUrl, date: EDITOR.date.value, authors: ED_PICK.authors, tags: ED_PICK.tags
@@ -1258,7 +1299,7 @@
     ED.elements = prep.elements;
     ED.heroH = prep.heroHeight;
 
-    ED.session = (ED.session || 0) + 1;  // lets late async results detect a new editor session
+    ED.session++;
     ED.selectedId = null;
     ED.editingId = null;
     ED.liveSpan = null;
@@ -1268,8 +1309,7 @@
     edSetMetaOpen(edMetaPref());
     VN.applyBackground(EDITOR.canvas, ED.background || {});
     edRenderCanvas();
-    edSetToolsVisible(false);
-    edSetLayerVisible(false);
+    edSyncBars(null);
     EDITOR.overlay.hidden = false;
     ED.heroReady = true;
     edHeroSync();                        // the hero mirrors the Data panel
@@ -1311,8 +1351,15 @@
     EDITOR.publish.textContent = future ? "Naplánovat" : "Vydat";
     EDITOR.publish.classList.toggle("is-scheduled", future);
   }
-  EDITOR.date.addEventListener("input", edUpdateSchedule);
-  EDITOR.date.addEventListener("change", edUpdateSchedule);
+  // A new date: the schedule hint and the Vydat / Naplánovat button follow,
+  // and so does the hero's date block.
+  function edDateChanged() {
+    edUpdateSchedule();
+    edHeroSync({ showDate: true });
+  }
+  EDITOR.date.addEventListener("input", edDateChanged);
+  EDITOR.date.addEventListener("change", edDateChanged);
+
   /* ---------- thumbnail (Náhledový obrázek) in the metadata drawer ----------
      Flow: pick/drop file -> instant preview from a blob: URL -> upload
      through uploadImageFile() (validation + compression + Blob storage)
@@ -1332,9 +1379,7 @@
     change:  document.querySelector("#ed-thumb-change")
   };
   var THUMB_TYPES = { "image/jpeg": 1, "image/png": 1, "image/webp": 1 };
-  ED.thumbUrl = "";        // committed server URL ("" = no thumbnail)
-  ED.thumbLocal = "";      // current blob: preview URL, if any
-  ED.thumbToken = 0;       // bumps on every pick/remove; stale uploads are ignored
+  // (state: ED.thumbUrl, ED.thumbLocal, ED.thumbToken)
 
   function edThumbRevoke() {
     if (ED.thumbLocal) { URL.revokeObjectURL(ED.thumbLocal); ED.thumbLocal = ""; }
@@ -1347,8 +1392,10 @@
     THUMB.status.hidden = !uploading;
     if (has) THUMB.img.src = src; else THUMB.img.removeAttribute("src");
   }
-  // Called from edOpen(): show the article's existing thumbnail.
-  function edThumbLoad(url) {
+  // Show a thumbnail that is already on the server ("" = none): the article's
+  // own when the editor opens; an upload still running is ignored.
+  // (edHeroPull, in the two-zone code, runs the same steps for the hero's picture.)
+  function edThumbSet(url) {
     ED.thumbToken++;
     edThumbRevoke();
     ED.thumbUrl = url || "";
@@ -1382,12 +1429,9 @@
       })
       .finally(function () { THUMB.file.value = ""; });  // same file can be re-picked
   }
+  // „Odstranit" (and a thumbnail block deleted in the hero)
   function edThumbClear() {
-    ED.thumbToken++;                              // an in-flight upload is ignored
-    edThumbRevoke();
-    ED.thumbUrl = "";
-    THUMB.file.value = "";
-    edThumbRender("", false);
+    edThumbSet("");
     edHeroSync();
   }
   THUMB.drop.addEventListener("click", function () { THUMB.file.click(); });
@@ -1431,7 +1475,7 @@
     DRAFT.image = ED.thumbUrl;
     DRAFT.elements = JSON.parse(JSON.stringify(ED.elements));
     DRAFT.heroHeight = ED.heroH;
-    DRAFT.background = JSON.parse(JSON.stringify(ED.background || { color: "", image: "" }));
+    DRAFT.background = JSON.parse(JSON.stringify(ED.background || emptyBg()));
     // the title and a plain-text body, from the text of the blocks
     var titleEl = ED.elements.filter(function (el) { return el.isTitle; })[0];
     if (titleEl) DRAFT.title = edStripHtml(titleEl.content).replace(/[\r\n]/g, "");   // a title is one line
@@ -1526,7 +1570,7 @@
      style for the same property, so it seemed to do nothing there. Clear
      those first — like formatting all of the text in Google Docs. */
   function edBoxStyle(el, props) {
-    var content = EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
+    var content = edContentById(el.id);
     if (!content) return;
     var TAGS = { fontWeight: "b,strong", fontStyle: "i,em", textDecoration: "u" };
     props.forEach(function (p) {
@@ -1710,7 +1754,7 @@
   var ED_PAGE_MIN = 1100;      // one sheet — the old fixed height
   var ED_PAGE_STEP = 600;
   var ED_GROW_ZONE = 100;
-  ED.pageH = 0;
+  // (the current height: ED.pageH)
   function edContentBottom() {
     var b = 0;
     Array.prototype.forEach.call(EDITOR.canvas.querySelectorAll(":scope > .ed-el"), function (n) {
@@ -1722,7 +1766,7 @@
   }
   // Canvas y of the bottom edge of the visible area.
   function edSeenBottom() {
-    return EDITOR.canvas.parentNode.getBoundingClientRect().bottom - EDITOR.canvas.getBoundingClientRect().top;
+    return EDITOR.wrap.getBoundingClientRect().bottom - EDITOR.canvas.getBoundingClientRect().top;
   }
   // near (optional): canvas y of the pointer / moving block / visible bottom —
   // inside the grow zone it adds a step. opts.shrink gives back unused room,
@@ -1749,13 +1793,13 @@
     edAutoRaf = requestAnimationFrame(function () { edAutoRaf = 0; edAutoHeight(); });
   }
   var edResizeObs = window.ResizeObserver ? new ResizeObserver(edScheduleAutoHeight) : null;
-  EDITOR.canvas.parentNode.addEventListener("pointermove", function (e) {
+  EDITOR.wrap.addEventListener("pointermove", function (e) {
     var y = e.clientY - EDITOR.canvas.getBoundingClientRect().top;
     if ((ED.pageH || 0) - y < ED_GROW_ZONE) edAutoHeight(y);
   });
   // Scrolling (wheel, keys, scrollbar) to the end of the page also extends it.
   var edScrollRaf = 0;
-  EDITOR.canvas.parentNode.addEventListener("scroll", function () {
+  EDITOR.wrap.addEventListener("scroll", function () {
     if (edScrollRaf) return;
     edScrollRaf = requestAnimationFrame(function () {
       edScrollRaf = 0;
@@ -1767,7 +1811,7 @@
   // edge of the visible canvas, scroll it; onScroll re-runs the move so the
   // block stays under the pointer (and the page keeps growing under it).
   function edEdgeScroller(onScroll) {
-    var wrap = EDITOR.canvas.parentNode, raf = 0, lastY = null, EDGE = 48;
+    var wrap = EDITOR.wrap, raf = 0, lastY = null, EDGE = 48;
     function tick() {
       raf = 0;
       if (lastY === null) return;
@@ -1802,7 +1846,7 @@
 
     var guides = null;                 // snap lines of the other blocks (built on first move)
     // the canvas may scroll under a held block (edge auto-scroll, wheel)
-    var wrap = EDITOR.canvas.parentNode, sx0 = wrap.scrollLeft, sy0 = wrap.scrollTop, last = null;
+    var wrap = EDITOR.wrap, sx0 = wrap.scrollLeft, sy0 = wrap.scrollTop, last = null;
     var edge = edEdgeScroller(function () { if (last) move(last); });
     function move(e2) {
       last = e2;
@@ -1869,7 +1913,7 @@
     var origH = node.offsetHeight;
     try { node.setPointerCapture(ev.pointerId); } catch (e) {}
     var guides = edGuideLines(el.id);
-    var wrap = EDITOR.canvas.parentNode, sx0 = wrap.scrollLeft, sy0 = wrap.scrollTop, last = null;
+    var wrap = EDITOR.wrap, sx0 = wrap.scrollLeft, sy0 = wrap.scrollTop, last = null;
     var edge = edEdgeScroller(function () { if (last) move(last); });
 
     function move(e2) {
@@ -1926,9 +1970,7 @@
     if (ED.playingId !== id) ED.playingId = null;   // another block -> stop the live preview
     ED.selectedId = id;
     edRenderCanvas();
-    var el = edFind(id);
-    edSetToolsVisible(edWantsTools(el));
-    edSetLayerVisible(!!el);       // layers work for every block type
+    edSyncBars(edFind(id));
     edUpdateToolbar();
   }
   function edDeselect() {
@@ -1936,14 +1978,23 @@
     ED.playingId = null;
     ED.selectedId = null;
     edRenderCanvas();
-    edSetToolsVisible(false);
-    edSetLayerVisible(false);
+    edSyncBars(null);
     edCloseColorPanel();
+  }
+  // The formatting tools show for a text block, the layer button (and
+  // „Oříznout" for a picture) for every block; el = the selected block or null.
+  function edSyncBars(el) {
+    edSetToolsVisible(edWantsTools(el));
+    edSetLayerVisible(!!el);
   }
   function edFind(id) {
     for (var i = 0; i < ED.elements.length; i++) if (ED.elements[i].id === id) return ED.elements[i];
     return null;
   }
+  // The canvas node of a block (.ed-el) and its content node (.ed-el-content).
+  function edNodeById(id) { return EDITOR.canvas.querySelector('.ed-el[data-id="' + id + '"]'); }
+  function edNodeOf(el) { return el ? edNodeById(el.id) : null; }
+  function edContentById(id) { return EDITOR.canvas.querySelector('.ed-el[data-id="' + id + '"] .ed-el-content'); }
   function edDeleteElement(id) {
     var el = edFind(id);
     if (!el || el.isTitle) return;     // title is non-deletable
@@ -1952,8 +2003,7 @@
     if (ED.editingId === id) ED.editingId = null;
     edRenderCanvas();
     edAutoHeight(null, { shrink: true });
-    edSetToolsVisible(false);
-    edSetLayerVisible(false);
+    edSyncBars(null);
     if (el.role) edHeroDeleted(el);    // the Data panel follows the canvas
   }
 
@@ -2036,8 +2086,7 @@
     return Math.max(20, Math.round((cw - w) / 2));
   }
   function edVisibleTop() {
-    var wrap = EDITOR.canvas.parentNode;
-    return Math.max((wrap ? wrap.scrollTop : 0) + 80, ED.heroH + 16);   // new blocks go to the white body
+    return Math.max(EDITOR.wrap.scrollTop + 80, ED.heroH + 16);   // new blocks go to the white body
   }
   EDITOR.addText.addEventListener("click", function () {
     var w = 300;
@@ -2121,7 +2170,7 @@
     setTimeout(function () { EDITOR.embedUrl.focus(); }, 0);
   }
   function edCloseEmbedDialog() {
-    if (EDITOR.embedDialog) EDITOR.embedDialog.hidden = true;
+    EDITOR.embedDialog.hidden = true;
   }
   EDITOR.addEmbed.addEventListener("click", edOpenEmbedDialog);
   EDITOR.embedUrl.addEventListener("input", edEmbedCheck);
@@ -2140,8 +2189,8 @@
     var file = EDITOR.imageFile.files && EDITOR.imageFile.files[0];
     EDITOR.imageFile.value = "";
     if (!file) return;
-    var kind = fileKind(file);
-    if (!kind) { toast("Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF."); return; }
+    var kind = checkedFileKind(file);
+    if (!kind) return;
     if (DOC.root) edInsertIntoDoc(file, kind);
     else if (DOC.key) toast("Nejdřív klikněte do textového bloku, kam má obrázek přijít.");   // homepage, no text in focus
     else edInsertIntoCanvas(file, kind);
@@ -2173,7 +2222,7 @@
       .catch(function (err) {
         histResolveUpload(localUrl, null);
         if (!edFind(ED.selectedId)) ED.selectedId = null;
-        toast("Nahrání selhalo: " + err.message);
+        toastUploadFailed(err);
       })
       .finally(function () {
         URL.revokeObjectURL(localUrl);
@@ -2200,7 +2249,8 @@
       node.alt = "";
       node.style.maxWidth = "100%";
     }
-    node.setAttribute(kind === "pdf" ? "href" : "src", localUrl);
+    var attr = kind === "pdf" ? "href" : "src";
+    node.setAttribute(attr, localUrl);
     node.classList.add("is-uploading");
 
     var range = (edRestoreRange() && ED.savedRange) || null;
@@ -2214,21 +2264,19 @@
       p.appendChild(node);
       root.appendChild(p);
     }
-    DOC.dirty = true;
-    if (DOC.key === "home") homeMarkDirty();   // programmatic insert fires no input event
+    docMarkDirty();   // programmatic insert fires no input event
 
     uploadFile(file, { allowPdf: true })
       .then(function (r) {
-        node.setAttribute(kind === "pdf" ? "href" : "src", r.url);
+        node.setAttribute(attr, r.url);
         node.classList.remove("is-uploading");
         if (!node.classList.length) node.removeAttribute("class");
-        DOC.dirty = true;
-        if (DOC.key === "home") homeMarkDirty();
+        docMarkDirty();
         toast(kind === "pdf" ? "PDF vloženo." : "Obrázek vložen.");
       })
       .catch(function (err) {
         if (node.parentNode) node.parentNode.removeChild(node);
-        toast("Nahrání selhalo: " + err.message);
+        toastUploadFailed(err);
       })
       .finally(function () { URL.revokeObjectURL(localUrl); });
   }
@@ -2291,15 +2339,7 @@
   /* ---------- rich-text helpers ---------- */
   // remember the live text selection while editing
   document.addEventListener("selectionchange", function () {
-    var content;
-    if (DOC.root) {
-      content = DOC.root;
-    } else {
-      if (!ED.editingId) return;
-      var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"]');
-      if (!node) return;
-      content = node.querySelector(".ed-el-content");
-    }
+    var content = edEditingContent();
     if (!content) return;
     var sel = window.getSelection();
     if (sel && sel.rangeCount && content.contains(sel.anchorNode)) {
@@ -2325,7 +2365,7 @@
   function edEditingContent() {
     if (DOC.root) return DOC.root;   // Google-Docs mode: the whole document is the editable
     if (!ED.editingId) return null;
-    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + ED.editingId + '"]');
+    var node = edNodeById(ED.editingId);
     return node ? node.querySelector(".ed-el-content") : null;
   }
   function edRestoreRange() {
@@ -2338,7 +2378,7 @@
     return true;
   }
   function edCommitEditingContent() {
-    if (DOC.root) { DOC.dirty = true; if (DOC.key === "home") homeMarkDirty(); return; }
+    if (DOC.root) { docMarkDirty(); return; }
     var content = edEditingContent();
     var el = edFind(ED.editingId);
     if (content && el) el.content = content.innerHTML;
@@ -2549,11 +2589,10 @@
     if (!id) return null;
     var el = edFind(id);
     if (!el || el.type !== "text") return null;
-    var node = EDITOR.canvas.querySelector('.ed-el[data-id="' + id + '"] .ed-el-content');
-    return node || null;
+    return edContentById(id);
   }
   function edCommitActiveContent() {
-    if (DOC.root) { DOC.dirty = true; if (DOC.key === "home") homeMarkDirty(); return; }
+    if (DOC.root) { docMarkDirty(); return; }
     var id = ED.editingId || ED.selectedId;
     var el = edFind(id);
     var content = edActiveContentEl();
@@ -3052,7 +3091,7 @@
   }
   // Closing the panel (button, click-away, tools hidden) commits the colour.
   function edCloseColorPanel() {
-    if (!EDITOR.colorPanel || EDITOR.colorPanel.hidden) return;
+    if (EDITOR.colorPanel.hidden) return;
     EDITOR.colorPanel.hidden = true;
     edCommitLive();
     edUpdateToolbar();
@@ -3082,11 +3121,10 @@
     if (EDITOR.colorPanel.hidden) edOpenColorPanel();
     else { edCloseColorPanel(); edRestoreRange(); }      // back to the text
   });
-  // Quick swatches: mousedown is cancelled, so focus and the selection stay
-  // in the text; the colour lands on the selection immediately.
+  // Quick swatches: a press keeps focus and the selection in the text (the
+  // toolbar's edToolbarKeepFocus); the colour lands on the selection immediately.
   var swatches = document.querySelector("#ed-swatches");
   if (swatches) {
-    swatches.addEventListener("mousedown", function (e) { e.preventDefault(); });
     swatches.addEventListener("click", function (e) {
       var b = e.target.closest("button[data-color]");
       var rgb = b && hexToRgb(b.dataset.color);
@@ -3097,59 +3135,6 @@
     });
   }
 
-  /* ---------- toolbar: font family ---------- */
-  var fontSel = document.querySelector("#ed-font");
-  // Which menu entry matches a computed font-family ("Inter", system-ui… -> Inter)
-  function edFontOption(family) {
-    var first = String(family || "").split(",")[0].replace(/["']/g, "").trim().toLowerCase();
-    var hit = Array.prototype.filter.call(fontSel.options, function (o) {
-      return o.value && o.value.split(",")[0].replace(/["']/g, "").trim().toLowerCase() === first;
-    })[0];
-    return hit ? hit.value : "";
-  }
-  // How many different fonts the remembered (non-empty) selection is set in.
-  function edBoxFontCount(el) {
-    var content = el && EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"] .ed-el-content');
-    if (!content) return 0;
-    var r = document.createRange();
-    r.selectNodeContents(content);
-    return edRangeFontCount(r, content);
-  }
-  function edRangeFontCount(r, content) {
-    r = r || ED.savedRange; content = content || edEditingContent();
-    if (!r || r.collapsed || !content || !content.contains(r.commonAncestorContainer)) return 0;
-    var root = r.commonAncestorContainer.nodeType === 3 ? r.commonAncestorContainer.parentNode : r.commonAncestorContainer;
-    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), seen = {}, n = 0;
-    for (var t = w.nextNode(); t; t = w.nextNode()) {
-      if (!t.nodeValue.replace(/[\s​]/g, "") || !r.intersectsNode(t)) continue;
-      var f = edFontOption(window.getComputedStyle(t.parentNode).fontFamily) || "?";
-      if (!seen[f]) { seen[f] = 1; n++; }
-      if (n > 1) break;
-    }
-    return n;
-  }
-  if (fontSel) {
-    fontSel.addEventListener("pointerdown", edRememberSelection);
-    fontSel.addEventListener("change", function () {
-      var font = fontSel.value;
-      var el = edFind(ED.selectedId);
-      if (!DOC.root && (!el || el.type !== "text")) return;
-      edRecallSelection();
-      if (edContext() === "range") {
-        // "Výchozí písmo" inside text that has a font must be a real value —
-        // an empty one just inherits the surrounding font and changes nothing
-        var c = edEditingContent();
-        var base = (el && el.styles.fontFamily) || (c && c.parentNode ? window.getComputedStyle(c.parentNode).fontFamily : "");
-        edLiveStyle({ fontFamily: font || base });    // the selected words (or what's typed next)
-        edCommitLive();
-        edRestoreRange();                             // straight back to typing
-      } else {
-        el.styles.fontFamily = font;                  // the whole text box
-        edBoxStyle(el, ["fontFamily"]);
-        fontSel.blur();
-      }
-    });
-  }
   // close panel when clicking elsewhere
   document.addEventListener("pointerdown", function (e) {
     if (EDITOR.overlay.hidden || EDITOR.colorPanel.hidden) return;
@@ -3174,9 +3159,7 @@
       edColorInput(EDITOR.rNum.value, EDITOR.gNum.value, EDITOR.bNum.value, EDITOR[k]);
     });
     // blur: normalise an emptied/out-of-range number back to the live colour
-    EDITOR[k].addEventListener("blur", function () {
-      var rgb = hexToRgb(ED.currentColor); if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
-    });
+    EDITOR[k].addEventListener("blur", edResyncColor);
   });
   EDITOR.colorNative.addEventListener("input", function () {
     var rgb = hexToRgb(EDITOR.colorNative.value); if (rgb) edColorInput(rgb.r, rgb.g, rgb.b, EDITOR.colorNative);
@@ -3197,12 +3180,17 @@
     var rgb = hexToRgb(EDITOR.hex.value.trim());
     if (rgb && rgbToHex(rgb.r, rgb.g, rgb.b) !== ED.currentColor) edColorInput(rgb.r, rgb.g, rgb.b, EDITOR.hex);
   }
+  // Set every colour control back to the live colour (ED.currentColor).
+  // No parameters: it is also a blur listener and must ignore the event.
+  function edResyncColor() {
+    var rgb = hexToRgb(ED.currentColor);
+    if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
+  }
   EDITOR.hex.addEventListener("change", edHexCommit);
   // blur: an incomplete HEX snaps back to the last valid (already applied) colour.
   EDITOR.hex.addEventListener("blur", function () {
     edHexCommit();
-    var rgb = hexToRgb(ED.currentColor);
-    if (rgb) edSyncColor(rgb.r, rgb.g, rgb.b);
+    edResyncColor();
   });
   EDITOR.hex.addEventListener("focus", function () { EDITOR.hex.select(); });
   // Enter inside the panel: commit + close + caret back to the text.
@@ -3214,6 +3202,58 @@
     edRestoreRange();
   });
 
+  /* ---------- toolbar: font family ---------- */
+  var fontSel = document.querySelector("#ed-font");
+  // Which menu entry matches a computed font-family ("Inter", system-ui… -> Inter)
+  function edFontOption(family) {
+    var first = String(family || "").split(",")[0].replace(/["']/g, "").trim().toLowerCase();
+    var hit = Array.prototype.filter.call(fontSel.options, function (o) {
+      return o.value && o.value.split(",")[0].replace(/["']/g, "").trim().toLowerCase() === first;
+    })[0];
+    return hit ? hit.value : "";
+  }
+  // How many different fonts the remembered (non-empty) selection is set in.
+  function edBoxFontCount(el) {
+    var content = el && edContentById(el.id);
+    if (!content) return 0;
+    var r = document.createRange();
+    r.selectNodeContents(content);
+    return edRangeFontCount(r, content);
+  }
+  function edRangeFontCount(r, content) {
+    r = r || ED.savedRange; content = content || edEditingContent();
+    if (!r || r.collapsed || !content || !content.contains(r.commonAncestorContainer)) return 0;
+    var root = r.commonAncestorContainer.nodeType === 3 ? r.commonAncestorContainer.parentNode : r.commonAncestorContainer;
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), seen = {}, n = 0;
+    for (var t = w.nextNode(); t; t = w.nextNode()) {
+      if (!t.nodeValue.replace(/[\s​]/g, "") || !r.intersectsNode(t)) continue;
+      var f = edFontOption(window.getComputedStyle(t.parentNode).fontFamily) || "?";
+      if (!seen[f]) { seen[f] = 1; n++; }
+      if (n > 1) break;
+    }
+    return n;
+  }
+  fontSel.addEventListener("pointerdown", edRememberSelection);
+  fontSel.addEventListener("change", function () {
+    var font = fontSel.value;
+    var el = edFind(ED.selectedId);
+    if (!DOC.root && (!el || el.type !== "text")) return;
+    edRecallSelection();
+    if (edContext() === "range") {
+      // "Výchozí písmo" inside text that has a font must be a real value —
+      // an empty one just inherits the surrounding font and changes nothing
+      var c = edEditingContent();
+      var base = (el && el.styles.fontFamily) || (c && c.parentNode ? window.getComputedStyle(c.parentNode).fontFamily : "");
+      edLiveStyle({ fontFamily: font || base });    // the selected words (or what's typed next)
+      edCommitLive();
+      edRestoreRange();                             // straight back to typing
+    } else {
+      el.styles.fontFamily = font;                  // the whole text box
+      edBoxStyle(el, ["fontFamily"]);
+      fontSel.blur();
+    }
+  });
+
   /* ---------- toolbar visibility + active state ---------- */
   function edSetToolsVisible(on) {
     EDITOR.tools.classList.toggle("is-visible", !!on);
@@ -3221,32 +3261,30 @@
     if (!on) edCloseColorPanel();
   }
   // "Zarovnat vrstvy" is shown whenever ANY block is selected (not only text).
+  // (layerWrap / layerMenu: the LAYERS section below)
   function edSetLayerVisible(on) {
-    var wrap = document.querySelector("#ed-layer-wrap");
-    if (wrap) wrap.hidden = !on;
-    var menu = document.querySelector("#ed-layer-menu");
-    if (menu && !on) menu.hidden = true;
+    if (layerWrap) layerWrap.hidden = !on;
+    if (layerMenu && !on) layerMenu.hidden = true;
     edCropSync();
   }
   function edUpdateToolbar() {
     var el = edFind(ED.selectedId);
     if (!DOC.root && (!el || el.type !== "text")) return;
     EDITOR.fsVal.value = edCurrentFontSize();
-    if (fontSel && document.activeElement !== fontSel) {   // font menu shows the font at the caret / of the box
-      var fNode = edContext() === "range" ? edRangeAnchorEl() : null;
-      fontSel.value = edFontOption(fNode && fNode.nodeType === 1 ? window.getComputedStyle(fNode).fontFamily : (el && el.styles.fontFamily) || "");
+    var ctx = edContext();
+    var anchor = ctx === "range" ? edRangeAnchorEl() : null;   // the text the styles are read from
+    if (document.activeElement !== fontSel) {   // font menu shows the font at the caret / of the box
+      fontSel.value = edFontOption(anchor && anchor.nodeType === 1 ? window.getComputedStyle(anchor).fontFamily : (el && el.styles.fontFamily) || "");
       // selection in several fonts -> no entry is current, so picking the
       // font shown for the first word still fires `change` and applies
-      if ((fNode ? edRangeFontCount() : edBoxFontCount(el)) > 1) fontSel.selectedIndex = -1;
+      if ((anchor ? edRangeFontCount() : edBoxFontCount(el)) > 1) fontSel.selectedIndex = -1;
     }
-    var ctx = edContext();
     var bActive, iActive, uActive, color;
     if (ctx === "range") {
       bActive = edRangeIsActive("bold");
       iActive = edRangeIsActive("italic");
       uActive = edRangeIsActive("underline");
-      var n = edRangeAnchorEl();
-      color = (n && n.nodeType === 1) ? rgbStringToHex(window.getComputedStyle(n).color)
+      color = (anchor && anchor.nodeType === 1) ? rgbStringToHex(window.getComputedStyle(anchor).color)
                 : (el ? el.styles.color : ED.currentColor);
     } else {
       bActive = !!el.styles.bold;
@@ -3275,12 +3313,169 @@
       node = node.parentNode;
     }
     if (!alignVal) alignVal = (VNArticle.isLocked(el) && el.styles.align) || "left";
-    if (EDITOR.alignL) EDITOR.alignL.classList.toggle("btn-active", alignVal === "left");
-    if (EDITOR.alignC) EDITOR.alignC.classList.toggle("btn-active", alignVal === "center");
-    if (EDITOR.alignR) EDITOR.alignR.classList.toggle("btn-active", alignVal === "right");
-    if (EDITOR.ul)     EDITOR.ul.classList.toggle("btn-active", inUL);
-    if (EDITOR.ol)     EDITOR.ol.classList.toggle("btn-active", inOL);
+    EDITOR.alignL.classList.toggle("btn-active", alignVal === "left");
+    EDITOR.alignC.classList.toggle("btn-active", alignVal === "center");
+    EDITOR.alignR.classList.toggle("btn-active", alignVal === "right");
+    EDITOR.ul.classList.toggle("btn-active", inUL);
+    EDITOR.ol.classList.toggle("btn-active", inOL);
   }
+
+  /* ============================================================
+     LAYERS — „Zarovnat vrstvy" (z-index).
+     The page background is a style on the canvas itself, never an
+     element, so it always sits behind everything and is unaffected.
+     ============================================================ */
+  function edNormalizeLayers() {
+    ED.elements.slice()
+      .sort(function (a, b) { return (a.z || 0) - (b.z || 0); })
+      .forEach(function (el, i) { el.z = i + 1; });
+  }
+  function edLayer(action) {
+    var el = edFind(ED.selectedId);
+    if (!el) { toast("Nejdřív vyberte prvek."); return; }
+    edNormalizeLayers();
+    var max = ED.elements.length;
+    // Fractional nudges land between neighbours; normalising then snaps to
+    // whole steps. The most recent call always wins — that is the priority rule.
+    if (action === "front")         el.z = max + 1;
+    else if (action === "back")     el.z = 0;
+    else if (action === "forward")  el.z = (el.z || 1) + 1.5;
+    else if (action === "backward") el.z = (el.z || 1) - 1.5;
+    edNormalizeLayers();
+    // only z-index changes: update the nodes in place — a full re-render would
+    // throw away the text selection of a box being edited
+    ED.elements.forEach(function (e) {
+      var n = edNodeById(e.id);
+      if (n) n.style.zIndex = e.z || 1;
+    });
+  }
+  var layerWrap = document.querySelector("#ed-layer-wrap");   // button + menu, shown while a block is selected
+  var layerBtn  = document.querySelector("#ed-layer");
+  var layerMenu = document.querySelector("#ed-layer-menu");
+  if (layerBtn) {
+    layerBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (layerMenu) layerMenu.hidden = !layerMenu.hidden;
+    });
+  }
+  if (layerMenu) layerMenu.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-layer]");
+    if (!btn) return;
+    edLayer(btn.dataset.layer);
+    layerMenu.hidden = true;
+  });
+
+  /* ============================================================
+     PAGE BACKGROUND — solid colour OR image, locked behind all
+     (drawn by VN.applyBackground; the homepage frame gets has-bg, the
+     same padding as on the public page)
+     ============================================================ */
+  // "No page background" (a new object on every call: callers fill it in).
+  function emptyBg() { return { color: "", image: "" }; }
+  // Which background is the toolbar currently editing?
+  function edCurrentBg() {
+    if (DOC.key === "home") {                 // homepage: part of the draft (published on save)
+      return HOME.bg;                         // (set by homeLoad() when the tab opened)
+    }
+    if (DOC.key && CONTENT) {
+      if (!CONTENT[DOC.key]) CONTENT[DOC.key] = {};
+      if (!CONTENT[DOC.key].background) CONTENT[DOC.key].background = emptyBg();
+      return CONTENT[DOC.key].background;
+    }
+    if (!ED.background) ED.background = emptyBg();
+    return ED.background;
+  }
+  function edBgTargetEl() {
+    if (DOC.key && DOC_TARGETS[DOC.key].frame) return DOC_TARGETS[DOC.key].frame;   // homepage frame
+    return DOC.root ? DOC.root : EDITOR.canvas;
+  }
+  // The colour input fires continuously while dragging, so the (networked)
+  // document save is debounced; the local preview updates immediately.
+  var bgSaveTimer = null;
+  function edBgChanged() {
+    var bg = edCurrentBg();
+    VN.applyBackground(edBgTargetEl(), bg || {});
+    if (!DOC.key) return;                                  // article editor: saved with the article (Vydat)
+    if (DOC.key === "home") { homeMarkDirty(); return; }   // waits for „Uložit stránku"
+    clearTimeout(bgSaveTimer);
+    bgSaveTimer = setTimeout(function () {
+      docSave(null, "Pozadí bylo uloženo.");
+    }, 600);
+  }
+
+  var bgBtn   = document.querySelector("#ed-bg");
+  var bgPanel = document.querySelector("#ed-bg-panel");
+  var bgColor = document.querySelector("#ed-bg-color");
+  var bgHex   = document.querySelector("#ed-bg-hex");
+  var bgFile  = document.querySelector("#ed-bg-file");
+  var bgClear = document.querySelector("#ed-bg-clear");
+
+  if (bgBtn) {
+    bgBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (!bgPanel) return;
+      if (bgPanel.hidden) {
+        var bg = edCurrentBg();
+        if (bg.color && bgColor) { bgColor.value = bg.color; bgHex.value = bg.color; }
+      }
+      bgPanel.hidden = !bgPanel.hidden;
+    });
+  }
+  if (bgPanel) bgPanel.addEventListener("click", function (e) { e.stopPropagation(); });
+  if (bgColor) bgColor.addEventListener("input", function () {
+    var bg = edCurrentBg();
+    bg.color = bgColor.value;
+    bg.image = "";                       // a colour replaces an image
+    if (bgHex) bgHex.value = bgColor.value;
+    edBgChanged();
+  });
+  if (bgHex) bgHex.addEventListener("change", function () {
+    var v = bgHex.value.trim();
+    if (!/^#[0-9a-f]{6}$/i.test(v)) { bgHex.value = bgColor ? bgColor.value : ""; return; }
+    var bg = edCurrentBg();
+    bg.color = v; bg.image = "";
+    if (bgColor) bgColor.value = v;
+    edBgChanged();
+  });
+  if (bgFile) bgFile.addEventListener("change", function () {
+    var file = bgFile.files && bgFile.files[0];
+    if (!file) return;
+    bgFile.disabled = true;
+    // Remember WHAT was being edited when the file was picked: the upload can
+    // finish after the admin switched pages and must not land on the new one.
+    var targetKey = DOC.key || null;
+    var session = ED.session;
+    uploadImageFile(file)
+      .then(function (url) {
+        var sameTarget = (DOC.key || null) === targetKey &&
+          (targetKey || (!EDITOR.overlay.hidden && ED.session === session));
+        if (sameTarget) {
+          var bg = edCurrentBg();
+          bg.image = url;
+          edBgChanged();
+          toast("Pozadí nahráno.");
+        } else if (targetKey && CONTENT) {      // „O nás" was left meanwhile (the homepage cannot be: showTab waits)
+          if (!CONTENT[targetKey]) CONTENT[targetKey] = {};
+          var old = CONTENT[targetKey].background || {};
+          CONTENT[targetKey].background = { color: old.color || "", image: url };
+          docSave(null, "Pozadí bylo uloženo.");
+        } else {
+          toast("Editor byl mezitím zavřen — pozadí se nepoužilo.");
+        }
+      })
+      .catch(toastUploadFailed)
+      .finally(function () { bgFile.disabled = false; bgFile.value = ""; });
+  });
+  if (bgClear) bgClear.addEventListener("click", function () {
+    var bg = edCurrentBg();
+    bg.color = ""; bg.image = "";
+    edBgChanged();
+  });
+  // click-away closes the popovers
+  document.addEventListener("click", function () {
+    if (bgPanel && !bgPanel.hidden) bgPanel.hidden = true;
+    if (layerMenu && !layerMenu.hidden) layerMenu.hidden = true;
+  });
 
   /* ============================================================
      TWO ZONES — the black hero on top, the white body below
@@ -3295,12 +3490,10 @@
      Deleting such a block clears its value in the panel; the text of the
      date / authors / tag blocks cannot be typed, only formatted and moved.
      ============================================================ */
-  ED.heroH = 0;              // height of the black zone (px)
-  ED.heroReady = false;      // the open article's canvas is prepared: sync may run
+  // (state: ED.heroH, ED.heroReady)
 
   function edIsHero(el) { return !!el && el.zone === "hero"; }
   function edRole(role) { return ED.elements.filter(function (e) { return e.role === role; })[0] || null; }
-  function edNodeOf(el) { return el ? EDITOR.canvas.querySelector('.ed-el[data-id="' + el.id + '"]') : null; }
   function edWantsTools(el) { return !!el && el.type === "text" && el.role !== "tag"; }   // a badge has a fixed look
   // Top of a block of height h, kept inside its own zone — never across the dividing line.
   function edZoneClampY(el, y, h) {
@@ -3355,7 +3548,7 @@
   function edHeroDrag(ev) {
     if (ev.button !== 0) return;
     ev.preventDefault();
-    var startY = ev.clientY, startH = ED.heroH, wrap = EDITOR.canvas.parentNode, sy0 = wrap.scrollTop;
+    var startY = ev.clientY, startH = ED.heroH, wrap = EDITOR.wrap, sy0 = wrap.scrollTop;
     var min = Math.max(VNArticle.HERO_MIN, Math.ceil(edHeroContentBottom()) + 4);
     function move(e) {
       edSetHeroHeight(Math.max(min, startH + e.clientY - startY + (wrap.scrollTop - sy0)));
@@ -3435,8 +3628,6 @@
       toast("Datum se v článku nezobrazí. Vrátíte ho změnou data v panelu Data.");
     }
   }
-  EDITOR.date.addEventListener("input", function () { edHeroSync({ showDate: true }); });
-  EDITOR.date.addEventListener("change", function () { edHeroSync({ showDate: true }); });
 
   // Delete / Backspace removes the selected block (not while typing, cropping or in a field).
   document.addEventListener("keydown", function (e) {
@@ -3778,6 +3969,10 @@
     edCropEnd(true);
   }, true);
 
+  /* ============================================================
+     EDITOR BAR 1 — „Zpět" / „Smazat" (confirm dialog) and „Vydat";
+     page-level guards: leaving with unsaved work, dropped files
+     ============================================================ */
   /* ---------- Bar 1: confirm-gated actions ---------- */
   function edOpenConfirm(action, title, text) {
     ED.pendingAction = action;
@@ -3807,10 +4002,7 @@
       if (id) {
         api("/api/articles?id=" + encodeURIComponent(id), { method: "DELETE" })
           .then(function () { edClose(); draftReset(); refreshTable(); toast("Příspěvek smazán."); })
-          .catch(function (err) {
-            if (err.status === 401) { showLogin(); return; }
-            toast("Chyba: " + err.message);
-          });
+          .catch(apiFailed);
       } else {
         edClose(); draftReset(); toast("Rozpracovaný příspěvek zahozen.");
       }
@@ -3818,49 +4010,6 @@
   });
 
   // Bar 1 "Vydat" / "Naplánovat" -> commit layout + metadata and save via the API.
-  /* Leaving the page (refresh, „Zobrazit web", closing the tab) with unsaved
-     work asks first: editor changes, unsaved Home/About edits, uploads. */
-  window.addEventListener("beforeunload", function (e) {
-    var unsaved = pendingUploads > 0 || DOC.dirty || contentDirty || HOME.dirty ||
-      (!EDITOR.overlay.hidden && edStateSnapshot() !== ED.snapshot);
-    if (!unsaved) return;
-    e.preventDefault();
-    e.returnValue = "";
-  });
-
-  /* A file dropped anywhere used to make the browser open it — navigating
-     away and losing all unsaved work. File drops are swallowed everywhere;
-     on the article canvas or a Home/About document they insert the file. */
-  function dragHasFiles(e) {
-    var types = e.dataTransfer && e.dataTransfer.types;
-    return !!types && Array.prototype.indexOf.call(types, "Files") > -1;
-  }
-  document.addEventListener("dragover", function (e) { if (dragHasFiles(e)) e.preventDefault(); });
-  document.addEventListener("drop", function (e) {
-    if (!dragHasFiles(e) || e.defaultPrevented) return;   // e.g. the thumbnail zone handled it
-    e.preventDefault();
-    var file = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (!file) return;
-    var onCanvas = !EDITOR.overlay.hidden && EDITOR.canvas.contains(e.target);
-    var onDoc = DOC.root && DOC.root.contains(e.target);
-    if (!onDoc && DOC.key === "home") {           // homepage: any text block accepts the drop
-      var hb = e.target.closest && e.target.closest(".hl-text-body");
-      if (hb) { DOC.root = hb; onDoc = true; }
-    }
-    if (!onCanvas && !onDoc) return;
-    var kind = fileKind(file);
-    if (!kind) { toast("Nepodporovaný formát. Povolené: JPG, PNG, WEBP, GIF, PDF."); return; }
-    if (onCanvas) {
-      var r = EDITOR.canvas.getBoundingClientRect();
-      edInsertIntoCanvas(file, kind, { x: e.clientX - r.left, y: e.clientY - r.top });
-    } else {
-      // put the caret where the file was dropped
-      var caret = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
-      if (caret && DOC.root.contains(caret.startContainer)) ED.savedRange = caret;
-      edInsertIntoDoc(file, kind);
-    }
-  });
-
   // saveArticle() decides live vs. scheduled from the chosen date/time. The
   // editor closes only AFTER a successful save — on any failure (API error,
   // expired login, missing title) it stays open with the work intact.
@@ -3887,11 +4036,58 @@
     });
   });
 
+  /* ---------- leaving the page ----------
+     Leaving the page (refresh, „Zobrazit web", closing the tab) with unsaved
+     work asks first: editor changes, unsaved Home/About edits, uploads. */
+  window.addEventListener("beforeunload", function (e) {
+    var unsaved = pendingUploads > 0 || DOC.dirty || contentDirty || HOME.dirty ||
+      (!EDITOR.overlay.hidden && edStateSnapshot() !== ED.snapshot);
+    if (!unsaved) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+
+  /* ---------- file drops ----------
+     A file dropped anywhere used to make the browser open it — navigating
+     away and losing all unsaved work. File drops are swallowed everywhere;
+     on the article canvas or a Home/About document they insert the file. */
+  function dragHasFiles(e) {
+    var types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && Array.prototype.indexOf.call(types, "Files") > -1;
+  }
+  document.addEventListener("dragover", function (e) { if (dragHasFiles(e)) e.preventDefault(); });
+  document.addEventListener("drop", function (e) {
+    if (!dragHasFiles(e) || e.defaultPrevented) return;   // e.g. the thumbnail zone handled it
+    e.preventDefault();
+    var file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    var onCanvas = !EDITOR.overlay.hidden && EDITOR.canvas.contains(e.target);
+    var onDoc = DOC.root && DOC.root.contains(e.target);
+    if (!onDoc && DOC.key === "home") {           // homepage: any text block accepts the drop
+      var hb = e.target.closest && e.target.closest(".hl-text-body");
+      if (hb) { DOC.root = hb; onDoc = true; }
+    }
+    if (!onCanvas && !onDoc) return;
+    var kind = checkedFileKind(file);
+    if (!kind) return;
+    if (onCanvas) {
+      var r = EDITOR.canvas.getBoundingClientRect();
+      edInsertIntoCanvas(file, kind, { x: e.clientX - r.left, y: e.clientY - r.top });
+    } else {
+      // put the caret where the file was dropped
+      var caret = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+      if (caret && DOC.root.contains(caret.startContainer)) ED.savedRange = caret;
+      edInsertIntoDoc(file, kind);
+    }
+  });
+
   /* ============================================================
-     GOOGLE-DOCS DOCUMENT EDITORS (homepage + „O nás")
+     DOCUMENT EDITING — the „O nás" document + toolbar docking
      The shared formatting toolbar (.ed-bar2) is MOVED into the
      section's dock slot rather than duplicated, so every handler
-     that is already wired keeps working with no drift.
+     that is already wired keeps working with no drift. „O nás" is one
+     contenteditable document; the homepage is a block layout (next
+     section) that only borrows DOC.root for the text block being edited.
      ============================================================ */
   var DOC_TARGETS = {
     // home: a block layout — DOC.root follows the text block being edited
@@ -3899,29 +4095,30 @@
              frame: document.querySelector("#home-frame"), layout: true },
     about: { root: document.querySelector("#about-doc"), slot: document.querySelector("#about-toolbar-slot") }
   };
-  var bar2El     = document.querySelector(".ed-bar2");
-  var bar2Parent = bar2El ? bar2El.parentNode : null;
-  var bar2Anchor = bar2El ? bar2El.nextSibling : null;
+  // Where the toolbar (edBar2) sits in the article editor, to put it back.
+  var bar2Parent = edBar2 ? edBar2.parentNode : null;
+  var bar2Anchor = edBar2 ? edBar2.nextSibling : null;
 
   function docDock(slot) {
-    if (!bar2El || !slot) return;
-    bar2El.classList.add("is-docked");
-    slot.appendChild(bar2El);
+    if (!edBar2 || !slot) return;
+    edBar2.classList.add("is-docked");
+    slot.appendChild(edBar2);
     edSetToolsVisible(true);
   }
   function docUndock() {
-    if (!bar2El || !bar2Parent || bar2El.parentNode === bar2Parent) return;
-    bar2El.classList.remove("is-docked");
-    bar2Parent.insertBefore(bar2El, bar2Anchor);
+    if (!edBar2 || !bar2Parent || edBar2.parentNode === bar2Parent) return;
+    edBar2.classList.remove("is-docked");
+    bar2Parent.insertBefore(edBar2, bar2Anchor);
   }
 
-  function docLoad(key) {
-    var root = DOC_TARGETS[key] && DOC_TARGETS[key].root;
-    if (!root || !CONTENT) return;
-    var html = (CONTENT[key] && CONTENT[key].doc) || "";
+  // Fill the „O nás" document from CONTENT (the homepage draws its layout
+  // with homeLoad() instead). docMountFor() has checked the root and CONTENT.
+  function aboutDocLoad() {
+    var root = DOC_TARGETS.about.root;
+    var html = (CONTENT.about && CONTENT.about.doc) || "";
     // „O nás" saved before the document editor existed has only plain text:
     // turn it into paragraphs instead of opening (and later saving) it empty.
-    if (!html && key === "about" && CONTENT.about && CONTENT.about.text) {
+    if (!html && CONTENT.about && CONTENT.about.text) {
       html = CONTENT.about.text.split(/\n\s*\n/)
         .map(function (p) { return p.trim(); }).filter(Boolean)
         .map(function (p) { return "<div>" + escapeHtml(p).replace(/\n/g, "<br>") + "</div>"; })
@@ -3986,7 +4183,7 @@
       homeLoad();
     } else {
       DOC.root = target.root;
-      docLoad(tab);
+      aboutDocLoad();
     }
     docDock(target.slot);
     VN.applyBackground(target.frame || target.root,
@@ -4006,20 +4203,16 @@
   });
 
   /* ---------- save ---------- */
-  function docSave(key, btn, okMsg) {
+  // Flushes the mounted document into CONTENT and saves the whole CONTENT.
+  function docSave(btn, okMsg) {
     if (!CONTENT || uploadsBusy()) return;
     docFlush();
     if (btn) btn.disabled = true;
     saveContent()
       .then(function () { toast(okMsg); })
-      .catch(function (err) {
-        if (err.status === 401) { showLogin(); return; }
-        toast("Chyba: " + err.message);
-      })
+      .catch(apiFailed)
       .finally(function () { if (btn) btn.disabled = false; });
   }
-  var saveHomeBtn = document.querySelector("#save-home-btn");
-  if (saveHomeBtn) saveHomeBtn.addEventListener("click", homeSave);
 
   /* ============================================================
      HOMEPAGE LAYOUT EDITOR (Google-Sites-like box grid)
@@ -4037,10 +4230,13 @@
     layout: null,            // the draft layout (null until loaded)
     bg: null,                // the draft page background
     dirty: false,            // draft differs from what readers see
+    rev: 0,                  // counts draft changes (a running save compares it)
     host: DOC_TARGETS.home.root,
     frameHost: document.querySelector("#home-frame-host"),
     unsavedEl: document.querySelector("#hl-unsaved"),
     selectedId: null,
+    editingId: null,         // text block being typed in (see homeIsEditing)
+    lastPointer: "",         // pointerType of the last press ("mouse" | "touch" | "pen")
     pickerFor: null,         // post block id the article picker is open for
     press: null,             // pointer pressed on a block, drag not started yet
     drag: null
@@ -4064,7 +4260,7 @@
   // page shows until a layout is saved (that one needs the article list).
   function homeLoad() {
     if (!CONTENT) return;
-    if (!HOME.bg) HOME.bg = JSON.parse(JSON.stringify((CONTENT.home && CONTENT.home.background) || { color: "", image: "" }));
+    if (!HOME.bg) HOME.bg = JSON.parse(JSON.stringify((CONTENT.home && CONTENT.home.background) || emptyBg()));
     var saved = VNHome.normalize(CONTENT.home && CONTENT.home.layout);
     // an unedited default is rebuilt each time, so it follows the newest
     // articles exactly like the public page does
@@ -4078,7 +4274,7 @@
   }
   function homeMarkDirty() {
     HOME.dirty = true;
-    HOME.rev = (HOME.rev || 0) + 1;   // lets a running save tell whether the draft moved on
+    HOME.rev++;   // lets a running save tell whether the draft moved on
     homeUpdateUnsaved();
   }
   function homeUpdateUnsaved() {
@@ -4092,7 +4288,7 @@
     var prevLayout = CONTENT.home && CONTENT.home.layout, prevBg = CONTENT.home && CONTENT.home.background;
     if (!CONTENT.home) CONTENT.home = {};
     CONTENT.home.layout = VNHome.normalize(HOME.layout);
-    CONTENT.home.background = JSON.parse(JSON.stringify(HOME.bg || { color: "", image: "" }));
+    CONTENT.home.background = JSON.parse(JSON.stringify(HOME.bg || emptyBg()));
     saveHomeBtn.disabled = true;
     var rev = HOME.rev;
     saveContent()
@@ -4104,11 +4300,12 @@
       .catch(function (err) {
         CONTENT.home.layout = prevLayout;             // readers keep the previous version
         CONTENT.home.background = prevBg;
-        if (err.status === 401) { showLogin(); return; }
-        toast("Uložení selhalo: " + err.message);
+        apiFailed(err, "Uložení selhalo: ");
       })
       .finally(function () { saveHomeBtn.disabled = false; });
   }
+  var saveHomeBtn = document.querySelector("#save-home-btn");
+  saveHomeBtn.addEventListener("click", homeSave);
   // Article list changed (loaded, saved, deleted) -> refresh the cards.
   function homeArticlesChanged() {
     if (DOC.key !== "home") return;
@@ -4120,8 +4317,7 @@
   // uploading into one (its blob: node is not saved). Refuse layout changes
   // until the upload is done.
   function homeBusy() {
-    if (pendingUploads > 0) { toast("Počkejte, až se dokončí nahrávání obrázku."); return true; }
-    return false;
+    return uploadsBusy("Počkejte, až se dokončí nahrávání obrázku.");
   }
   // The renderer's own nodes only (:scope paths) — pasted text may contain
   // markup that looks like layout blocks.
@@ -4332,15 +4528,14 @@
                    wasSelected: HOME.selectedId === node.dataset.blockId };
     document.addEventListener("pointermove", homePressMove);
     document.addEventListener("pointerup", homePressUp);
-    document.addEventListener("pointercancel", homePressCancel);
+    document.addEventListener("pointercancel", homePressCleanup);
   });
   function homePressCleanup() {
     document.removeEventListener("pointermove", homePressMove);
     document.removeEventListener("pointerup", homePressUp);
-    document.removeEventListener("pointercancel", homePressCancel);
+    document.removeEventListener("pointercancel", homePressCleanup);
     HOME.press = null;
   }
-  function homePressCancel() { homePressCleanup(); }
   function homePressMove(e) {
     var p = HOME.press;
     if (!p) return;
@@ -4438,7 +4633,7 @@
     homeDragPaint();
     document.addEventListener("pointermove", homeDragMove);
     document.addEventListener("pointerup", homeDragEnd);
-    document.addEventListener("pointercancel", homeDragCancel);
+    document.addEventListener("pointercancel", homeDragCleanup);
     document.addEventListener("keydown", homeDragKey);
     homeDragMove(e);
   }
@@ -4508,7 +4703,7 @@
     var d = HOME.drag;
     document.removeEventListener("pointermove", homeDragMove);
     document.removeEventListener("pointerup", homeDragEnd);
-    document.removeEventListener("pointercancel", homeDragCancel);
+    document.removeEventListener("pointercancel", homeDragCleanup);
     document.removeEventListener("keydown", homeDragKey);
     document.body.classList.remove("hl-dragging");
     if (!d) return;
@@ -4516,7 +4711,6 @@
     d.node.classList.remove("is-dragging");
     HOME.drag = null;
   }
-  function homeDragCancel() { homeDragCleanup(); }
   function homeDragKey(e) { if (e.key === "Escape") homeDragCleanup(); }
   function homeDragEnd() {
     var d = HOME.drag, t = d && d.target;
@@ -4634,182 +4828,7 @@
   });
 
   /* ============================================================
-     Team members — modular workspace (opens in place)
-     ============================================================ */
-  var teamWorkspace = document.querySelector("#team-workspace");
-  var teamAddBtn    = document.querySelector("#team-add-btn");
-  var teamCloseBtn  = document.querySelector("#team-close-btn");
-  function openTeamWorkspace() {
-    if (!teamWorkspace) return;
-    teamWorkspace.hidden = false;
-    if (tmName) tmName.focus();
-  }
-  function closeTeamWorkspace() {
-    if (teamWorkspace) teamWorkspace.hidden = true;
-  }
-  if (teamAddBtn) teamAddBtn.addEventListener("click", function () {
-    resetTeamForm();
-    openTeamWorkspace();
-  });
-  if (teamCloseBtn) teamCloseBtn.addEventListener("click", closeTeamWorkspace);
-
-  /* ============================================================
-     LAYERS — „Zarovnat vrstvy" (z-index).
-     The page background is a style on the canvas itself, never an
-     element, so it always sits behind everything and is unaffected.
-     ============================================================ */
-  function edNormalizeLayers() {
-    ED.elements.slice()
-      .sort(function (a, b) { return (a.z || 0) - (b.z || 0); })
-      .forEach(function (el, i) { el.z = i + 1; });
-  }
-  function edLayer(action) {
-    var el = edFind(ED.selectedId);
-    if (!el) { toast("Nejdřív vyberte prvek."); return; }
-    edNormalizeLayers();
-    var max = ED.elements.length;
-    // Fractional nudges land between neighbours; normalising then snaps to
-    // whole steps. The most recent call always wins — that is the priority rule.
-    if (action === "front")         el.z = max + 1;
-    else if (action === "back")     el.z = 0;
-    else if (action === "forward")  el.z = (el.z || 1) + 1.5;
-    else if (action === "backward") el.z = (el.z || 1) - 1.5;
-    edNormalizeLayers();
-    // only z-index changes: update the nodes in place — a full re-render would
-    // throw away the text selection of a box being edited
-    ED.elements.forEach(function (e) {
-      var n = EDITOR.canvas.querySelector('.ed-el[data-id="' + e.id + '"]');
-      if (n) n.style.zIndex = e.z || 1;
-    });
-  }
-  var layerBtn  = document.querySelector("#ed-layer");
-  var layerMenu = document.querySelector("#ed-layer-menu");
-  if (layerBtn) {
-    layerBtn.addEventListener("click", function (e) {
-      e.stopPropagation();
-      if (layerMenu) layerMenu.hidden = !layerMenu.hidden;
-    });
-  }
-  if (layerMenu) layerMenu.addEventListener("click", function (e) {
-    var btn = e.target.closest("button[data-layer]");
-    if (!btn) return;
-    edLayer(btn.dataset.layer);
-    layerMenu.hidden = true;
-  });
-
-  /* ============================================================
-     PAGE BACKGROUND — solid colour OR image, locked behind all
-     (drawn by VN.applyBackground; the homepage frame gets has-bg, the
-     same padding as on the public page)
-     ============================================================ */
-  // Which background is the toolbar currently editing?
-  function edCurrentBg() {
-    if (DOC.key === "home") {                 // homepage: part of the draft (published on save)
-      return HOME.bg;                         // (set by homeLoad() when the tab opened)
-    }
-    if (DOC.key && CONTENT) {
-      if (!CONTENT[DOC.key]) CONTENT[DOC.key] = {};
-      if (!CONTENT[DOC.key].background) CONTENT[DOC.key].background = { color: "", image: "" };
-      return CONTENT[DOC.key].background;
-    }
-    if (!ED.background) ED.background = { color: "", image: "" };
-    return ED.background;
-  }
-  function edBgTargetEl() {
-    if (DOC.key && DOC_TARGETS[DOC.key].frame) return DOC_TARGETS[DOC.key].frame;   // homepage frame
-    return DOC.root ? DOC.root : EDITOR.canvas;
-  }
-  // The colour input fires continuously while dragging, so the (networked)
-  // document save is debounced; the local preview updates immediately.
-  var bgSaveTimer = null;
-  function edBgChanged() {
-    var bg = edCurrentBg();
-    VN.applyBackground(edBgTargetEl(), bg || {});
-    if (!DOC.key) return;                                  // article editor: saved with the article (Vydat)
-    if (DOC.key === "home") { homeMarkDirty(); return; }   // waits for „Uložit stránku"
-    var key = DOC.key;
-    clearTimeout(bgSaveTimer);
-    bgSaveTimer = setTimeout(function () {
-      docSave(key, null, "Pozadí bylo uloženo.");
-    }, 600);
-  }
-
-  var bgBtn   = document.querySelector("#ed-bg");
-  var bgPanel = document.querySelector("#ed-bg-panel");
-  var bgColor = document.querySelector("#ed-bg-color");
-  var bgHex   = document.querySelector("#ed-bg-hex");
-  var bgFile  = document.querySelector("#ed-bg-file");
-  var bgClear = document.querySelector("#ed-bg-clear");
-
-  if (bgBtn) {
-    bgBtn.addEventListener("click", function (e) {
-      e.stopPropagation();
-      if (!bgPanel) return;
-      if (bgPanel.hidden) {
-        var bg = edCurrentBg();
-        if (bg.color && bgColor) { bgColor.value = bg.color; bgHex.value = bg.color; }
-      }
-      bgPanel.hidden = !bgPanel.hidden;
-    });
-  }
-  if (bgPanel) bgPanel.addEventListener("click", function (e) { e.stopPropagation(); });
-  if (bgColor) bgColor.addEventListener("input", function () {
-    var bg = edCurrentBg();
-    bg.color = bgColor.value;
-    bg.image = "";                       // a colour replaces an image
-    if (bgHex) bgHex.value = bgColor.value;
-    edBgChanged();
-  });
-  if (bgHex) bgHex.addEventListener("change", function () {
-    var v = bgHex.value.trim();
-    if (!/^#[0-9a-f]{6}$/i.test(v)) { bgHex.value = bgColor ? bgColor.value : ""; return; }
-    var bg = edCurrentBg();
-    bg.color = v; bg.image = "";
-    if (bgColor) bgColor.value = v;
-    edBgChanged();
-  });
-  if (bgFile) bgFile.addEventListener("change", function () {
-    var file = bgFile.files && bgFile.files[0];
-    if (!file) return;
-    bgFile.disabled = true;
-    // Remember WHAT was being edited when the file was picked: the upload can
-    // finish after the admin switched pages and must not land on the new one.
-    var targetKey = DOC.key || null;
-    var session = ED.session;
-    uploadImageFile(file)
-      .then(function (url) {
-        var sameTarget = (DOC.key || null) === targetKey &&
-          (targetKey || (!EDITOR.overlay.hidden && ED.session === session));
-        if (sameTarget) {
-          var bg = edCurrentBg();
-          bg.image = url;
-          edBgChanged();
-          toast("Pozadí nahráno.");
-        } else if (targetKey && CONTENT) {      // „O nás" was left meanwhile (the homepage cannot be: showTab waits)
-          if (!CONTENT[targetKey]) CONTENT[targetKey] = {};
-          var old = CONTENT[targetKey].background || {};
-          CONTENT[targetKey].background = { color: old.color || "", image: url };
-          docSave(targetKey, null, "Pozadí bylo uloženo.");
-        } else {
-          toast("Editor byl mezitím zavřen — pozadí se nepoužilo.");
-        }
-      })
-      .catch(function (err) { toast("Nahrání selhalo: " + err.message); })
-      .finally(function () { bgFile.disabled = false; bgFile.value = ""; });
-  });
-  if (bgClear) bgClear.addEventListener("click", function () {
-    var bg = edCurrentBg();
-    bg.color = ""; bg.image = "";
-    edBgChanged();
-  });
-  // click-away closes the popovers
-  document.addEventListener("click", function () {
-    if (bgPanel && !bgPanel.hidden) bgPanel.hidden = true;
-    if (layerMenu && !layerMenu.hidden) layerMenu.hidden = true;
-  });
-
-  /* ============================================================
-     Boot
+     BOOT
      ============================================================ */
   // Probe session state — if cookie is missing, show login immediately.
   api("/api/login")

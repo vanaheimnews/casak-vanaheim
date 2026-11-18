@@ -99,8 +99,9 @@
 
       <!-- ====================================================
            TAB 2 — HOMEPAGE ("Domovská stránka")
-           Google-Docs style document flow. The shared formatting
-           toolbar docks into .doc-toolbar-slot — i.e. exactly between
+           Block layout (Google-Sites-like grid, drawn by home-layout.js).
+           The shared formatting toolbar (for the text blocks) docks into
+           .doc-toolbar-slot — i.e. exactly between
            the admin header/nav and the content being edited.
            ==================================================== -->
       <section class="admin-section" id="section-home" aria-label="Správa domovské stránky" hidden>
@@ -148,7 +149,7 @@
                   style="background:var(--brand);border-color:var(--brand);color:#fff;">Uložit stránku</button>
         </div>
 
-        <!-- Document canvas: same Google-Docs flow as the homepage -->
+        <!-- Document canvas: one Google-Docs style document (the toolbar docks above it) -->
         <div class="doc-canvas" id="about-doc" contenteditable="true" spellcheck="false"
              role="textbox" aria-multiline="true" aria-label="Obsah stránky O nás"></div>
 
@@ -493,7 +494,6 @@
     </div>
   </div>
 
-  <!-- Confirm modal (shared by Bar 1 actions) -->
   <!-- Homepage editor: pick a published article for a post block (+) -->
   <div class="ed-confirm" id="hl-picker" hidden>
     <div class="ed-confirm-box hl-picker-box" role="dialog" aria-modal="true" aria-labelledby="hl-picker-title">
@@ -554,6 +554,7 @@
     </form>
   </div>
 
+  <!-- Confirm modal (shared by Bar 1 actions) -->
   <div class="ed-confirm" id="ed-confirm" hidden>
     <div class="ed-confirm-box">
       <h3 id="ed-confirm-title">Potvrdit akci</h3>

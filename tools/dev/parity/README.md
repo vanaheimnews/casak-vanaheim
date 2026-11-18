@@ -69,10 +69,14 @@ Every scenario starts from the same sample data (`tools/dev/seed.mjs`).
 
 - A scenario that throws records `SCENARIO_ERROR` in its facts file (and is
   listed in `window.__progress.failed`), so it always shows up as a difference.
-- Snapshots are taken twice in a row until two readings agree; a reading in
-  the middle of a repaint can still differ once in a while (seen with the
-  auto margins of `main.content`). Re-run that scenario (`?auto&s=…`) before
-  hunting for a cause.
+- Snapshots are taken twice in a row until two readings agree. Chrome still
+  sometimes reports `margin: auto` as `0px` for one snapshot while the box is
+  unchanged (seen on `main.content` and on the editor canvas the first time the
+  editor opens in a fresh page; the old and the new code do it alike). A
+  difference that is only such a margin, with the same box, is this quirk:
+  re-run the scenario (`?auto&s=…`) before hunting for a cause.
+- The scenarios write today's date into new articles, so compare two runs made
+  on the same day.
 - When a change is meant to look or behave differently, the comparison shows
   exactly that difference — check it, then treat the new run as the new
   baseline.
